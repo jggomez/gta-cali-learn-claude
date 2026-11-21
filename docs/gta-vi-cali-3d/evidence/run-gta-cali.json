@@ -63,6 +63,20 @@
     },
     {
       "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/worldRenderer.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/sceneSetup.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
       "url": "http://127.0.0.1:4173/src/missions/missionDirector.ts",
       "status": 200,
       "resourceType": "script",
@@ -77,21 +91,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/worldRenderer.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
       "url": "http://127.0.0.1:4173/src/simulation/gameWorld.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/src/config/localeCali.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -105,7 +105,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/simulation/physics.ts",
+      "url": "http://127.0.0.1:4173/src/config/localeCali.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -113,13 +113,6 @@
     {
       "method": "GET",
       "url": "http://127.0.0.1:4173/src/world/caliLandmarks.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/sceneSetup.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -134,6 +127,13 @@
     {
       "method": "GET",
       "url": "http://127.0.0.1:4173/src/ui/minimapRenderer.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/simulation/physics.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -210,13 +210,6 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/missions/missionDirector.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
       "url": "http://127.0.0.1:4173/src/simulation/gameWorld.ts",
       "status": 200,
       "resourceType": "script",
@@ -224,14 +217,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/ui/hudController.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/src/game/inputManager.ts",
+      "url": "http://127.0.0.1:4173/src/missions/missionDirector.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -259,7 +245,21 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/ui/minimapRenderer.ts",
+      "url": "http://127.0.0.1:4173/src/game/inputManager.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/ui/hudController.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/config/localeCali.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -280,14 +280,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/config/localeCali.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/caliLandmarks.ts",
+      "url": "http://127.0.0.1:4173/src/ui/minimapRenderer.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -298,12 +291,19 @@
       "status": 200,
       "resourceType": "script",
       "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/caliLandmarks.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
     }
   ],
   "dataChecks": [
     {
       "kind": "source-on-screen",
-      "detail": "speedKmh=84 matches DOM hud-speed=84"
+      "detail": "speedKmh=84 matches hud-speed=84; nitro width=81% aria-valuenow=81"
     },
     {
       "kind": "source-on-screen",
