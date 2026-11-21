@@ -1,33 +1,28 @@
 # PLAN — GTA VI: Cali 3D (`feat/gta-vi-cali-3d`)
 
-- **Tier**: Tier 2 (Standard — Greenfield 3D web game, approved `/plan`, no auth/payments/DB migration)
-- **Data Contract**: `data-source: none` (100% offline local-client-simulation + `localStorage` best times/prefs; zero backend HTTP API)
-- **Status**: `[x] State 0` | `[x] State 1` | `[x] State 2` | `[x] State 3-4` | `[x] State 5`
+- **Tier**: Tier 2 (Standard) | **Data Contract**: `data-source: none` (offline simulation + `localStorage`)
+- **Status**: `C-01 [x] DONE` | `C-02 [~] State 2 Build`
 
 ## Changes
 | ID | Request | Tier | product | design | arch | e2e | critic/challenger |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| C-01 | 3D GTA VI Cali web game with 6 landmarks & 2 missions | Tier 2 | SKIP (approved plan) | INVOKE (new UI/DESIGN.md) | INVOKE (greenfield 3D ADR) | INVOKE (web UI game) | SKIP (Tier 2 low-risk) |
+| C-01 | 3D GTA VI Cali web game (6 landmarks, 2 missions, audio, HUD) | Tier 2 | SKIP (approved) | INVOKE (DESIGN.md) | INVOKE (ADR-001) | INVOKE (PASS) | SKIP (Tier 2) |
+| C-02 | Cinematic visual realism upgrade (PBR, shadows, bloom, VFX, cars) | Tier 2 | SKIP (clear choice) | SKIP (no HUD change) | SKIP (ADR-001 world) | INVOKE (WebGL visual) | SKIP (Tier 2) |
 
-## Discovery & Architecture Triage (`Invoke / SKIP`)
+## C-02 Discovery & Architecture Triage (`Invoke / SKIP`)
 | Specialist | Decision | Rationale |
 | :--- | :--- | :--- |
-| `product-analyst` | `SKIP` | Scope, 6 landmarks, Caleño tone, and 2 missions approved in `/plan`. |
-| `ui-ux-designer` | `INVOKE` | Missing root `DESIGN.md`; new GTA VI Cali neon HUD, minimap & screens. |
-| `architect-engineer` | `INVOKE` | Greenfield Three.js 3D + headless simulation boundaries & ADR-001. |
-| `critic` & `challenger` | `SKIP` | Tier 2 client-side game; no auth, payments, concurrency, or untrusted input. |
-| `e2e-blackbox-tester` | `INVOKE` | Live web UI; must verify real Vite server, WebGL canvas, HUD & screenshots. |
+| `product-analyst` | `SKIP` | User picked exact cinematic visual upgrade scope via modal. |
+| `ui-ux-designer` | `SKIP` | Zero HUD/DOM screen changes; reuses root `DESIGN.md` tokens. |
+| `architect-engineer` | `SKIP` | Extends `src/world/` inside ADR-001; uses built-in Three.js postprocessing. |
+| `critic` & `challenger` | `SKIP` | Tier 2 visual rendering only; no auth, payments, or concurrency surfaces. |
+| `e2e-blackbox-tester` | `INVOKE` | Live WebGL visual change; must verify Chromium render, 0 errors & fresh PNGs. |
 
-## Parallel Execution Tracks (Mode A — Disjoint Files)
-1. **Contract-First (1 worker, commit first)**: `package.json`, configs, `.gitignore`, `src/types/**`, `src/config/**`.
-2. **Wave 1 Parallel (3 disjoint workers)**:
-   - **Track A (`src/world/**`, `tests/unit/world/**`)**: Three.js sunset scene, 6 Cali landmarks, vehicle/player/beacon meshes, chase camera.
-   - **Track B (`src/simulation/**`, `tests/unit/simulation/**`)**: Headless arcade physics, AABB/river/bridge collisions, Cali traffic & Police AI, `GameWorld`.
-   - **Track C (`src/missions/**`, `src/audio/**`, `src/ui/**`, `tests/unit/missions/**`, `tests/unit/audio/**`)**: 2 Cali missions + Free Roam, procedural Salsa/Synth Web Audio, 2D minimap & HUD.
-3. **Wave 2 Integration (1 worker)**: `index.html`, `src/styles/**`, `src/game/**`, `src/main.ts`, `tests/integration/**`.
+## C-02 Parallel Execution Tracks (Mode A — Disjoint Files)
+1. **Wave 1 Parallel (2 disjoint workers)**:
+   - **Track A1 (`src/world/pbrTextures.ts`, `src/world/particles.ts`, `tests/unit/world/visualEffects.test.ts`)**: Procedural PBR textures (asphalt, sidewalks, facades, neon signs), PMREM sunset env map, GLSL animated Río Cali water shader, pooled drift smoke / sparks / nitro trail particles.
+   - **Track A2 (`src/world/vehicleMeshes.ts`, `src/world/sceneSetup.ts`)**: Sculpted clearcoat PBR vehicles (4 rotating/steering alloy wheels, headlight cones, brake lights), richer Valeria mesh, FBM sunset clouds sky shader, `2048px` player-tracking shadow sun, `EffectComposer` + `UnrealBloomPass`, dynamic FOV/shake GTA camera.
+2. **Wave 2 Integration (`src/world/caliLandmarks.ts`, `src/world/worldRenderer.ts`, `tests/unit/world/caliLandmarks.test.ts`)**: Wire PBR roads/crosswalks/sidewalks/buildings/neon signs, GLSL river, streetlamp pools, headlight `SpotLight`, brake light detection, `ParticleSystem`, PMREM env, and Bloom pipeline.
 
-## Wiring Map (UI -> Real Source)
-- Title/Pause/Victory -> `MissionDirector` + `localStorage` (`gta_cali_records_v1`)
-- HUD/Speed/Wanted/Radio -> `GameWorld.getSnapshot()` + `AudioEngine.getState()`
-- GPS Minimap -> `CALI_MAP` + `WorldSnapshot` + `MissionSnapshot.activeObjective`
-- 3D Canvas -> `WorldRenderer.sync(WorldSnapshot, MissionSnapshot)`
+## Wiring Map (`C-02` Visual Delta)
+- 3D Canvas -> `WorldRenderer.sync()` -> `EffectComposer (RenderPass + UnrealBloomPass + OutputPass)` + `ParticleSystem` + `PMREM` env + GLSL Sky/Water shaders (`data-source: none`).
