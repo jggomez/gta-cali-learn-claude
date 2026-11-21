@@ -1,7 +1,7 @@
 # PLAN — GTA VI: Cali 3D (`feat/gta-vi-cali-3d`)
 
 - **Tier**: Tier 2 (Standard — Greenfield 3D web game, approved `/plan`, no auth/payments/DB migration)
-- **Data Contract**: `data-source: local-client-simulation` (in-memory 3D simulation + `localStorage` best times/prefs; zero backend)
+- **Data Contract**: `data-source: none` (100% offline local-client-simulation + `localStorage` best times/prefs; zero backend HTTP API)
 - **Status**: `[x] State 0` | `[x] State 1` | `[x] State 2` | `[~] State 3-4` | `[ ] State 5`
 
 ## Changes
