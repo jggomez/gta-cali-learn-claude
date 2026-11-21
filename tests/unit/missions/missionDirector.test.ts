@@ -59,7 +59,7 @@ function makeWorld(overrides: WorldOverrides = {}): WorldSnapshot {
       vehicleId: mode === 'driving' ? 'player_banshee' : null,
       nearbyVehicleId: mode === 'on_foot' ? 'player_banshee' : null,
       canEnterVehicle: mode === 'on_foot',
-      nitro: 1,
+      nitro: 100,
       isDrifting: false,
       isBoosting: false,
       isSprinting: false,
@@ -79,7 +79,7 @@ function makeWorld(overrides: WorldOverrides = {}): WorldSnapshot {
         steerAngle: 0,
         isDrifting: false,
         isBoosting: false,
-        nitro: 1,
+        nitro: 100,
         sirenActive: false,
         colorHex: 0xff2e93,
         halfWidth: 1.1,
@@ -213,6 +213,7 @@ describe('MissionDirector', () => {
     expect(snap.mode).toBe('playing');
     expect(snap.missionTitle).toBe(LOCALE_CALI.missions.mission_1_bulevar.title);
     expect(snap.activeObjective?.kind).toBe('enter_vehicle');
+    expect(snap.dialogue?.speaker).toBe('valeria');
     expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m1Intro.text);
     expect(snap.targetWantedStars).toBe(0);
 
@@ -226,6 +227,7 @@ describe('MissionDirector', () => {
     const pickup = CALI_MAP.missionWaypoints.mission1Pickup;
     snap = director.update(makeWorld({ mode: 'driving', x: pickup.x, z: pickup.z }), 10);
     expect(snap.targetWantedStars).toBe(2);
+    expect(snap.dialogue?.speaker).toBe('mateo');
     expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m1Pickup.text);
     expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission1Escape.id);
     expect(snap.activeObjective?.stepIndex).toBe(2);
@@ -323,6 +325,7 @@ describe('MissionDirector', () => {
     }
 
     expect(snap.discoveredLandmarks).toHaveLength(CALI_MAP.landmarks.length);
+    expect(snap.dialogue?.speaker).toBe('system');
     expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.freeRoam.allDiscoveredLabel);
     expect(snap.activeObjective?.target).toBeNull();
   });

@@ -56,6 +56,13 @@ function formatCop(amount: number): string {
   return `$ ${formatted} ${LOCALE_CALI.hud.cashCurrency}`;
 }
 
+export function formatNitroPercent(nitro: number): number {
+  if (!Number.isFinite(nitro)) {
+    return 0;
+  }
+  return Math.round(Math.max(0, Math.min(100, nitro)));
+}
+
 function createEl<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className?: string,
@@ -129,6 +136,7 @@ export class HudController {
   private readonly dialogueText: HTMLElement;
 
   private readonly speedNumber: HTMLElement;
+  private readonly nitroTrack: HTMLElement;
   private readonly nitroFill: HTMLElement;
   private readonly radioButton: HTMLButtonElement;
   private readonly radioLabel: HTMLElement;
@@ -184,6 +192,7 @@ export class HudController {
     this.dialogueSpeaker = hudParts.dialogueSpeaker;
     this.dialogueText = hudParts.dialogueText;
     this.speedNumber = hudParts.speedNumber;
+    this.nitroTrack = hudParts.nitroTrack;
     this.nitroFill = hudParts.nitroFill;
     this.radioButton = hudParts.radioButton;
     this.radioLabel = hudParts.radioLabel;
@@ -375,16 +384,18 @@ export class HudController {
     const dialogue = mission.dialogue;
     setHidden(this.dialogueBox, dialogue === null);
     if (dialogue) {
-      setText(this.dialogueSpeaker, dialogue.speaker);
+      setText(this.dialogueSpeaker, LOCALE_CALI.speakers[dialogue.speaker]);
       setText(this.dialogueText, dialogue.text);
     }
 
     // Bottom-right: speedometer, nitro, radio
     setText(this.speedNumber, String(Math.max(0, Math.round(world.player.speedKmh))));
-    const nitroPct = `${Math.round(Math.max(0, Math.min(1, world.player.nitro)) * 100)}%`;
-    if (this.nitroFill.style.width !== nitroPct) {
-      this.nitroFill.style.width = nitroPct;
+    const nitroPct = formatNitroPercent(world.player.nitro);
+    const nitroWidth = `${nitroPct}%`;
+    if (this.nitroFill.style.width !== nitroWidth) {
+      this.nitroFill.style.width = nitroWidth;
     }
+    this.nitroTrack.setAttribute('aria-valuenow', String(nitroPct));
     this.nitroFill.dataset.boosting = world.player.isBoosting ? 'true' : 'false';
 
     const radioDisplay = audio.muted
@@ -538,6 +549,7 @@ export class HudController {
     dialogueSpeaker: HTMLElement;
     dialogueText: HTMLElement;
     speedNumber: HTMLElement;
+    nitroTrack: HTMLElement;
     nitroFill: HTMLElement;
     radioButton: HTMLButtonElement;
     radioLabel: HTMLElement;
@@ -660,6 +672,11 @@ export class HudController {
     const nitroLabel = createEl('span', 'cali-nitro-label');
     nitroLabel.textContent = LOCALE_CALI.hud.nitroLabel;
     const nitroTrack = createEl('div', 'cali-nitro-track');
+    nitroTrack.setAttribute('role', 'progressbar');
+    nitroTrack.setAttribute('aria-label', LOCALE_CALI.hud.nitroLabel);
+    nitroTrack.setAttribute('aria-valuemin', '0');
+    nitroTrack.setAttribute('aria-valuemax', '100');
+    nitroTrack.setAttribute('aria-valuenow', '100');
     const nitroFill = createEl('div', 'cali-nitro-fill');
     nitroFill.style.width = '100%';
     nitroTrack.appendChild(nitroFill);
@@ -714,6 +731,7 @@ export class HudController {
       dialogueSpeaker,
       dialogueText,
       speedNumber,
+      nitroTrack,
       nitroFill,
       radioButton,
       radioLabel,

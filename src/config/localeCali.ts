@@ -3,7 +3,13 @@
  * All UI labels, mission copy, radio labels, dialogues, and news tickers live exclusively here.
  */
 
-import type { CameraMode, LandmarkId, MissionId, RadioStationId } from '../types/game';
+import type {
+  CameraMode,
+  DialogueSpeaker,
+  LandmarkId,
+  MissionId,
+  RadioStationId,
+} from '../types/game';
 
 export interface ControlHintItem {
   readonly keys: string;
@@ -100,45 +106,52 @@ export const LOCALE_CALI = {
     },
   },
 
+  speakers: {
+    valeria: 'Valeria',
+    mateo: 'Mateo',
+    radio: 'Radio',
+    system: 'Sistema',
+  } as Readonly<Record<DialogueSpeaker, string>>,
+
   dialogues: {
     m1Intro: {
-      speaker: 'Valeria' as const,
+      speaker: 'valeria' as const,
       text: '¡Quiubo, parce! Móntate en el Banshee que el vinilo maestro nos espera en la Torre de Cali.',
     },
     m1Pickup: {
-      speaker: 'Mateo' as const,
+      speaker: 'mateo' as const,
       text: '¡Lo tenemos, ve! Pero ojito que la tomba ya prendió sirenas por el Bulevar del Río. ¡Métele nitro!',
     },
     m1Bulevar: {
-      speaker: 'Valeria' as const,
+      speaker: 'valeria' as const,
       text: '¡Qué chimba de derrape! Cruza el Puente de La Ermita y los perdemos frente a la iglesia, ¡oís!',
     },
     m1Passed: {
-      speaker: 'Mateo' as const,
+      speaker: 'mateo' as const,
       text: '¡Coronamos, parce! Nadie nos alcanza en la Sucursal del Cielo. ¡Ahora vamos por Cristo Rey!',
     },
     m2Intro: {
-      speaker: 'Mateo' as const,
+      speaker: 'mateo' as const,
       text: '¡Esta noche retumba toda Cali! Pasa por mí al Estadio Pascual Guerrero que tengo los parlantes listos.',
     },
     m2Stage: {
-      speaker: 'Mateo' as const,
+      speaker: 'mateo' as const,
       text: '¡Arriba ese sonido, ve! La tomba quiere dañar la rumba: ¡dale oeste por la rampa hasta Cristo Rey!',
     },
     m2Passed: {
-      speaker: 'Valeria' as const,
+      speaker: 'valeria' as const,
       text: '¡Mirá esa vista desde Cristo Rey! Salsa brava a todo taco y toda Santiago de Cali a nuestros pies.',
     },
     freeRoamIntro: {
-      speaker: 'Valeria' as const,
+      speaker: 'valeria' as const,
       text: '¡Relájate, oís! Tienes toda Cali pa’ vos: San Antonio, el Bulevar, La Ermita, el Pascual y Cristo Rey.',
     },
     landmarkDiscovered: (landmarkName: string) => ({
-      speaker: 'Sistema' as const,
+      speaker: 'system' as const,
       text: `¡Descubriste ${landmarkName}! Qué orgullo caleño, parce.`,
     }),
     riverWarning: {
-      speaker: 'Mateo' as const,
+      speaker: 'mateo' as const,
       text: '¡Pilas, ve! Ese es el Río Cali: usa los puentes que el carro no es lancha.',
     },
   },

@@ -44,7 +44,7 @@ export type ObjectiveKind =
   | 'escape_police'
   | 'explore';
 
-export type DialogueSpeaker = 'Valeria' | 'Mateo' | 'Radio' | 'Sistema';
+export type DialogueSpeaker = 'valeria' | 'mateo' | 'radio' | 'system';
 
 export interface Vec2 {
   readonly x: number;
@@ -177,6 +177,7 @@ export interface VehicleSnapshot {
   readonly steerAngle: number;
   readonly isDrifting: boolean;
   readonly isBoosting: boolean;
+  /** Nitro charge percentage (0..100). */
   readonly nitro: number;
   readonly sirenActive: boolean;
   readonly colorHex: number;
@@ -196,6 +197,7 @@ export interface PlayerSnapshot {
   readonly vehicleId: string | null;
   readonly nearbyVehicleId: string | null;
   readonly canEnterVehicle: boolean;
+  /** Nitro charge percentage (0..100). */
   readonly nitro: number;
   readonly isDrifting: boolean;
   readonly isBoosting: boolean;

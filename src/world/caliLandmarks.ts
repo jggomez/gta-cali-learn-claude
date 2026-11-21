@@ -1251,7 +1251,7 @@ function buildSanAntonioLandmark(landmark: LandmarkDef): THREE.Group {
     group.add(slope);
   }
 
-  // Stepped colonial bell-gable (espadaña) facing +X toward Cali valley
+  // Stepped colonial facade (bell gable) facing +X toward Cali valley
   const bellGable = new THREE.Mesh(new THREE.BoxGeometry(1.1, 4.4, 4.0), stuccoMat);
   bellGable.position.set(3.5, 6.9, 0);
   group.add(bellGable);
