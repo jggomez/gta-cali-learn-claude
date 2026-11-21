@@ -1,0 +1,1375 @@
+/* ==========================================================================
+   GTA VI: CALI — Vice Sunset Cali Design System (100% Offline)
+   Tokens mapped strictly from DESIGN.md
+   ========================================================================== */
+
+:root {
+  --color-primary: #ff2e93;
+  --color-primary-hover: #ff5e7e;
+  --color-secondary: #00f0ff;
+  --color-surface: #120826;
+  --color-surface-glass: rgba(14, 8, 30, 0.78);
+  --color-surface-glass-strong: rgba(16, 8, 34, 0.88);
+  --color-surface-alt: #1d0e3d;
+  --color-text: #f8f7ff;
+  --color-text-muted: #c9c2e3;
+  --color-text-on-accent: #120826;
+  --color-border: rgba(0, 240, 255, 0.35);
+  --color-border-strong: rgba(0, 240, 255, 0.65);
+  --color-success: #00e699;
+  --color-warning: #ffb800;
+  --color-error: #ff3b5c;
+  --color-police-red: #ff3b5c;
+  --color-police-blue: #2e7bff;
+
+  --font-display: "Arial Narrow", "Impact", "Bahnschrift Condensed", system-ui, sans-serif;
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  --glow-magenta: 0 0 18px rgba(255, 46, 147, 0.28);
+  --glow-cyan: 0 0 18px rgba(0, 240, 255, 0.28);
+  --shadow-panel: 0 12px 32px rgba(6, 2, 18, 0.55);
+  --shadow-text: 0 3px 14px rgba(10, 4, 22, 0.92);
+
+  --z-canvas: 0;
+  --z-hud: 10;
+  --z-dialogue: 20;
+  --z-modal: 30;
+  --z-screen: 40;
+  --z-error: 50;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(circle at 30% 25%, #3a1254 0%, var(--color-surface) 72%);
+}
+
+#game-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-canvas);
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+#hud-root {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-hud);
+  pointer-events: none;
+}
+
+.cali-ui {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ==========================================================================
+   Shared Surfaces, Typography & Interactive Primitives
+   ========================================================================== */
+
+.cali-panel {
+  background: var(--color-surface-glass);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-sm) var(--space-md);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-panel);
+}
+
+.cali-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.cali-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-alt);
+  color: var(--color-warning);
+  border: 1px solid var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.cali-badge--success {
+  background: rgba(0, 230, 153, 0.16);
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.cali-badge--warning {
+  background: var(--color-warning);
+  color: var(--color-text-on-accent);
+  border-color: var(--color-warning);
+}
+
+.cali-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: var(--color-text);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.25;
+}
+
+.cali-keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-alt);
+  color: var(--color-secondary);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Interactive buttons — WCAG AA contrast + >= 44x44px touch targets */
+.cali-btn,
+.cali-radio-pill,
+.cali-mission-card {
+  font-family: var(--font-sans);
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    transform 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    color 140ms ease;
+}
+
+.cali-btn:focus-visible,
+.cali-radio-pill:focus-visible,
+.cali-mission-card:focus-visible {
+  outline: 2px solid var(--color-secondary);
+  outline-offset: 2px;
+}
+
+.cali-btn:disabled,
+.cali-radio-pill:disabled,
+.cali-mission-card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.cali-btn[aria-busy="true"] {
+  position: relative;
+  opacity: 0.8;
+  cursor: progress;
+}
+
+.cali-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-height: 44px;
+  min-width: 44px;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.cali-btn.cali-btn--primary {
+  background: var(--color-secondary);
+  color: var(--color-text-on-accent);
+  border-color: var(--color-secondary);
+  box-shadow: var(--glow-cyan);
+}
+
+.cali-btn.cali-btn--primary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-text-on-accent);
+  transform: scale(1.02);
+  box-shadow: var(--glow-magenta);
+}
+
+.cali-btn.cali-btn--primary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.cali-btn.cali-btn--secondary {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  border-color: var(--color-primary);
+  box-shadow: var(--glow-magenta);
+}
+
+.cali-btn.cali-btn--secondary:hover:not(:disabled) {
+  background: rgba(255, 46, 147, 0.22);
+  border-color: var(--color-secondary);
+  transform: scale(1.02);
+}
+
+.cali-btn.cali-btn--secondary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.cali-btn.cali-btn--ghost {
+  background: var(--color-surface-glass);
+  color: var(--color-text);
+  border-color: var(--color-border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.cali-btn.cali-btn--ghost:hover:not(:disabled) {
+  background: var(--color-surface-alt);
+  border-color: var(--color-secondary);
+  transform: scale(1.02);
+}
+
+.cali-btn.cali-btn--ghost:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.cali-btn--compact {
+  padding: var(--space-xs) 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   Title Screen & Grand Victory Screen (z-40)
+   ========================================================================== */
+
+.cali-screen {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-screen);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  pointer-events: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.cali-title-screen {
+  background:
+    radial-gradient(ellipse at 50% 18%, rgba(255, 94, 126, 0.2) 0%, rgba(18, 8, 38, 0.42) 52%, rgba(18, 8, 38, 0.84) 100%),
+    linear-gradient(180deg, rgba(18, 8, 38, 0.54) 0%, rgba(18, 8, 38, 0.28) 45%, rgba(18, 8, 38, 0.86) 100%);
+}
+
+.cali-victory-screen {
+  background:
+    radial-gradient(circle at 50% 22%, rgba(255, 184, 0, 0.24) 0%, rgba(18, 8, 38, 0.56) 55%, rgba(18, 8, 38, 0.88) 100%);
+}
+
+.cali-title-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-xs);
+  max-width: 780px;
+}
+
+.cali-display-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.25rem, 6vw, 4.5rem);
+  font-weight: 900;
+  font-style: italic;
+  line-height: 0.95;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text);
+  background: linear-gradient(180deg, #fff5e1 0%, #ffb800 46%, #ff2e93 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 4px 12px rgba(12, 4, 28, 0.95)) drop-shadow(0 0 22px rgba(255, 46, 147, 0.48));
+}
+
+.cali-display-subtitle {
+  margin: var(--space-xs) 0 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.1rem, 2.5vw, 1.65rem);
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+  text-shadow: var(--shadow-text), 0 0 14px rgba(0, 240, 255, 0.45);
+}
+
+.cali-display-tagline {
+  margin: var(--space-xs) 0 0;
+  color: var(--color-text);
+  font-size: 0.95rem;
+  font-weight: 500;
+  text-shadow: var(--shadow-text);
+  max-width: 560px;
+}
+
+.cali-mission-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+  width: min(1040px, 100%);
+}
+
+.cali-mission-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  min-height: 192px;
+  padding: var(--space-md);
+  text-align: left;
+  color: var(--color-text);
+  background: var(--color-surface-glass-strong);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-panel);
+}
+
+.cali-mission-card.cali-btn--primary {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-panel), var(--glow-magenta);
+  background: linear-gradient(155deg, rgba(38, 14, 70, 0.92) 0%, rgba(16, 8, 34, 0.88) 100%);
+}
+
+.cali-mission-card.cali-btn--secondary {
+  border-color: var(--color-border);
+}
+
+.cali-mission-card:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.02);
+  border-color: var(--color-secondary);
+  box-shadow: var(--shadow-panel), var(--glow-cyan);
+}
+
+.cali-mission-card:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.cali-mission-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.cali-mission-card-title {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-text);
+  line-height: 1.1;
+}
+
+.cali-mission-card-subtitle {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.cali-mission-card-desc {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+  flex-grow: 1;
+}
+
+.cali-mission-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.cali-record-badge {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-warning);
+}
+
+.cali-record-badge[data-empty="true"] {
+  color: var(--color-text-muted);
+}
+
+.cali-mission-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  background: var(--color-secondary);
+  color: var(--color-text-on-accent);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cali-mission-card.cali-btn--secondary .cali-mission-cta {
+  background: var(--color-warning);
+  color: var(--color-text-on-accent);
+}
+
+.cali-mission-card:hover .cali-mission-cta {
+  background: var(--color-primary-hover);
+  color: var(--color-text-on-accent);
+}
+
+.cali-controls-card {
+  width: min(1040px, 100%);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--color-surface-glass);
+  border-color: var(--color-border);
+}
+
+.cali-controls-title {
+  margin: 0 0 var(--space-sm);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-warning);
+}
+
+.cali-controls-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--space-xs) var(--space-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cali-control-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.cali-control-action {
+  color: var(--color-text);
+}
+
+/* ==========================================================================
+   5-Zone Gameplay HUD (z-10 / z-20) — >= 70% Center Viewport Unobstructed
+   ========================================================================== */
+
+.cali-hud {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-hud);
+  pointer-events: none;
+}
+
+.cali-hud-zone {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  pointer-events: none;
+}
+
+/* Zone 1: Top-Left (Objective + CaliViral Ticker) */
+.cali-hud-top-left {
+  top: var(--space-md);
+  left: var(--space-md);
+  max-width: min(340px, calc(50vw - 24px));
+  align-items: flex-start;
+}
+
+.cali-objective-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  border-left: 3px solid var(--color-secondary);
+}
+
+.cali-objective-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.cali-objective-mission {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-warning);
+}
+
+.cali-objective-label {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.25;
+}
+
+.cali-objective-detail {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  line-height: 1.35;
+}
+
+.cali-objective-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.cali-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-alt);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.cali-ticker-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  max-width: 100%;
+  padding: 5px 12px 5px 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-glass);
+  border: 1px solid var(--color-primary);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: var(--glow-magenta);
+}
+
+.cali-ticker-tag {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  color: var(--color-text);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cali-ticker-text {
+  font-size: 0.75rem;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Zone 2: Top-Right (Wanted + Bust Meter + Cash + Timer + Quick Actions) */
+.cali-hud-top-right {
+  top: var(--space-md);
+  right: var(--space-md);
+  max-width: min(300px, calc(50vw - 24px));
+  align-items: flex-end;
+}
+
+.cali-status-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  align-items: flex-end;
+}
+
+.cali-wanted-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+.cali-wanted-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.cali-wanted-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cali-star {
+  font-size: 1.3rem;
+  line-height: 1;
+  color: rgba(201, 194, 227, 0.36);
+}
+
+.cali-star[data-active="true"][data-phase="red"] {
+  color: var(--color-police-red);
+  text-shadow: 0 0 12px rgba(255, 59, 92, 0.9);
+  animation: cali-siren-pulse 420ms ease-in-out infinite alternate;
+}
+
+.cali-star[data-active="true"][data-phase="blue"] {
+  color: var(--color-police-blue);
+  text-shadow: 0 0 12px rgba(46, 123, 255, 0.9);
+  animation: cali-siren-pulse 420ms ease-in-out infinite alternate-reverse;
+}
+
+.cali-bust-warning {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 59, 92, 0.18);
+  border: 1px solid var(--color-police-red);
+  animation: cali-bust-alert 650ms ease-in-out infinite alternate;
+}
+
+.cali-bust-text {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text);
+  text-align: center;
+}
+
+.cali-bust-track {
+  width: 100%;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: rgba(18, 8, 38, 0.85);
+  overflow: hidden;
+}
+
+.cali-bust-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--color-police-blue) 0%, var(--color-police-red) 100%);
+  transition: width 80ms linear;
+}
+
+.cali-telemetry-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.cali-cash {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--color-success);
+  text-shadow: 0 0 10px rgba(0, 230, 153, 0.35);
+}
+
+.cali-timer {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.cali-quick-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  pointer-events: auto;
+}
+
+/* Zone 3: Bottom-Left (2D GPS Minimap) */
+.cali-hud-bottom-left {
+  bottom: var(--space-md);
+  left: var(--space-md);
+  align-items: flex-start;
+}
+
+.cali-minimap-frame {
+  padding: 6px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: var(--shadow-panel), var(--glow-cyan);
+  line-height: 0;
+}
+
+.cali-minimap-canvas {
+  display: block;
+  width: 180px;
+  height: 132px;
+  border-radius: var(--radius-sm);
+  background: #100720;
+}
+
+/* Zone 4: Bottom-Center (Context Prompt + Drift + Dialogue Toast, z-20) */
+.cali-hud-bottom-center {
+  bottom: var(--space-md);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-dialogue);
+  width: min(500px, calc(100vw - 540px));
+  align-items: center;
+}
+
+.cali-drift-badge {
+  background: linear-gradient(90deg, var(--color-primary) 0%, var(--color-warning) 100%);
+  color: var(--color-text-on-accent);
+  border-color: transparent;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  font-weight: 900;
+  padding: 4px 12px;
+  box-shadow: var(--glow-magenta);
+}
+
+.cali-prompt-pill {
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  background: var(--color-secondary);
+  color: var(--color-text-on-accent);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  box-shadow: var(--shadow-panel), var(--glow-cyan);
+  white-space: nowrap;
+}
+
+.cali-dialogue-toast {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-left: 3px solid var(--color-primary);
+  box-shadow: var(--shadow-panel), var(--glow-magenta);
+}
+
+.cali-dialogue-speaker {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.cali-dialogue-text {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  line-height: 1.38;
+}
+
+/* Zone 5: Bottom-Right (Speedometer + Nitro + Radio FM + Hints) */
+.cali-hud-bottom-right {
+  bottom: var(--space-md);
+  right: var(--space-md);
+  align-items: flex-end;
+  max-width: min(290px, calc(50vw - 24px));
+}
+
+.cali-drive-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.cali-speed-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.cali-speed-number {
+  font-size: 2.25rem;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--color-text);
+  text-shadow: 0 0 14px rgba(0, 240, 255, 0.32);
+}
+
+.cali-speed-unit {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.cali-nitro-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.cali-nitro-label {
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-warning);
+}
+
+.cali-nitro-track {
+  flex: 1;
+  height: 9px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(0, 240, 255, 0.28);
+  overflow: hidden;
+}
+
+.cali-nitro-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--color-secondary) 0%, var(--color-warning) 100%);
+  transition: width 90ms linear;
+}
+
+.cali-nitro-fill[data-boosting="true"] {
+  background: linear-gradient(90deg, var(--color-warning) 0%, var(--color-primary) 50%, var(--color-secondary) 100%);
+  box-shadow: 0 0 14px rgba(255, 184, 0, 0.85);
+}
+
+.cali-audio-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  pointer-events: auto;
+  flex-wrap: wrap;
+}
+
+.cali-radio-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 44px;
+  max-width: 230px;
+  padding: var(--space-xs) 14px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-glass);
+  color: var(--color-text);
+  border: 1px solid var(--color-primary);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: var(--glow-magenta);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.cali-radio-pill[data-station="sucursal_synth"] {
+  border-color: var(--color-secondary);
+  box-shadow: var(--glow-cyan);
+}
+
+.cali-radio-pill[data-station="off"] {
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+  box-shadow: none;
+}
+
+.cali-radio-pill:hover:not(:disabled) {
+  background: var(--color-surface-alt);
+  transform: scale(1.02);
+}
+
+.cali-radio-pill:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.cali-radio-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cali-hud-hints {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ==========================================================================
+   Modals, Banners & Error Overlays (z-30 / z-40 / z-50)
+   ========================================================================== */
+
+.cali-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  background: rgba(10, 4, 22, 0.68);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.cali-overlay--banner {
+  background: radial-gradient(circle at 50% 45%, rgba(0, 230, 153, 0.14) 0%, rgba(10, 4, 22, 0.74) 70%);
+}
+
+.cali-overlay--error {
+  z-index: var(--z-error);
+  background: rgba(14, 6, 28, 0.92);
+}
+
+.cali-modal {
+  width: min(480px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--color-surface-glass-strong);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: var(--shadow-panel), var(--glow-magenta);
+  text-align: center;
+}
+
+.cali-modal--success {
+  border-color: var(--color-success);
+  box-shadow: var(--shadow-panel), 0 0 28px rgba(0, 230, 153, 0.32);
+}
+
+.cali-modal--busted {
+  border: 2px solid var(--color-police-red);
+  border-top: 4px solid var(--color-police-red);
+  border-bottom: 4px solid var(--color-police-blue);
+  box-shadow:
+    var(--shadow-panel),
+    -10px 0 24px rgba(255, 59, 92, 0.35),
+    10px 0 24px rgba(46, 123, 255, 0.35);
+}
+
+.cali-modal--victory {
+  width: min(560px, 100%);
+  border-color: var(--color-warning);
+  box-shadow: var(--shadow-panel), 0 0 32px rgba(255, 184, 0, 0.34);
+}
+
+.cali-modal--error {
+  border: 2px solid var(--color-error);
+  box-shadow: var(--shadow-panel), 0 0 24px rgba(255, 59, 92, 0.35);
+}
+
+.cali-modal-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.875rem;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.1;
+  color: var(--color-text);
+}
+
+.cali-modal-subtitle {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+}
+
+.cali-banner-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+  text-shadow: var(--shadow-text);
+}
+
+.cali-banner-title--success {
+  color: var(--color-success);
+  text-shadow: var(--shadow-text), 0 0 20px rgba(0, 230, 153, 0.45);
+}
+
+.cali-banner-title--busted {
+  color: var(--color-police-red);
+  text-shadow: var(--shadow-text), 0 0 20px rgba(255, 59, 92, 0.55);
+}
+
+.cali-stats-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-sm) var(--space-md);
+  margin: 0;
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  background: rgba(18, 8, 38, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  text-align: left;
+}
+
+.cali-stats-grid dt {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  align-self: center;
+}
+
+.cali-stats-grid dd {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text);
+  text-align: right;
+}
+
+.cali-victory-times {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.cali-victory-time-row {
+  font-size: 0.82rem;
+  color: var(--color-secondary);
+}
+
+.cali-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* ==========================================================================
+   Keyframe Animations
+   ========================================================================== */
+
+@keyframes cali-siren-pulse {
+  from {
+    opacity: 0.72;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes cali-bust-alert {
+  from {
+    box-shadow: 0 0 8px rgba(255, 59, 92, 0.35);
+  }
+  to {
+    box-shadow: 0 0 18px rgba(255, 59, 92, 0.85);
+  }
+}
+
+/* ==========================================================================
+   Responsive Breakpoints (375px – 1440px+, Zero Horizontal Overflow)
+   ========================================================================== */
+
+@media (max-width: 900px) {
+  .cali-screen {
+    justify-content: flex-start;
+    padding: var(--space-md);
+    gap: var(--space-md);
+  }
+
+  .cali-mission-grid {
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  }
+
+  .cali-hud-bottom-center {
+    bottom: 168px;
+    width: min(460px, calc(100vw - 32px));
+  }
+}
+
+@media (max-width: 639px) {
+  .cali-screen {
+    padding: var(--space-sm) var(--space-sm) var(--space-md);
+    gap: var(--space-sm);
+  }
+
+  .cali-mission-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-sm);
+  }
+
+  .cali-mission-card {
+    min-height: auto;
+    padding: 12px;
+  }
+
+  .cali-controls-card {
+    padding: 12px;
+  }
+
+  .cali-controls-list {
+    grid-template-columns: 1fr;
+  }
+
+  .cali-hud-top-left {
+    top: var(--space-sm);
+    left: var(--space-sm);
+    max-width: calc(54vw - 10px);
+  }
+
+  .cali-hud-top-right {
+    top: var(--space-sm);
+    right: var(--space-sm);
+    max-width: calc(44vw - 10px);
+  }
+
+  .cali-hud-bottom-left {
+    bottom: var(--space-sm);
+    left: var(--space-sm);
+  }
+
+  .cali-hud-bottom-right {
+    bottom: var(--space-sm);
+    right: var(--space-sm);
+    max-width: calc(100vw - 154px);
+  }
+
+  .cali-hud-bottom-center {
+    bottom: 120px;
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+  }
+
+  .cali-panel {
+    padding: 6px 10px;
+  }
+
+  .cali-objective-detail,
+  .cali-objective-meta,
+  .cali-wanted-label,
+  .cali-hud-hints {
+    display: none;
+  }
+
+  .cali-objective-label {
+    font-size: 0.8125rem;
+  }
+
+  .cali-ticker-pill {
+    padding: 3px 8px 3px 6px;
+  }
+
+  .cali-minimap-frame {
+    padding: 4px;
+  }
+
+  .cali-minimap-canvas {
+    width: 128px;
+    height: 96px;
+  }
+
+  .cali-speed-number {
+    font-size: 1.5rem;
+  }
+
+  .cali-cash {
+    font-size: 0.8rem;
+  }
+
+  .cali-timer {
+    font-size: 0.78rem;
+  }
+
+  .cali-quick-actions {
+    flex-wrap: wrap;
+  }
+
+  .cali-btn--compact {
+    padding: 4px 8px;
+    font-size: 0.7rem;
+  }
+
+  .cali-radio-pill {
+    max-width: 170px;
+    padding: 4px 10px;
+    font-size: 0.7rem;
+  }
+
+  .cali-modal {
+    padding: var(--space-md);
+  }
+
+  .cali-stats-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-xs);
+  }
+
+  .cali-stats-grid dd,
+  .cali-victory-times {
+    text-align: left;
+    align-items: flex-start;
+  }
+}
+
+/* ==========================================================================
+   Reduced Motion Accessibility
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .cali-btn:hover:not(:disabled),
+  .cali-radio-pill:hover:not(:disabled),
+  .cali-mission-card:hover:not(:disabled),
+  .cali-btn:active:not(:disabled),
+  .cali-radio-pill:active:not(:disabled),
+  .cali-mission-card:active:not(:disabled) {
+    transform: none;
+  }
+
+  .cali-star[data-active="true"][data-phase="red"],
+  .cali-star[data-active="true"][data-phase="blue"] {
+    animation: none;
+    transform: none;
+    opacity: 1;
+    text-shadow: none;
+  }
+
+  .cali-wanted-stars .cali-star[data-active="true"]:nth-child(odd) {
+    color: var(--color-police-red);
+  }
+
+  .cali-wanted-stars .cali-star[data-active="true"]:nth-child(even) {
+    color: var(--color-police-blue);
+  }
+
+  .cali-bust-warning {
+    animation: none;
+  }
+}

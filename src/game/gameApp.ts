@@ -1,0 +1,440 @@
+/**
+ * Runtime composition root for GTA VI: Cali (La Sucursal del Cielo).
+ * Coordinates GameWorld, MissionDirector, AudioEngine, WorldRenderer, HudController,
+ * InputManager, fixed-clamp requestAnimationFrame loop, and readonly window.__GTA_CALI__.
+ */
+
+import { AudioEngine } from '../audio/audioEngine';
+import { CALI_MAP } from '../config/caliMap';
+import { MissionDirector, StorageAdapter, type StorageLike } from '../missions/missionDirector';
+import { GameWorld } from '../simulation/gameWorld';
+import type {
+  CaliMapConfig,
+  CameraMode,
+  GameDebugSnapshot,
+  InputState,
+  MissionId,
+  MissionSnapshot,
+  WorldSnapshot,
+} from '../types/game';
+import { HudController } from '../ui/hudController';
+import { WebGLUnavailableError } from '../world/sceneSetup';
+import { WorldRenderer } from '../world/worldRenderer';
+import { InputManager } from './inputManager';
+
+declare global {
+  interface Window {
+    readonly __GTA_CALI__?: GameDebugSnapshot;
+  }
+}
+
+const MAX_FRAME_DT_SECONDS = 0.05;
+const DEFAULT_FRAME_DT_SECONDS = 1 / 60;
+const PLAYABLE_CAMERA_MODES: readonly CameraMode[] = ['chase', 'cinematic', 'hood'];
+
+const IDLE_INPUT: InputState = {
+  forward: false,
+  backward: false,
+  left: false,
+  right: false,
+  handbrake: false,
+  boost: false,
+  interactPressed: false,
+  hornPressed: false,
+};
+
+function getBrowserLocalStorage(): StorageLike | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+function blurFocusedElementInside(container: HTMLElement): void {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && container.contains(active)) {
+    active.blur();
+  }
+}
+
+export class GameApp {
+  private readonly canvas: HTMLCanvasElement;
+  private readonly hudRoot: HTMLElement;
+  private readonly map: CaliMapConfig;
+
+  private readonly world: GameWorld;
+  private readonly missionDirector: MissionDirector;
+  private readonly audioEngine: AudioEngine;
+  private readonly hud: HudController;
+  private readonly inputManager: InputManager;
+  private worldRenderer: WorldRenderer | null = null;
+
+  private cameraMode: CameraMode = 'chase';
+  private rafId: number | null = null;
+  private lastFrameTimeMs: number | null = null;
+  private smoothedFps = 60;
+  private running = false;
+  private disposed = false;
+
+  private readonly handleResizeListener: () => void;
+  private readonly handleAnimationFrame: (timestampMs: number) => void;
+
+  public constructor(
+    canvas: HTMLCanvasElement,
+    hudRoot: HTMLElement,
+    map: CaliMapConfig = CALI_MAP,
+  ) {
+    this.canvas = canvas;
+    this.hudRoot = hudRoot;
+    this.map = map;
+
+    this.world = new GameWorld(this.map);
+    const storage = new StorageAdapter(getBrowserLocalStorage());
+    this.missionDirector = new MissionDirector(this.map, storage);
+
+    const savedRecords = this.missionDirector.getRecords();
+    this.audioEngine = new AudioEngine({
+      station: savedRecords.preferredStation,
+      muted: savedRecords.muted,
+    });
+
+    this.hud = new HudController(
+      this.hudRoot,
+      {
+        onStartMission: (id) => this.startMission(id),
+        onResume: () => this.resumeGame(),
+        onRestart: () => this.restartMission(),
+        onReturnTitle: () => this.returnToTitle(),
+        onCycleRadio: () => this.cycleRadio(),
+        onToggleMute: () => this.toggleMute(),
+        onCycleCamera: () => this.cycleCamera(),
+        onTogglePause: () => this.togglePause(),
+        onRetryWebgl: () => this.retryWebgl(),
+      },
+      this.map,
+    );
+
+    this.inputManager = new InputManager({
+      onCycleRadio: () => this.cycleRadio(),
+      onCycleCamera: () => this.cycleCamera(),
+      onToggleMute: () => this.toggleMute(),
+      onTogglePause: () => this.togglePause(),
+      onAnyUserGesture: () => {
+        this.audioEngine.unlock();
+      },
+      isPlaying: () => this.missionDirector.getSnapshot().mode === 'playing',
+    });
+
+    this.handleResizeListener = () => {
+      this.resizeRenderer();
+    };
+    this.handleAnimationFrame = (timestampMs: number) => {
+      this.onFrame(timestampMs);
+    };
+
+    this.initRenderer();
+    this.attachDebugHook();
+    window.addEventListener('resize', this.handleResizeListener);
+  }
+
+  public start(): void {
+    if (this.running || this.disposed) {
+      return;
+    }
+    this.running = true;
+    this.lastFrameTimeMs = null;
+    this.resizeRenderer();
+    this.renderPresentState(0);
+    this.rafId = window.requestAnimationFrame(this.handleAnimationFrame);
+  }
+
+  public dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.running = false;
+
+    if (this.rafId !== null) {
+      window.cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+
+    window.removeEventListener('resize', this.handleResizeListener);
+    this.detachDebugHook();
+
+    this.inputManager.dispose();
+    this.hud.dispose();
+    this.worldRenderer?.dispose();
+    this.worldRenderer = null;
+    this.audioEngine.dispose();
+  }
+
+  public getDebugSnapshot(): GameDebugSnapshot {
+    const worldSnap = this.world.getSnapshot();
+    const missionSnap = this.missionDirector.getSnapshot();
+    return {
+      mode: missionSnap.mode,
+      cameraMode: this.resolveActiveCameraMode(missionSnap),
+      world: worldSnap,
+      mission: missionSnap,
+      audio: this.audioEngine.getState(),
+      fps: Math.round(this.smoothedFps),
+    };
+  }
+
+  private initRenderer(): void {
+    this.worldRenderer?.dispose();
+    this.worldRenderer = null;
+
+    try {
+      this.worldRenderer = new WorldRenderer(this.canvas, this.map);
+      this.hud.hideWebglError();
+      this.resizeRenderer();
+    } catch (error) {
+      this.worldRenderer = null;
+      if (error instanceof WebGLUnavailableError) {
+        this.hud.showWebglError();
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private retryWebgl(): void {
+    this.audioEngine.unlock();
+    this.initRenderer();
+    this.renderPresentState(0);
+  }
+
+  private resizeRenderer(): void {
+    if (!this.worldRenderer) {
+      return;
+    }
+    const width = this.canvas.clientWidth || window.innerWidth;
+    const height = this.canvas.clientHeight || window.innerHeight;
+    this.worldRenderer.resize(width, height);
+  }
+
+  private startMission(missionId: MissionId): void {
+    this.audioEngine.unlock();
+    this.world.reset({ startInVehicle: false, wantedStars: 0 });
+    this.missionDirector.startMission(missionId);
+    this.inputManager.clearKeys();
+    blurFocusedElementInside(this.hudRoot);
+    this.renderPresentState(0);
+  }
+
+  private restartMission(): void {
+    const activeMission = this.missionDirector.getSnapshot().activeMission;
+    this.startMission(activeMission);
+  }
+
+  private resumeGame(): void {
+    this.audioEngine.unlock();
+    this.missionDirector.setPaused(false);
+    this.inputManager.clearKeys();
+    blurFocusedElementInside(this.hudRoot);
+    this.renderPresentState(0);
+  }
+
+  private togglePause(): void {
+    const mode = this.missionDirector.getSnapshot().mode;
+    if (mode === 'playing') {
+      this.missionDirector.setPaused(true);
+      this.inputManager.clearKeys();
+      this.silenceAudioForFrozenState();
+      this.renderPresentState(0);
+    } else if (mode === 'paused') {
+      this.resumeGame();
+    }
+  }
+
+  private returnToTitle(): void {
+    this.world.reset({ startInVehicle: false, wantedStars: 0 });
+    this.missionDirector.returnToTitle();
+    this.inputManager.clearKeys();
+    this.silenceAudioForFrozenState();
+    this.renderPresentState(0);
+  }
+
+  private cycleRadio(): void {
+    this.audioEngine.unlock();
+    const state = this.audioEngine.cycleStation();
+    this.missionDirector.saveAudioPreferences(state.station, state.muted);
+    this.renderPresentState(0);
+  }
+
+  private toggleMute(): void {
+    this.audioEngine.unlock();
+    const state = this.audioEngine.toggleMute();
+    this.missionDirector.saveAudioPreferences(state.station, state.muted);
+    this.renderPresentState(0);
+  }
+
+  private cycleCamera(): void {
+    const currentIndex = PLAYABLE_CAMERA_MODES.indexOf(this.cameraMode);
+    this.cameraMode =
+      PLAYABLE_CAMERA_MODES[(currentIndex + 1) % PLAYABLE_CAMERA_MODES.length] ?? 'chase';
+    this.renderPresentState(0);
+  }
+
+  private onFrame(timestampMs: number): void {
+    if (!this.running || this.disposed) {
+      return;
+    }
+
+    const rawDt =
+      this.lastFrameTimeMs === null
+        ? DEFAULT_FRAME_DT_SECONDS
+        : (timestampMs - this.lastFrameTimeMs) / 1000;
+    this.lastFrameTimeMs = timestampMs;
+
+    const dt =
+      Number.isFinite(rawDt) && rawDt > 0
+        ? Math.min(rawDt, MAX_FRAME_DT_SECONDS)
+        : DEFAULT_FRAME_DT_SECONDS;
+
+    if (Number.isFinite(rawDt) && rawDt > 0.001) {
+      const instantFps = Math.min(240, 1 / rawDt);
+      this.smoothedFps = this.smoothedFps * 0.9 + instantFps * 0.1;
+    }
+
+    this.stepFrame(dt);
+    this.rafId = window.requestAnimationFrame(this.handleAnimationFrame);
+  }
+
+  private stepFrame(dt: number): void {
+    const initialMission = this.missionDirector.getSnapshot();
+    const mode = initialMission.mode;
+
+    if (mode === 'playing') {
+      this.stepPlayingFrame(dt, initialMission);
+      return;
+    }
+
+    if (mode === 'title' || mode === 'victory') {
+      const worldSnap = this.world.step(dt, IDLE_INPUT);
+      this.audioEngine.update(
+        {
+          ...worldSnap,
+          wantedStars: 0,
+          player: { ...worldSnap.player, mode: 'on_foot' },
+        },
+        dt,
+      );
+      this.renderSnapshots(worldSnap, initialMission, dt);
+      return;
+    }
+
+    // Paused, Mission Passed, or Busted: freeze simulation progression cleanly
+    this.silenceAudioForFrozenState();
+    this.renderSnapshots(this.world.getSnapshot(), initialMission, 0);
+  }
+
+  private stepPlayingFrame(dt: number, prevMission: Readonly<MissionSnapshot>): void {
+    const prevWorld = this.world.getSnapshot();
+    const prevObjectiveStep = prevMission.activeObjective?.stepIndex ?? -1;
+    const prevObjectiveId = prevMission.activeObjective?.id ?? null;
+
+    const input = this.inputManager.consumeInputState();
+    let worldSnap = this.world.step(dt, input);
+    const missionSnap = this.missionDirector.update(worldSnap, dt);
+
+    if (worldSnap.wantedStars !== missionSnap.targetWantedStars) {
+      this.world.setWantedStars(missionSnap.targetWantedStars);
+      worldSnap = this.world.getSnapshot();
+    }
+
+    this.triggerSfxTransitions(prevWorld, worldSnap, prevMission, missionSnap, prevObjectiveStep, prevObjectiveId);
+    this.audioEngine.update(worldSnap, dt);
+    this.renderSnapshots(worldSnap, missionSnap, dt);
+  }
+
+  private triggerSfxTransitions(
+    prevWorld: Readonly<WorldSnapshot>,
+    nextWorld: Readonly<WorldSnapshot>,
+    prevMission: Readonly<MissionSnapshot>,
+    nextMission: Readonly<MissionSnapshot>,
+    prevObjectiveStep: number,
+    prevObjectiveId: string | null,
+  ): void {
+    if (nextWorld.player.mode !== prevWorld.player.mode) {
+      this.audioEngine.playSfx('enter_car');
+    }
+
+    if (nextWorld.player.isBoosting && !prevWorld.player.isBoosting) {
+      this.audioEngine.playSfx('nitro');
+    }
+
+    if (
+      prevMission.mode === 'playing' &&
+      (nextMission.mode === 'mission_passed' || nextMission.mode === 'victory')
+    ) {
+      this.audioEngine.playSfx('mission_passed');
+      return;
+    }
+
+    if (prevMission.mode === 'playing' && nextMission.mode === 'busted') {
+      this.audioEngine.playSfx('busted');
+      return;
+    }
+
+    const nextObjective = nextMission.activeObjective;
+    if (
+      nextMission.mode === 'playing' &&
+      nextObjective &&
+      (nextObjective.stepIndex > prevObjectiveStep ||
+        (prevObjectiveId !== null && nextObjective.id !== prevObjectiveId))
+    ) {
+      this.audioEngine.playSfx('checkpoint');
+    }
+  }
+
+  private silenceAudioForFrozenState(): void {
+    const snap = this.world.getSnapshot();
+    this.audioEngine.update(
+      {
+        ...snap,
+        wantedStars: 0,
+        player: { ...snap.player, mode: 'on_foot' },
+      },
+      0,
+    );
+  }
+
+  private resolveActiveCameraMode(mission: Readonly<MissionSnapshot>): CameraMode {
+    if (mission.mode === 'title' || mission.mode === 'victory') {
+      return 'victory_orbit';
+    }
+    return this.cameraMode;
+  }
+
+  private renderPresentState(dt: number): void {
+    this.renderSnapshots(this.world.getSnapshot(), this.missionDirector.getSnapshot(), dt);
+  }
+
+  private renderSnapshots(
+    worldSnap: Readonly<WorldSnapshot>,
+    missionSnap: Readonly<MissionSnapshot>,
+    dt: number,
+  ): void {
+    const activeCamera = this.resolveActiveCameraMode(missionSnap);
+    this.worldRenderer?.sync(worldSnap, missionSnap, activeCamera, dt);
+    this.hud.render(worldSnap, missionSnap, this.audioEngine.getState(), activeCamera);
+  }
+
+  private attachDebugHook(): void {
+    Object.defineProperty(window, '__GTA_CALI__', {
+      configurable: true,
+      enumerable: true,
+      get: (): GameDebugSnapshot => this.getDebugSnapshot(),
+    });
+  }
+
+  private detachDebugHook(): void {
+    const win = window as { __GTA_CALI__?: GameDebugSnapshot };
+    delete win.__GTA_CALI__;
+  }
+}

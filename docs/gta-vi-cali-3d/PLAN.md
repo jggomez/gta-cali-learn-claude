@@ -2,7 +2,7 @@
 
 - **Tier**: Tier 2 (Standard — Greenfield 3D web game, approved `/plan`, no auth/payments/DB migration)
 - **Data Contract**: `data-source: local-client-simulation` (in-memory 3D simulation + `localStorage` best times/prefs; zero backend)
-- **Status**: `[x] State 0` | `[x] State 1` | `[~] State 2` | `[ ] State 3-4` | `[ ] State 5`
+- **Status**: `[x] State 0` | `[x] State 1` | `[x] State 2` | `[~] State 3-4` | `[ ] State 5`
 
 ## Changes
 | ID | Request | Tier | product | design | arch | e2e | critic/challenger |
