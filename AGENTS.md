@@ -7,6 +7,7 @@ Playable 3D low-poly third-person web game inspired by GTA VI and set in Cali, C
 - **Install**: `npm install`
 - **Dev**: `npm run dev -- --port 4173` (serves `http://localhost:4173`)
 - **Test**: `npm test` (Vitest unit + integration suites)
+- **E2E**: `npx playwright test --config=tests/e2e/playwright.config.mjs` (live Chromium WebGL suite)
 - **Lint / Typecheck**: `npm run typecheck && npm run lint`
 - **Build**: `npm run build` (production Vite bundle in `dist/`)
 

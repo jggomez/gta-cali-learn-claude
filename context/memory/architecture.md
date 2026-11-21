@@ -1,0 +1,6 @@
+# Architecture Summary — GTA VI: Cali
+
+- **ADR-001**: Headless simulation (`src/simulation/`) and mission director (`src/missions/`) import ONLY `src/types/` and `src/config/`; zero `three` or DOM dependencies.
+- **Map Single Source of Truth**: `src/config/caliMap.ts` exports `CALI_MAP` (`-240..+240`), `getTerrainElevation(x, z)` (C1-smooth Cerro Los Cristales climb to 22m + San Antonio terrace), Río Cali + twin bridges (`Puente La Ermita`, `Puente Bulevar Sur`), 6 landmarks, 33 buildings, 16 roads, 3 traffic routes, and 4 police spawns.
+- **Presentation & Audio**: `src/world/worldRenderer.ts` consumes readonly `WorldSnapshot` + `MissionSnapshot` (zero mutations, clean `WebGLUnavailableError`); `src/audio/audioEngine.ts` synthesizes Salsa Brava 98.5 FM, Sucursal Synth 104.3 FM, engine RPM, siren, and SFX with injectable `AudioContextFactory`.
+- **Runtime Root**: `src/game/gameApp.ts` clamps `dt <= 0.05s`, wires `InputManager`, `HudController`, `MinimapRenderer`, and exposes readonly `window.__GTA_CALI__` for E2E verification.
