@@ -1,7 +1,7 @@
 # AGENTS.md — GTA VI: Cali (La Sucursal del Cielo)
 
 ## 1. Project Overview & Tech Stack
-Playable 3D low-poly third-person web game inspired by GTA VI and set in Cali, Colombia, built to demonstrate Gemini and Antigravity. Runs 100% offline in the browser with TypeScript 5 (strict), Vite 6, Three.js (procedural 3D landmarks, vehicles, sunset sky), Web Audio API (procedural Salsa Brava & Synthwave radio + SFX), and Vitest.
+Playable 3D third-person web game inspired by GTA VI and set in Cali, Colombia, built to demonstrate Gemini and Antigravity. Runs 100% offline in the browser with TypeScript 5 (strict), Vite 6, Three.js (local GLBs `ferrari.glb`/`valeria.glb`/`character.glb`, 1K PBR textures, HDRI sunset/night skies, 3D Cali landmarks, SMAA + CinematicGrade + Bloom), Web Audio API + offline Web Speech API (`es-CO` Caleño voices, 5-speed V8/siren/foley, Salsa Brava & Synthwave radio), and Vitest.
 
 ## 2. Executable Commands
 - **Install**: `npm install`

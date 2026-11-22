@@ -1,13 +1,13 @@
 # PLAN — GTA VI: Cali 3D (`feat/gta-vi-cali-3d`)
 
 - **Tier**: Tier 2 (Standard) | **Data Contract**: `data-source: none` (local `public/` assets + offline sim/Web Speech + `localStorage`)
-- **Status**: `C-01..C-06 [x]` | `C-07 [~] State 2 Build`
+- **Status**: `C-01..C-07 [x] DONE` (`qa-tester: DONE`, `e2e-blackbox-tester: PASSED`, `compliance-verifier: APPROVED`)
 
 ## Changes
 | ID | Request | Tier | product | design | arch | e2e | critic/challenger |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | C-01..C-06 | 3D Cali + PBR/Bloom + Ferrari/HDRI + GPS + Day/Night + Free Roam 1/6 + Rigged Peds | Tier 2 | SKIP | DONE | DONE | PASS | SKIP |
-| C-07 | Morena Caleña Valeria (`valeria.glb`), 3D facade relief/SMAA/skidmarks, 5-speed V8/Doppler siren & spoken `es-CO` voices | Tier 2 | SKIP (approved `/plan`) | SKIP (DESIGN.md) | SKIP (ADR-001) | INVOKE (Render+Audio) | SKIP (Tier 2) |
+| C-07 | Morena Caleña Valeria (`valeria.glb`), 3D facade relief/SMAA/skidmarks, 5-speed V8/Doppler siren & spoken `es-CO` voices | Tier 2 | SKIP (approved `/plan`) | SKIP (DESIGN.md) | SKIP (ADR-001) | PASS (35 assets) | SKIP (Tier 2) |
 
 ## C-07 Discovery & Architecture Triage (`Invoke / SKIP`)
 | Specialist | Decision | Rationale |

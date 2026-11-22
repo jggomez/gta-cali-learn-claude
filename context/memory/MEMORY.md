@@ -2,19 +2,21 @@
 
 ## Active Context
 - **Branch**: `feat/gta-vi-cali-3d`
-- **Feature**: `gta-vi-cali-3d` — Playable 3D low-poly GTA VI-inspired web game set in Cali, Colombia (`La Sucursal del Cielo`).
-- **Status**: Changes `C-01`..`C-05` SHIPPED & VERIFIED (`qa-tester: DONE`, `e2e-blackbox-tester: PASSED`, `compliance-verifier: APPROVED`).
-- **Verification**: 11 Vitest suites (137/137 passed), `tsc --noEmit`, `eslint src tests`, `vite build`, and live Playwright Chromium WebGL2 E2E (2/2 journeys across `375/768/1280/1920`, Day M1 + Starlit Night M2 + `KeyT` toggle, 34 local assets HTTP 200, `check_evidence.py` exit `0`).
-- **3 Distinct Modes & Sculpted World (`C-05`)**: M1 *"Golpe en la Torre"* (golden-hour on-foot heist at Torre de Cali -> `★★` alarm -> Ferrari getaway -> La Ermita -> San Antonio hideout), M2 *"Noche de Salsa en Cristo Rey"* (real starlit night + moon + 95s countdown + `+10s`/Nitro turbo rings from Estadio Pascual Guerrero to floodlit Cristo Rey + `time_up` fail), Free Roam at Bulevar del Río + live `[T]` Day/Night toggle; cloned sculpted `ferrari.glb` Police/Taxi liveries, curved MIO/Chiva buses, and zero-BoxGeometry organic pedestrians.
-- **Mission Clarity & Living GTA (`C-04`)**: Dijkstra bridge-safe road GPS (`src/config/roadGraph.ts`), top-center CSS polygon compass + live meters, `PASO X DE Y`, center action banners, 2.0× zoomed radar with `SA/TC/BR/LE/EP/CR` badges, daylight 3D checkpoints + giant floating arrow, 3D props (`vinyl_briefcase`, `mateo_speakers`, `summit_stage`), 3D street GPS chevrons, San Antonio road-slope fix, hijack any Cali vehicle with per-kind handling, 18 walking/fleeing pedestrians, and dynamic Free-Roam police heat/evasion.
-- **Photorealistic Visual Engine (`C-02` + `C-03`)**: 25 MB local `public/` CC0/MIT pack (`ferrari.glb` Rosso Corsa supercar, rigged `character.glb` `Idle/Walk/Run`, `evening_road_01_puresky_1k.hdr` golden-hour HDRI skybox/IBL, local JS Draco decoder, 10 1K photo PBR sets for asphalt/sidewalks/terrain/plaster/roof/facade/palm/jacaranda), `2048px` shadows, subtle HDR `UnrealBloomPass`, GLSL Río Cali water, GPU `ParticleSystem`, and GTA V free-orbit mouse-look + wheel zoom camera with full GPU/listener disposal.
+- **Feature**: `gta-vi-cali-3d` — Playable 3D third-person GTA VI-inspired web game set in Cali, Colombia (`La Sucursal del Cielo`).
+- **Status**: Changes `C-01`..`C-07` SHIPPED & VERIFIED (`qa-tester: DONE`, `e2e-blackbox-tester: PASSED`, `compliance-verifier: APPROVED`).
+- **Verification**: 13 Vitest suites (`181/181` passed), `tsc --noEmit`, `eslint src tests`, `vite build`, and live Playwright Chromium WebGL2 E2E (`2/2` journeys across `375/768/1280/1440/1920`, Day M1 + Starlit Night M2 + Free Roam `PASO 1 DE 6` + `KeyT` + `KeyV` reload persistence, `35` local assets HTTP `200`, `0` errors, `check_evidence.py` exit `0`).
+- **Morena Caleña, Photorealistic 3D & Full GTA Audio (`C-06` + `C-07`)**:
+  - `public/models/valeria.glb` (`Michelle.glb`, 3.13 MB MIT) rigged via `SkeletonUtils.retargetClip` (`Idle`/`Walk`/`Run` + native `SambaDance` at Cristo Rey), warm Morena Caleña calibration, plus 18 diverse rigged civilian pedestrians (`95m` culling) and per-session Free Roam `PASO 1 DE 6` (`la_ermita`).
+  - 3D architectural facade relief (dark daytime / warm-night recessed glass windows, sills, projecting balconies & railings, striped Cali shopfront awnings, corner pilasters, San Antonio colonial terracotta eaves), 4 MIO bus shelters, Bulevar benches/bollards/planters, 16 wet specular road puddles, upgraded La Ermita / Torre de Cali / Cristo Rey, pooled `SkidMarkPool`, and `Render -> UnrealBloom -> Highlight-Safe CinematicGradePass -> SMAAPass -> OutputPass`.
+  - Offline `es-CO` Web Speech API `VoiceEngine` (`src/audio/voiceEngine.ts` + `[V] Voces` HUD pill persisted in `localStorage`) + upgraded `AudioEngine` (5-speed V8/diesel synth with gear shifts, drift screech, collision foley, door slam + ignition, distance/Doppler Wail/Yelp police siren, radio squelch, street murmur).
+- **3 Distinct Modes & Living Cali (`C-04` + `C-05`)**: M1 *"Golpe en la Torre"* (golden-hour on-foot Torre heist -> `★★` -> Ferrari getaway -> La Ermita -> San Antonio hideout), M2 *"Noche de Salsa en Cristo Rey"* (starlit night + 95s countdown + `+10s`/Nitro rings from Estadio Pascual Guerrero to floodlit Cristo Rey), Free Roam at Bulevar del Río + `[T]` Day/Night toggle, Dijkstra GPS, hijack any Cali vehicle, and GTA V free-orbit mouse camera.
 
 ## Key Decisions
-- **Decoupled 3D Engine (ADR-001)**: Headless Three.js/DOM-free `src/simulation/` & `src/missions/` emit immutable readonly snapshots to `src/world/` (Three.js), `src/audio/` (procedural Web Audio API), and `src/ui/` (DOM HUD + 2D GPS minimap).
-- **100% Offline Procedural Assets**: Zero external `.glb`, `.mp3`, font CDNs, or backend HTTP APIs (`data-source: none`; `localStorage` key `gta_cali_records_v1` for best times & radio prefs).
+- **Decoupled 3D Engine (ADR-001)**: Headless Three.js/DOM-free `src/simulation/` & `src/missions/` emit immutable readonly snapshots to `src/world/` (Three.js), `src/audio/` (Web Audio + Web Speech), and `src/ui/` (DOM HUD + 2D GPS minimap).
+- **100% Offline Local Assets**: Zero external runtime CDNs or backend APIs (`data-source: none`; 28 MB local `public/` CC0/MIT pack, max file `3.13 MB < 10 MB`; `localStorage` key `gta_cali_records_v1`).
 - **Language Boundary**: Code, types, comments, docs, and commits strictly in English; authentic Español Caleño player copy isolated in `src/config/localeCali.ts`.
 
 ## Pointers
 - [AGENTS.md](../../AGENTS.md) | [DESIGN.md](../../DESIGN.md)
 - [PLAN.md](../../docs/gta-vi-cali-3d/PLAN.md) | [spec.md](../../docs/gta-vi-cali-3d/spec.md) | [adr-001](../../docs/gta-vi-cali-3d/adr-001-decoupled-3d-simulation.md) | [test-matrix.md](../../docs/gta-vi-cali-3d/test-matrix.md)
-- [architecture.md](./architecture.md) | [conventions.md](./conventions.md) | [log/2026-11-21.md](./log/2026-11-21.md)
+- [architecture.md](./architecture.md) | [conventions.md](./conventions.md) | [log/2026-11-22.md](./log/2026-11-22.md) | [log/2026-11-21.md](./log/2026-11-21.md)
