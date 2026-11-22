@@ -898,6 +898,12 @@ describe('MissionDirector', () => {
     const reloaded = new MissionDirector(CALI_MAP, new StorageAdapter(backing));
     expect(reloaded.getGarageConfig()).toEqual(customGarage);
 
+    // New Cali looks persist too
+    for (const outfit of ['camiseta_seleccion', 'esqueleto_blanco', 'camisa_salsera'] as const) {
+      director.saveGarageConfig({ ...customGarage, outfit });
+      expect(new MissionDirector(CALI_MAP, new StorageAdapter(backing)).getGarageConfig().outfit).toBe(outfit);
+    }
+
     // Corrupt/invalid garage fields in localStorage are strictly sanitized
     backing.setItem(
       STORAGE_KEY,

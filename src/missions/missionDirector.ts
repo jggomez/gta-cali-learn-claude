@@ -65,6 +65,9 @@ const VALID_OUTFITS: ReadonlySet<string> = new Set<CaliOutfitId>([
   'azucarero',
   'tricolor',
   'guayabera',
+  'camiseta_seleccion',
+  'esqueleto_blanco',
+  'camisa_salsera',
 ]);
 
 const VALID_LANDMARKS: ReadonlySet<string> = new Set<LandmarkId>([

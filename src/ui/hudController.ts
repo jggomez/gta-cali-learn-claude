@@ -91,6 +91,9 @@ const GARAGE_OUTFIT_ORDER: readonly CaliOutfitId[] = [
   'azucarero',
   'tricolor',
   'guayabera',
+  'camiseta_seleccion',
+  'esqueleto_blanco',
+  'camisa_salsera',
 ];
 
 interface GaragePaintButtonRef {

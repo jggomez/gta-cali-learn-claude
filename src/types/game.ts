@@ -43,7 +43,10 @@ export type CaliOutfitId =
   | 'escarlata'
   | 'azucarero'
   | 'tricolor'
-  | 'guayabera';
+  | 'guayabera'
+  | 'camiseta_seleccion'
+  | 'esqueleto_blanco'
+  | 'camisa_salsera';
 
 export type TrafficLightPhase =
   | 'ns_green'

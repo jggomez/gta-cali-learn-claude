@@ -728,6 +728,9 @@ describe('HudController', () => {
       'garage-outfit-azucarero',
       'garage-outfit-tricolor',
       'garage-outfit-guayabera',
+      'garage-outfit-camiseta_seleccion',
+      'garage-outfit-esqueleto_blanco',
+      'garage-outfit-camisa_salsera',
       'btn-garage-close',
     ];
     for (const testId of requiredIds) {

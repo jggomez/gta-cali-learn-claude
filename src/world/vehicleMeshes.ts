@@ -8,6 +8,18 @@ import * as THREE from 'three';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { CaliOutfitId, ObjectivePropKind, VehicleKind } from '../types/game';
 import type { LoadedCharacterAsset } from './assetLoader';
+import {
+  VALLECAUCANO_SKIN_TONES,
+  resolveCivilianLook,
+  type CalenoHeadAccessory,
+} from './calenoPeople';
+import {
+  attachCalenoAccessories,
+  createRecoloredValeriaMap,
+  enableSafeFrustumCulling,
+  getSharedVariantMaterial,
+  trimSkinnedGarmentBelow,
+} from './calenoWardrobe';
 
 export type MissionPropKey = Exclude<ObjectivePropKind, 'none'>;
 
@@ -50,53 +62,30 @@ export interface CalenoCharacterOptions {
   readonly pantsHex?: number;
   readonly headwearHex?: number;
   readonly showBeard?: boolean;
+  /** Shows the GLB's Ready Player Me cowboy hat; off by default (not a Cali look). */
   readonly showHeadwear?: boolean;
+  /** Procedural Caleño head accessory attached to the Head bone. */
+  readonly headAccessory?: CalenoHeadAccessory;
+  readonly sunglasses?: boolean;
   readonly heightMeters?: number;
 }
 
 const FERRARI_TARGET_LENGTH_METERS = 4.55;
 const CHARACTER_TARGET_HEIGHT_METERS = 1.78;
 const VALERIA_TARGET_HEIGHT_METERS = 1.7;
-const VALERIA_MORENA_SKIN_HEX = 0xc8906e;
-const VALLECAUCANA_SKIN_PALETTES = [
-  0xd6a078,
-  0xc8906e,
-  0xb87b56,
-  0xa36846,
-  0xddab84,
-  0x915a3c,
-] as const;
-const CALENO_VALLECAUCANO_SKIN_TONES = [
-  0x6e4630, // Deep Afro-Pacific brown
-  0x8c5a3c, // Deep bronze
-  0xa86f4c, // Rich cinnamon
-  0xc48b66, // Warm cinnamon
-  0xd6a47e, // Golden olive
-  0xe4ba98, // Warm tan
-] as const;
-const CALI_CIVILIAN_OUTFITS: readonly CaliOutfitId[] = [
-  'escarlata',
-  'azucarero',
-  'tricolor',
-  'guayabera',
-  'urbano_cali',
-] as const;
+const CALENO_SHIRT_HEM_ABOVE_HIPS_METERS = 0.02;
+const CALENO_DEFAULT_SKIN_HEX = VALLECAUCANO_SKIN_TONES[3] ?? 0xc48b66;
 const CALI_OUTFIT_ACCENT_HEX: Record<CaliJerseyStyle, number> = {
   escarlata: 0xc8102e,
   azucarero: 0x0b7a3e,
   tricolor: 0xf2c200,
   guayabera: 0xf4efe4,
   urbano_cali: 0xff4b7d,
+  camiseta_seleccion: 0xfcd116,
+  esqueleto_blanco: 0xfafafa,
+  camisa_salsera: 0xe23d6e,
   police_uniform: 0x9be61e,
 };
-const CIVILIAN_MALE_WARM_PALETTES = [
-  0xd8b498,
-  0xc69878,
-  0xb8896c,
-  0xe2c0a4,
-  0xa97a5e,
-  0xd0a788,
-] as const;
 
 interface WheelSpec {
   readonly x: number;
@@ -4714,7 +4703,6 @@ export function createRiggedCharacterMesh(
     }
     node.castShadow = true;
     node.receiveShadow = true;
-    node.frustumCulled = false;
 
     if (Array.isArray(node.material)) {
       node.material = node.material.map(cloneCharacterMaterial);
@@ -4741,6 +4729,8 @@ export function createRiggedCharacterMesh(
     );
   }
 
+  group.updateMatrixWorld(true);
+  enableSafeFrustumCulling(innerGroup);
   attachContactShadow(group, 0.85, 0.85, 0.45, 0.025);
 
   const mixer = new THREE.AnimationMixer(clonedScene);
@@ -5357,6 +5347,79 @@ export function createCaliJerseyTexture(
       break;
     }
 
+    case 'camiseta_seleccion': {
+      // Modern Selección Colombia home kit: bright yellow with tonal chevrons, navy collar, red cuffs
+      ctx.fillStyle = '#fcd116';
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = 'rgba(232, 180, 0, 0.35)';
+      for (let y = 40; y < size; y += 48) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(size / 2, y + 22);
+        ctx.lineTo(size, y);
+        ctx.lineTo(size, y + 10);
+        ctx.lineTo(size / 2, y + 32);
+        ctx.lineTo(0, y + 10);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.fillStyle = '#003893';
+      ctx.fillRect(0, 0, size, 20);
+      ctx.fillStyle = '#ce1126';
+      ctx.fillRect(0, 20, size, 6);
+      ctx.fillRect(0, size - 16, size, 16);
+      // FCF crest
+      ctx.fillStyle = '#003893';
+      ctx.beginPath();
+      ctx.arc(330, 120, 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ce1126';
+      ctx.fillRect(318, 116, 24, 8);
+      break;
+    }
+
+    case 'esqueleto_blanco': {
+      // Classic white ribbed "esqueleto" tank top worn on hot Cali afternoons
+      ctx.fillStyle = '#f7f7f4';
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = 'rgba(200, 200, 194, 0.55)';
+      for (let x = 0; x < size; x += 8) {
+        ctx.fillRect(x, 0, 3, size);
+      }
+      ctx.fillStyle = '#e6e6e0';
+      ctx.fillRect(0, 0, size, 14);
+      ctx.fillRect(0, size - 14, size, 14);
+      break;
+    }
+
+    case 'camisa_salsera': {
+      // Fuchsia flowered salsa shirt (Juanchito night out) with cream hibiscus and green leaves
+      ctx.fillStyle = '#d62f63';
+      ctx.fillRect(0, 0, size, size);
+      for (let row = 0; row < 8; row += 1) {
+        for (let col = 0; col < 8; col += 1) {
+          const cx = col * 64 + (row % 2) * 32 + 18;
+          const cy = row * 64 + 26;
+          ctx.fillStyle = '#2f8f4e';
+          ctx.beginPath();
+          ctx.ellipse(cx + 14, cy + 12, 12, 5, 0.6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fff3c4';
+          for (let petal = 0; petal < 5; petal += 1) {
+            const angle = (petal / 5) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.arc(cx + Math.cos(angle) * 8, cy + Math.sin(angle) * 8, 7, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.fillStyle = '#ffc145';
+          ctx.beginPath();
+          ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      break;
+    }
+
     case 'police_uniform': {
       // Authentic Colombian Policía Nacional high-visibility neon-lime tactical vest over navy-emerald
       ctx.fillStyle = '#0e3326';
@@ -5428,14 +5491,15 @@ export function createCalenoCharacterRig(
   const skinToneHex =
     options?.skinToneHex !== undefined && Number.isFinite(options.skinToneHex)
       ? options.skinToneHex
-      : CALENO_VALLECAUCANO_SKIN_TONES[3];
+      : CALENO_DEFAULT_SKIN_HEX;
   const skinTintColor = liftTintForReadableAlbedo(skinToneHex, 0.36);
 
   const pantsHex =
     options?.pantsHex !== undefined && Number.isFinite(options.pantsHex)
       ? options.pantsHex
       : 0x2a3b56;
-  const pantsTintColor = liftTintForReadableAlbedo(pantsHex, 0.32);
+  // Pants albedo is used directly (no texture), so only guard against pitch black
+  const pantsTintColor = liftTintForReadableAlbedo(pantsHex, 0.05);
 
   const headwearHex =
     options?.headwearHex !== undefined && Number.isFinite(options.headwearHex)
@@ -5452,18 +5516,11 @@ export function createCalenoCharacterRig(
       ? options.heightMeters
       : CHARACTER_TARGET_HEIGHT_METERS;
 
-  const jerseyTexture = createCaliJerseyTexture(outfit);
-  let jerseyApplied = false;
   const jerseyFallbackColor = liftTintForReadableAlbedo(CALI_OUTFIT_ACCENT_HEX[outfit], 0.36);
-  const clonedMaterials = new Map<THREE.Material, THREE.Material>();
+  const lookKey = [outfit, skinToneHex, pantsHex, headwearHex].join('|');
 
-  const cloneCalenoMaterial = (nodeName: string, mat: THREE.Material): THREE.Material => {
-    const existing = clonedMaterials.get(mat);
-    if (existing) {
-      return existing;
-    }
-    const copy = mat.clone();
-    const matName = mat.name;
+  const configureCalenoMaterial = (nodeName: string, copy: THREE.Material): void => {
+    const matName = copy.name;
 
     if (copy instanceof THREE.MeshStandardMaterial) {
       if (
@@ -5478,10 +5535,10 @@ export function createCalenoCharacterRig(
         copy.metalness = 0.02;
         copy.envMapIntensity = 0.72;
       } else if (matName === 'Wolf3D_Outfit_Top' || nodeName === 'Wolf3D_Outfit_Top') {
+        const jerseyTexture = createCaliJerseyTexture(outfit);
         if (jerseyTexture) {
           copy.map = jerseyTexture;
           copy.color.setHex(0xffffff);
-          jerseyApplied = true;
         } else {
           copy.color.copy(jerseyFallbackColor);
         }
@@ -5492,6 +5549,8 @@ export function createCalenoCharacterRig(
         copy.envMapIntensity = 0.75;
         copy.needsUpdate = true;
       } else if (matName === 'Wolf3D_Outfit_Bottom' || nodeName === 'Wolf3D_Outfit_Bottom') {
+        // Drop the brown wedding-trouser albedo so jeans/khaki/black read true; keep the normal map folds
+        copy.map = null;
         copy.color.copy(pantsTintColor);
         copy.roughness = 0.84;
         copy.metalness = 0.03;
@@ -5515,10 +5574,10 @@ export function createCalenoCharacterRig(
         copy.envMapIntensity = Math.min(Math.max(copy.envMapIntensity, 0.65), 0.9);
       }
     }
-
-    clonedMaterials.set(mat, copy);
-    return copy;
   };
+
+  const shareCalenoMaterial = (nodeName: string, mat: THREE.Material): THREE.Material =>
+    getSharedVariantMaterial(mat, lookKey, (copy) => configureCalenoMaterial(nodeName, copy));
 
   innerGroup.traverse((node) => {
     if (node.name === 'Wolf3D_Beard') {
@@ -5532,18 +5591,13 @@ export function createCalenoCharacterRig(
     }
     node.castShadow = true;
     node.receiveShadow = true;
-    node.frustumCulled = false;
 
     if (Array.isArray(node.material)) {
-      node.material = node.material.map((m) => cloneCalenoMaterial(node.name, m));
+      node.material = node.material.map((m) => shareCalenoMaterial(node.name, m));
     } else if (node.material instanceof THREE.Material) {
-      node.material = cloneCalenoMaterial(node.name, node.material);
+      node.material = shareCalenoMaterial(node.name, node.material);
     }
   });
-
-  if (jerseyTexture && !jerseyApplied) {
-    jerseyTexture.dispose();
-  }
 
   // Normalize strictly by visible mesh bounds so feet rest cleanly at y = 0 facing +Z
   innerGroup.updateMatrixWorld(true);
@@ -5562,6 +5616,21 @@ export function createCalenoCharacterRig(
       -scaledCenter.z,
     );
   }
+
+  group.updateMatrixWorld(true);
+  // caleno.glb's top is a long wedding tailcoat: trim it into a waist-length jersey/shirt
+  const outfitTop = innerGroup.getObjectByName('Wolf3D_Outfit_Top');
+  const hipsBone = innerGroup.getObjectByName('Hips');
+  if (outfitTop instanceof THREE.SkinnedMesh && hipsBone) {
+    const hipsY = hipsBone.getWorldPosition(new THREE.Vector3()).y;
+    trimSkinnedGarmentBelow(outfitTop, hipsY + CALENO_SHIRT_HEM_ABOVE_HIPS_METERS);
+  }
+  enableSafeFrustumCulling(innerGroup);
+  attachCalenoAccessories(innerGroup, {
+    headAccessory: options?.headAccessory ?? 'none',
+    sunglasses: options?.sunglasses ?? false,
+    capHex: headwearHex,
+  });
 
   attachContactShadow(group, 0.82, 0.82, 0.44, 0.025);
 
@@ -5625,21 +5694,12 @@ export function createValeriaPlayerMesh(
   innerGroup.add(clonedScene);
   group.add(innerGroup);
 
+  // Natural Afro-Caleña skin unless a Vallecaucana tone is requested
   const skinToneHex =
     options?.skinToneHex !== undefined && Number.isFinite(options.skinToneHex)
       ? options.skinToneHex
-      : VALERIA_MORENA_SKIN_HEX;
-  const skinToneColor = new THREE.Color(skinToneHex);
-
-  const chosenOutfit: CaliOutfitId | undefined = options?.outfit;
-  const outfitHex =
-    options?.outfitTintHex ??
-    options?.tintHex ??
-    (chosenOutfit ? CALI_OUTFIT_ACCENT_HEX[chosenOutfit] : undefined);
-  const outfitTintColor =
-    outfitHex !== undefined && Number.isFinite(outfitHex)
-      ? liftTintForReadableAlbedo(outfitHex, 0.48)
-      : null;
+      : undefined;
+  const chosenOutfit: CaliOutfitId = options?.outfit ?? 'urbano_cali';
 
   const targetHeight =
     options?.heightMeters !== undefined &&
@@ -5648,17 +5708,15 @@ export function createValeriaPlayerMesh(
       ? options.heightMeters
       : VALERIA_TARGET_HEIGHT_METERS;
 
-  const clonedMaterials = new Map<THREE.Material, THREE.Material>();
-  const cloneValeriaMaterial = (mat: THREE.Material): THREE.Material => {
-    const existing = clonedMaterials.get(mat);
-    if (existing) {
-      return existing;
-    }
-    const copy = mat.clone();
+  // Per-pixel recolored diffuse atlas (garments only) shared by every rig with the same look,
+  // instead of lerping the whole material, which muddied hair, skin and clothes together.
+  const lookKey = `${chosenOutfit}|${skinToneHex ?? 'natural'}`;
+  const configureValeriaMaterial = (copy: THREE.Material): void => {
     if (copy instanceof THREE.MeshStandardMaterial) {
-      copy.color.lerp(skinToneColor, 0.48);
-      if (outfitTintColor) {
-        copy.color.lerp(outfitTintColor, 0.22);
+      const recolored = createRecoloredValeriaMap(copy.map, chosenOutfit, skinToneHex);
+      if (recolored) {
+        copy.map = recolored;
+        copy.needsUpdate = true;
       }
       copy.roughness = Math.max(copy.roughness, 0.76);
       copy.metalness = Math.min(copy.metalness, 0.03);
@@ -5670,9 +5728,9 @@ export function createValeriaPlayerMesh(
         copy.sheenColor.setHex(0xe8b594);
       }
     }
-    clonedMaterials.set(mat, copy);
-    return copy;
   };
+  const shareValeriaMaterial = (mat: THREE.Material): THREE.Material =>
+    getSharedVariantMaterial(mat, lookKey, configureValeriaMaterial);
 
   innerGroup.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) {
@@ -5680,12 +5738,11 @@ export function createValeriaPlayerMesh(
     }
     node.castShadow = true;
     node.receiveShadow = true;
-    node.frustumCulled = false;
 
     if (Array.isArray(node.material)) {
-      node.material = node.material.map(cloneValeriaMaterial);
+      node.material = node.material.map(shareValeriaMaterial);
     } else if (node.material instanceof THREE.Material) {
-      node.material = cloneValeriaMaterial(node.material);
+      node.material = shareValeriaMaterial(node.material);
     }
   });
 
@@ -5706,6 +5763,8 @@ export function createValeriaPlayerMesh(
     );
   }
 
+  group.updateMatrixWorld(true);
+  enableSafeFrustumCulling(innerGroup);
   attachContactShadow(group, 0.8, 0.8, 0.42, 0.025);
 
   const mixer = new THREE.AnimationMixer(clonedScene);
@@ -5735,7 +5794,7 @@ export function createValeriaPlayerMesh(
     idle.play();
   }
 
-  group.userData.outfit = chosenOutfit ?? 'urbano_cali';
+  group.userData.outfit = chosenOutfit;
   return {
     group,
     mixer,
@@ -5749,11 +5808,10 @@ export function createValeriaPlayerMesh(
 }
 
 /**
- * Creates a diverse rigged Cali civilian pedestrian alternating strictly between realistic
- * adult Caleño (`caleno.glb`) variants (5 Cali outfits, 6 Vallecaucano skin tones, bearded &
- * clean-shaven) and Morena/Afro-Caleña Valeria (`valeria.glb`) variants, using `locomotionSource`
- * (`character.glb`) strictly as a Mixamo clip donor — NEVER rendering sci-fi Soldier armor!
- * Retains backward-compatible 5-arg overload for legacy callers.
+ * Creates a rigged Cali civilian: Caleño men (`caleno.glb`) and Caleña women (`valeria.glb`)
+ * alternate with deterministic street looks (8 Cali outfits, Vallecaucano skin tones, gorras,
+ * rare sombrero vueltiao, sunglasses, beards). `locomotionSource` (`character.glb`) is only a
+ * Mixamo clip donor and is never rendered.
  */
 export function createCivilianPedestrianRig(
   valeriaAsset: LoadedCharacterAsset | null,
@@ -5762,162 +5820,44 @@ export function createCivilianPedestrianRig(
   variantIndex: number,
   shirtColorHex: number,
   pantsColorHex: number,
-): RiggedCharacterRig | null;
-export function createCivilianPedestrianRig(
-  valeriaAsset: LoadedCharacterAsset | null,
-  soldierAsset: LoadedCharacterAsset | null,
-  variantIndex: number,
-  shirtColorHex: number,
-  pantsColorHex: number,
-): RiggedCharacterRig | null;
-export function createCivilianPedestrianRig(
-  valeriaAsset: LoadedCharacterAsset | null,
-  secondAsset: LoadedCharacterAsset | null,
-  locomotionOrVariant: LoadedCharacterAsset | null | number,
-  variantOrShirt: number,
-  shirtOrPants: number,
-  maybePants?: number,
 ): RiggedCharacterRig | null {
-  // 6-arg mode: (valeriaAsset, calenoAsset, locomotionSource, variantIndex, shirtColorHex, pantsColorHex)
-  if (typeof locomotionOrVariant !== 'number') {
-    const calenoAsset = secondAsset;
-    const locomotionSource = locomotionOrVariant;
-    const variantIndex = variantOrShirt;
-    const shirtColorHex = shirtOrPants;
-    const pantsColorHex = maybePants ?? 0x2a3b56;
-
-    // Never fall back to rendering sci-fi locomotionSource armor!
-    if (!valeriaAsset && !calenoAsset) {
-      return null;
-    }
-
-    const safeIndex = Math.abs(
-      Math.floor(Number.isFinite(variantIndex) ? variantIndex : 0),
-    );
-    const useCaleno =
-      calenoAsset !== null && (valeriaAsset === null || safeIndex % 2 === 0);
-
-    if (useCaleno && calenoAsset) {
-      const slot = Math.floor(safeIndex / 2);
-      const skinToneHex =
-        CALENO_VALLECAUCANO_SKIN_TONES[slot % CALENO_VALLECAUCANO_SKIN_TONES.length] ??
-        CALENO_VALLECAUCANO_SKIN_TONES[3];
-      const outfit =
-        CALI_CIVILIAN_OUTFITS[slot % CALI_CIVILIAN_OUTFITS.length] ?? 'urbano_cali';
-      const showBeard = slot % 2 === 0;
-      const showHeadwear = slot % 3 === 1;
-      const heightMeters = 1.72 + ((safeIndex * 5) % 5) * 0.03;
-
-      const rig = createCalenoCharacterRig(calenoAsset, locomotionSource, {
-        skinToneHex,
-        outfit,
-        pantsHex: Number.isFinite(pantsColorHex) ? pantsColorHex : 0x2a3b56,
-        headwearHex: Number.isFinite(shirtColorHex) ? shirtColorHex : CALI_OUTFIT_ACCENT_HEX[outfit],
-        showBeard,
-        showHeadwear,
-        heightMeters,
-      });
-      rig.group.name = 'cali_civilian_caleno';
-      rig.group.userData.civilianVariant = 'caleno';
-      return rig;
-    }
-
-    if (!valeriaAsset) {
-      return null;
-    }
-
-    const slot = Math.floor(safeIndex / 2);
-    const skinToneHex =
-      VALLECAUCANA_SKIN_PALETTES[slot % VALLECAUCANA_SKIN_PALETTES.length] ??
-      VALERIA_MORENA_SKIN_HEX;
-    const outfit =
-      CALI_CIVILIAN_OUTFITS[(slot + 1) % CALI_CIVILIAN_OUTFITS.length] ?? 'urbano_cali';
-    const safeShirt = Number.isFinite(shirtColorHex) ? shirtColorHex : CALI_OUTFIT_ACCENT_HEX[outfit];
-    const outfitColor = liftTintForReadableAlbedo(safeShirt, 0.5);
-    const heightMeters = 1.64 + ((safeIndex * 3) % 5) * 0.03;
-
-    const rig = createValeriaPlayerMesh(valeriaAsset, locomotionSource, {
-      skinToneHex,
-      outfit,
-      outfitTintHex: outfitColor.getHex(),
-      heightMeters,
-    });
-    rig.group.name = 'cali_civilian_valeria';
-    rig.group.userData.civilianVariant = 'valeria';
-    return rig;
-  }
-
-  // Legacy 5-arg mode: (valeriaAsset, soldierAsset, variantIndex, shirtColorHex, pantsColorHex)
-  const soldierAsset = secondAsset;
-  const variantIndex = locomotionOrVariant;
-  const shirtColorHex = variantOrShirt;
-  const pantsColorHex = shirtOrPants;
-
-  if (!valeriaAsset && !soldierAsset) {
+  if (!valeriaAsset && !calenoAsset) {
     return null;
   }
-
   const safeIndex = Math.abs(
     Math.floor(Number.isFinite(variantIndex) ? variantIndex : 0),
   );
-  const useValeria =
-    valeriaAsset !== null && (soldierAsset === null || safeIndex % 2 === 0);
+  const look = resolveCivilianLook(safeIndex);
 
-  if (useValeria && valeriaAsset) {
-    const paletteIndex = Math.floor(safeIndex / 2) % VALLECAUCANA_SKIN_PALETTES.length;
-    const skinToneHex =
-      VALLECAUCANA_SKIN_PALETTES[paletteIndex] ?? VALERIA_MORENA_SKIN_HEX;
-    const safeShirt = Number.isFinite(shirtColorHex) ? shirtColorHex : 0xe8b594;
-    const outfitColor = liftTintForReadableAlbedo(safeShirt, 0.5);
-    const heightMeters = 1.64 + ((safeIndex * 3) % 5) * 0.03;
-
-    const rig = createValeriaPlayerMesh(valeriaAsset, soldierAsset, {
-      skinToneHex,
-      outfitTintHex: outfitColor.getHex(),
+  if (calenoAsset && (look.body === 'caleno' || !valeriaAsset)) {
+    const heightMeters = 1.7 + ((safeIndex * 5) % 5) * 0.03;
+    const rig = createCalenoCharacterRig(calenoAsset, locomotionSource, {
+      skinToneHex: look.skinHex ?? CALENO_DEFAULT_SKIN_HEX,
+      outfit: look.outfit,
+      pantsHex: Number.isFinite(pantsColorHex) ? pantsColorHex : 0x2a3b56,
+      headwearHex: Number.isFinite(shirtColorHex) ? shirtColorHex : CALI_OUTFIT_ACCENT_HEX[look.outfit],
+      showBeard: look.showBeard,
+      showHeadwear: false,
+      headAccessory: look.headAccessory,
+      sunglasses: look.sunglasses,
       heightMeters,
     });
-    rig.group.name = 'cali_civilian_valeria';
-    rig.group.userData.civilianVariant = 'valeria';
+    rig.group.name = 'cali_civilian_caleno';
+    rig.group.userData.civilianVariant = 'caleno';
     return rig;
   }
 
-  if (!soldierAsset) {
+  if (!valeriaAsset) {
     return null;
   }
 
-  const malePaletteIndex = Math.floor(safeIndex / 2) % CIVILIAN_MALE_WARM_PALETTES.length;
-  const warmBase = new THREE.Color(
-    CIVILIAN_MALE_WARM_PALETTES[malePaletteIndex] ?? 0xc69878,
-  );
-  const safeShirt = liftTintForReadableAlbedo(
-    Number.isFinite(shirtColorHex) ? shirtColorHex : 0xd8a888,
-    0.46,
-  );
-  const safePants = liftTintForReadableAlbedo(
-    Number.isFinite(pantsColorHex) ? pantsColorHex : 0x6b7c96,
-    0.38,
-  );
-  const blendedCivilianTint = warmBase.clone().lerp(safeShirt, 0.55).lerp(safePants, 0.15);
-  const heightMeters = 1.72 + ((safeIndex * 5) % 5) * 0.03;
-
-  const rig = createRiggedCharacterMesh(soldierAsset, {
-    tintHex: blendedCivilianTint.getHex(),
-    heightMeters,
+  const rig = createValeriaPlayerMesh(valeriaAsset, locomotionSource, {
+    ...(look.skinHex !== undefined ? { skinToneHex: look.skinHex } : {}),
+    outfit: look.outfit,
+    heightMeters: 1.6 + ((safeIndex * 3) % 5) * 0.03,
   });
-  rig.group.traverse((node) => {
-    if (!(node instanceof THREE.Mesh)) {
-      return;
-    }
-    const mats = Array.isArray(node.material) ? node.material : [node.material];
-    for (const mat of mats) {
-      if (mat instanceof THREE.MeshStandardMaterial) {
-        mat.roughness = Math.max(mat.roughness, 0.74);
-        mat.metalness = Math.min(mat.metalness, 0.06);
-      }
-    }
-  });
-  rig.group.name = 'cali_civilian_male';
-  rig.group.userData.civilianVariant = 'soldier';
+  rig.group.name = 'cali_civilian_valeria';
+  rig.group.userData.civilianVariant = 'valeria';
   return rig;
 }
 
