@@ -12,6 +12,8 @@ import type {
   MissionId,
   MissionStartConfig,
   MissionWaypointsConfig,
+  ParkedVehicleDef,
+  PlayerCarKind,
   PayNSprayZone,
   RiverCorridor,
   RoadblockZone,
@@ -30,6 +32,28 @@ export const DEFAULT_GARAGE_CONFIG: GarageConfig = {
   avatar: 'valeria',
   outfit: 'urbano_cali',
 };
+
+// Record keys make the compiler enforce that every PlayerCarKind is listed (and in Garaje order).
+const PLAYER_CAR_KIND_GARAGE_SLOTS: Readonly<Record<PlayerCarKind, true>> = {
+  renault4_turbo: true,
+  spark_gt_turbo: true,
+  willys_v8: true,
+  banshee: true,
+  mazda_323_coupe: true,
+  renault_18_gtx: true,
+  chevrolet_sprint_turbo: true,
+  chevrolet_monza: true,
+  nissan_sentra_b13: true,
+  chevette_turbo: true,
+  renault_twingo: true,
+  yamaha_rx115: true,
+  yamaha_dt125: true,
+};
+
+/** Every player-selectable Garaje vehicle (cars first, then motos), in display order. */
+export const PLAYER_CAR_KINDS: readonly PlayerCarKind[] = Object.keys(
+  PLAYER_CAR_KIND_GARAGE_SLOTS,
+) as PlayerCarKind[];
 
 const CRISTO_REY_Z = -24;
 const CRISTO_REY_MAX_ELEVATION = 22;
@@ -688,6 +712,102 @@ export const TRAFFIC_ROUTES: readonly TrafficRoute[] = [
       { x: -68, z: 166 },
     ],
   },
+  // Classic Cali "pique" fleet sharing the arterial loops (rotated so spawns never stack)
+  {
+    id: 'route_r18_puentes',
+    vehicleKind: 'renault_18_gtx',
+    speedMps: 14.5,
+    colorHex: 0xf8fafc,
+    accentHex: 0x111827,
+    waypoints: [
+      { x: 58, z: -24 },
+      { x: 58, z: 77 },
+      { x: -4, z: 77 },
+      { x: -4, z: -24 },
+    ],
+  },
+  {
+    id: 'route_sprint_estadio',
+    vehicleKind: 'chevrolet_sprint_turbo',
+    speedMps: 15.0,
+    colorHex: 0xdc2626,
+    accentHex: 0xf8fafc,
+    waypoints: [
+      { x: 174, z: -68 },
+      { x: 174, z: 166 },
+      { x: 96, z: 166 },
+      { x: 96, z: -68 },
+    ],
+  },
+  {
+    id: 'route_monza_americas',
+    vehicleKind: 'chevrolet_monza',
+    speedMps: 14.0,
+    colorHex: 0x1e3a8a,
+    accentHex: 0xcbd5e1,
+    waypoints: [
+      { x: -4, z: -112 },
+      { x: -4, z: 77 },
+      { x: -68, z: 77 },
+      { x: -68, z: -112 },
+    ],
+  },
+  // "Motorizados": RX115 / DT125 motos filtering along a 3 m inner moto lane
+  {
+    id: 'route_moto_rx_centro',
+    vehicleKind: 'yamaha_rx115',
+    speedMps: 17.0,
+    colorHex: 0x1d4ed8,
+    accentHex: 0xf8fafc,
+    waypoints: [
+      { x: -65, z: -21 },
+      { x: -7, z: -21 },
+      { x: -7, z: 33 },
+      { x: -65, z: 33 },
+    ],
+  },
+  {
+    id: 'route_moto_dt_granada',
+    vehicleKind: 'yamaha_dt125',
+    speedMps: 16.0,
+    colorHex: 0xf8fafc,
+    accentHex: 0xdc2626,
+    waypoints: [
+      { x: 99, z: -65 },
+      { x: 171, z: -65 },
+      { x: 171, z: 17 },
+      { x: 99, z: 17 },
+    ],
+  },
+  {
+    id: 'route_moto_rx_sur',
+    vehicleKind: 'yamaha_rx115',
+    speedMps: 15.5,
+    colorHex: 0x111827,
+    accentHex: 0xffb800,
+    waypoints: [
+      { x: -65, z: 80 },
+      { x: -7, z: 80 },
+      { x: -7, z: 163 },
+      { x: -65, z: 163 },
+    ],
+  },
+];
+
+/**
+ * Driverless classics and motos parked street-side (5.5 m off the centerline) across Cali,
+ * ready to hijack with [E]/[F].
+ */
+export const PARKED_VEHICLES: readonly ParkedVehicleDef[] = [
+  { id: 'parked_mazda_323_circunvalar', vehicleKind: 'mazda_323_coupe', x: -62.5, z: 0, heading: 0, colorHex: 0xe11d48, accentHex: 0x111827 },
+  { id: 'parked_rx115_circunvalar', vehicleKind: 'yamaha_rx115', x: -62.5, z: 8, heading: 0, colorHex: 0x1d4ed8, accentHex: 0xf8fafc },
+  { id: 'parked_sentra_colombia', vehicleKind: 'nissan_sentra_b13', x: 1.5, z: 120, heading: Math.PI, colorHex: 0x9ca3af, accentHex: 0x111827 },
+  { id: 'parked_chevette_carrera1', vehicleKind: 'chevette_turbo', x: 63.5, z: 122, heading: 0, colorHex: 0xf59e0b, accentHex: 0x111827 },
+  { id: 'parked_twingo_ermita', vehicleKind: 'renault_twingo', x: 120, z: 25.5, heading: Math.PI / 2, colorHex: 0x10b981, accentHex: 0xf8fafc },
+  { id: 'parked_dt125_ermita', vehicleKind: 'yamaha_dt125', x: 128, z: 25.5, heading: Math.PI / 2, colorHex: 0xf8fafc, accentHex: 0x1d4ed8 },
+  { id: 'parked_monza_quinta', vehicleKind: 'chevrolet_monza', x: -30, z: 82.5, heading: Math.PI / 2, colorHex: 0x7f1d1d, accentHex: 0xe5e7eb },
+  { id: 'parked_rx115_quinta', vehicleKind: 'yamaha_rx115', x: -22, z: 82.5, heading: Math.PI / 2, colorHex: 0xdc2626, accentHex: 0x111827 },
+  { id: 'parked_r18_roosevelt', vehicleKind: 'renault_18_gtx', x: 150, z: 160.5, heading: -Math.PI / 2, colorHex: 0x0f766e, accentHex: 0xf8fafc },
 ];
 
 function createBuilding(
@@ -784,6 +904,7 @@ export const CALI_MAP: CaliMapConfig = {
   missionWaypoints: MISSION_WAYPOINTS,
   policeSpawns: POLICE_SPAWNS,
   trafficRoutes: TRAFFIC_ROUTES,
+  parkedVehicles: PARKED_VEHICLES,
   stuntJumps: STUNT_JUMPS,
   payNSprayZones: PAY_N_SPRAY_ZONES,
   roadblockZones: ROADBLOCK_ZONES,

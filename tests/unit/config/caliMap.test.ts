@@ -130,7 +130,8 @@ describe('CALI_MAP geometry and spatial invariants', () => {
     expect(CALI_MAP.river).toBe(RIVER_CORRIDOR);
     expect(CALI_MAP.buildingColliders).toBe(BUILDING_COLLIDERS);
     expect(CALI_MAP.buildingColliders.length).toBeGreaterThanOrEqual(28);
-    expect(CALI_MAP.trafficRoutes).toHaveLength(6);
+    expect(CALI_MAP.trafficRoutes).toHaveLength(12);
+    expect(CALI_MAP.parkedVehicles?.length).toBeGreaterThanOrEqual(6);
     expect(CALI_MAP.stuntJumps).toBe(STUNT_JUMPS);
     expect(CALI_MAP.payNSprayZones).toBe(PAY_N_SPRAY_ZONES);
     expect(CALI_MAP.roadblockZones).toBe(ROADBLOCK_ZONES);

@@ -21,11 +21,26 @@ export type RadioStationId = 'salsa_brava' | 'sucursal_synth' | 'off';
 
 export type CameraMode = 'chase' | 'cinematic' | 'hood' | 'victory_orbit';
 
+/** Classic (80s-90s) fast Colombian street cars, the typical Cali "pique" fleet. */
+export type ClassicCarKind =
+  | 'mazda_323_coupe'
+  | 'renault_18_gtx'
+  | 'chevrolet_sprint_turbo'
+  | 'chevrolet_monza'
+  | 'nissan_sentra_b13'
+  | 'chevette_turbo'
+  | 'renault_twingo';
+
+/** Playable two-wheelers ("motos"), ubiquitous on Cali streets. */
+export type MotorcycleKind = 'yamaha_rx115' | 'yamaha_dt125';
+
 export type PlayerCarKind =
   | 'renault4_turbo'
   | 'spark_gt_turbo'
   | 'willys_v8'
-  | 'banshee';
+  | 'banshee'
+  | ClassicCarKind
+  | MotorcycleKind;
 
 export type VehicleKind =
   | PlayerCarKind
@@ -221,6 +236,17 @@ export interface TrafficRoute {
   readonly waypoints: readonly Vec2[];
 }
 
+/** A parked, driverless, hijackable vehicle placed at a fixed street-side pose. */
+export interface ParkedVehicleDef {
+  readonly id: string;
+  readonly vehicleKind: Exclude<VehicleKind, 'police'>;
+  readonly x: number;
+  readonly z: number;
+  readonly heading: number;
+  readonly colorHex: number;
+  readonly accentHex?: number;
+}
+
 export interface MissionWaypoint {
   readonly id: string;
   readonly landmarkId: LandmarkId;
@@ -263,6 +289,7 @@ export interface CaliMapConfig {
   readonly missionWaypoints: MissionWaypointsConfig;
   readonly policeSpawns: readonly SpawnPose[];
   readonly trafficRoutes: readonly TrafficRoute[];
+  readonly parkedVehicles?: readonly ParkedVehicleDef[];
   readonly stuntJumps?: readonly StuntJumpDef[];
   readonly payNSprayZones?: readonly PayNSprayZone[];
   readonly roadblockZones?: readonly RoadblockZone[];
@@ -307,6 +334,12 @@ export interface VehicleSnapshot {
   readonly airborneHeight?: number;
   readonly halfWidth: number;
   readonly halfLength: number;
+  /** Two-wheeler body lean in radians (positive = leaning left, same sign as steer). */
+  readonly leanAngle?: number;
+  /** Two-wheeler nose-up wheelie pitch in radians (0 = both wheels grounded). */
+  readonly wheelieAngle?: number;
+  /** True while an NPC rider/driver controls this vehicle (route traffic, not parked or hijacked). */
+  readonly hasNpcDriver?: boolean;
 }
 
 export interface PlayerSnapshot {
