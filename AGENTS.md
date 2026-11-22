@@ -1,7 +1,7 @@
 # AGENTS.md — GTA VI: Cali (La Sucursal del Cielo)
 
 ## 1. Project Overview & Tech Stack
-Playable 3D third-person web game inspired by GTA VI and set in Cali, Colombia, built to demonstrate Gemini and Antigravity. Runs 100% offline in the browser with TypeScript 5 (strict), Vite 6, Three.js (local GLBs `ferrari.glb`/`valeria.glb`/`character.glb`, 1K PBR textures, HDRI sunset/night skies, 3D Cali landmarks, SMAA + CinematicGrade + Bloom), Web Audio API + offline Web Speech API (`es-CO` Caleño voices, 5-speed V8/siren/foley, Salsa Brava & Synthwave radio), and Vitest.
+Playable 3D third-person web game inspired by GTA VI and set in Cali, Colombia, built to demonstrate Gemini and Antigravity. Runs 100% offline in the browser with TypeScript 5 (strict), Vite 6, Three.js (local GLBs `ferrari.glb`/`valeria.glb`/`caleno.glb`/`character.glb`, sculpted fast Colombian fleet + authentic license plates, 1K PBR textures, HDRI sunset/night skies, 3D Cali landmarks, SMAA + CinematicGrade + Bloom), Web Audio API + offline Web Speech API (`es-CO` Caleño voices, turbo BOV/V8/horn/siren/foley, Salsa Brava & Synthwave radio), and Vitest.
 
 ## 2. Executable Commands
 - **Install**: `npm install`
@@ -15,7 +15,7 @@ Playable 3D third-person web game inspired by GTA VI and set in Cali, Colombia, 
 - **Directory Layout**:
   - `src/types/`, `src/config/`: Shared immutable types, Cali map coordinates, and Español Caleño locale strings (`localeCali.ts`).
   - `src/simulation/`: Pure Three.js-free headless physics, AABB collisions, Cali traffic, Police pursuit AI, and `GameWorld`.
-  - `src/missions/`: Pure mission state machine (`mission_1_bulevar`, `mission_2_cristo_rey`, `free_roam`) + `localStorage` scores.
+  - `src/missions/`: Pure mission state machine (`mission_1_bulevar`, `mission_2_cristo_rey`, `mission_3_pique_bulevar`, `free_roam`) + `localStorage` records & Garaje `[G]` config.
   - `src/world/`: Procedural Three.js scene, sunset sky dome, 6 Cali landmarks, vehicle/player meshes, and chase camera.
   - `src/audio/`: Procedural Web Audio API radio stations and SFX (safe no-op when `AudioContext` is absent).
   - `src/ui/`, `src/styles/`: Neon GTA VI HUD, 2D Canvas GPS minimap, dialogue cards, and Title/Pause/Victory screens.
