@@ -28,6 +28,10 @@ export type PlayerMode = 'on_foot' | 'driving';
 
 export type WantedLevel = 0 | 1 | 2 | 3;
 
+export type TimeOfDay = 'golden_hour' | 'night';
+
+export type FailureReason = 'busted' | 'time_up';
+
 export type LandmarkId =
   | 'san_antonio'
   | 'torre_de_cali'
@@ -160,11 +164,22 @@ export interface MissionWaypoint {
   readonly district: string;
 }
 
+export interface MissionStartConfig {
+  readonly playerSpawn: SpawnPose;
+  readonly carSpawn: SpawnPose;
+  readonly startInVehicle: boolean;
+  readonly initialWantedStars: WantedLevel;
+  readonly defaultTimeOfDay: TimeOfDay;
+}
+
 export interface MissionWaypointsConfig {
   readonly mission1Pickup: MissionWaypoint;
   readonly mission1Escape: MissionWaypoint;
   readonly mission1Finish: MissionWaypoint;
+  readonly mission1Hideout: MissionWaypoint;
   readonly mission2Stage: MissionWaypoint;
+  readonly mission2RingBridge: MissionWaypoint;
+  readonly mission2RingBulevar: MissionWaypoint;
   readonly mission2RampEntry: MissionWaypoint;
   readonly mission2Summit: MissionWaypoint;
 }
@@ -177,6 +192,7 @@ export interface CaliMapConfig {
   readonly buildingColliders: readonly AabbCollider[];
   readonly playerStart: SpawnPose;
   readonly playerCarSpawn: SpawnPose;
+  readonly missionStarts: Readonly<Record<MissionId, MissionStartConfig>>;
   readonly missionWaypoints: MissionWaypointsConfig;
   readonly policeSpawns: readonly SpawnPose[];
   readonly trafficRoutes: readonly TrafficRoute[];
@@ -271,6 +287,7 @@ export interface ObjectiveSnapshot {
   readonly bearingDeltaRad?: number | null;
   readonly gpsRoute?: readonly Vec2[];
   readonly propKind?: ObjectivePropKind;
+  readonly requiresOnFoot?: boolean;
 }
 
 export interface DialogueToast {
@@ -300,6 +317,9 @@ export interface MissionSnapshot {
   readonly elapsedSeconds: number;
   readonly lastCompletedTimeSeconds: number | null;
   readonly isNewRecord: boolean;
+  readonly timeOfDay?: TimeOfDay;
+  readonly isCountdown?: boolean;
+  readonly failureReason?: FailureReason | null;
 }
 
 export interface AudioState {

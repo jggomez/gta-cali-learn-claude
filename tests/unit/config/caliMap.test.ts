@@ -3,6 +3,7 @@ import {
   BUILDING_COLLIDERS,
   CALI_MAP,
   LANDMARKS,
+  MISSION_STARTS,
   MISSION_WAYPOINTS,
   PLAYER_CAR_SPAWN,
   PLAYER_START,
@@ -17,7 +18,13 @@ import {
   isPointInRiver,
   isPointOnBridge,
 } from '../../../src/config/caliMap';
-import type { AabbCollider, LandmarkId, RoadSegment, Vec2 } from '../../../src/types/game';
+import type {
+  AabbCollider,
+  LandmarkId,
+  MissionId,
+  RoadSegment,
+  Vec2,
+} from '../../../src/types/game';
 
 function roadToAabb(road: RoadSegment, margin = 0): {
   minX: number;
@@ -310,5 +317,97 @@ describe('CALI_MAP geometry and spatial invariants', () => {
         MISSION_WAYPOINTS.mission2Summit.z,
       ),
     ).toBeCloseTo(22, 2);
+  });
+
+  it('defines distinct, non-colliding, dry-land MISSION_STARTS for all 3 missions', () => {
+    const missionIds: readonly MissionId[] = [
+      'mission_1_bulevar',
+      'mission_2_cristo_rey',
+      'free_roam',
+    ];
+    const minClearance = 2.5;
+
+    expect(CALI_MAP.missionStarts).toBe(MISSION_STARTS);
+
+    for (const missionId of missionIds) {
+      const start = MISSION_STARTS[missionId];
+      expect(start).toBeDefined();
+
+      const poses = [
+        { label: `${missionId}.playerSpawn`, pose: start.playerSpawn },
+        { label: `${missionId}.carSpawn`, pose: start.carSpawn },
+      ];
+
+      for (const { label, pose } of poses) {
+        expect(Number.isFinite(pose.x), `${label}.x finite`).toBe(true);
+        expect(Number.isFinite(pose.z), `${label}.z finite`).toBe(true);
+        expect(Number.isFinite(pose.heading), `${label}.heading finite`).toBe(true);
+        expect(Math.abs(pose.x), `${label}.x inside world`).toBeLessThanOrEqual(WORLD_HALF_SIZE);
+        expect(Math.abs(pose.z), `${label}.z inside world`).toBeLessThanOrEqual(WORLD_HALF_SIZE);
+        expect(isPointInRiver(pose.x, pose.z), `${label} must not be in river`).toBe(false);
+
+        for (const collider of BUILDING_COLLIDERS) {
+          expect(
+            overlapsAabbWithMargin(collider, pose.x, pose.z, minClearance),
+            `${collider.id} violates ${minClearance}m clearance for ${label}`,
+          ).toBe(false);
+        }
+      }
+
+      if (!start.startInVehicle) {
+        const separation = Math.hypot(
+          start.carSpawn.x - start.playerSpawn.x,
+          start.carSpawn.z - start.playerSpawn.z,
+        );
+        expect(
+          separation,
+          `${missionId} on-foot carSpawn must be > 3.5m from playerSpawn`,
+        ).toBeGreaterThan(3.5);
+      }
+    }
+
+    expect(MISSION_STARTS.mission_1_bulevar.startInVehicle).toBe(false);
+    expect(MISSION_STARTS.mission_1_bulevar.initialWantedStars).toBe(0);
+    expect(MISSION_STARTS.mission_1_bulevar.defaultTimeOfDay).toBe('golden_hour');
+
+    expect(MISSION_STARTS.mission_2_cristo_rey.startInVehicle).toBe(true);
+    expect(MISSION_STARTS.mission_2_cristo_rey.initialWantedStars).toBe(3);
+    expect(MISSION_STARTS.mission_2_cristo_rey.defaultTimeOfDay).toBe('night');
+
+    expect(MISSION_STARTS.free_roam.startInVehicle).toBe(false);
+    expect(MISSION_STARTS.free_roam.initialWantedStars).toBe(0);
+    expect(MISSION_STARTS.free_roam.defaultTimeOfDay).toBe('golden_hour');
+  });
+
+  it('defines the 3 new C-05 waypoints clear of buildings and river water', () => {
+    const newWaypoints = [
+      MISSION_WAYPOINTS.mission1Hideout,
+      MISSION_WAYPOINTS.mission2RingBridge,
+      MISSION_WAYPOINTS.mission2RingBulevar,
+    ];
+    const minClearance = 2.5;
+
+    expect(MISSION_WAYPOINTS.mission1Hideout.id).toBe('m1_san_antonio_hideout');
+    expect(MISSION_WAYPOINTS.mission1Hideout.landmarkId).toBe('san_antonio');
+    expect(MISSION_WAYPOINTS.mission2RingBridge.id).toBe('m2_ring_bridge');
+    expect(isPointOnBridge(
+      MISSION_WAYPOINTS.mission2RingBridge.x,
+      MISSION_WAYPOINTS.mission2RingBridge.z,
+    )).toBe(true);
+    expect(MISSION_WAYPOINTS.mission2RingBulevar.id).toBe('m2_ring_bulevar');
+
+    for (const wp of newWaypoints) {
+      expect(Math.abs(wp.x), `${wp.id}.x inside world`).toBeLessThanOrEqual(WORLD_HALF_SIZE);
+      expect(Math.abs(wp.z), `${wp.id}.z inside world`).toBeLessThanOrEqual(WORLD_HALF_SIZE);
+      expect(isPointInRiver(wp.x, wp.z), `${wp.id} must not be in river`).toBe(false);
+      expect(getLandmarkById(wp.landmarkId).id).toBe(wp.landmarkId);
+
+      for (const collider of BUILDING_COLLIDERS) {
+        expect(
+          overlapsAabbWithMargin(collider, wp.x, wp.z, minClearance),
+          `${collider.id} violates ${minClearance}m clearance for ${wp.id}`,
+        ).toBe(false);
+      }
+    }
   });
 });

@@ -8,6 +8,8 @@ import type {
   CaliMapConfig,
   LandmarkDef,
   LandmarkId,
+  MissionId,
+  MissionStartConfig,
   MissionWaypointsConfig,
   RiverCorridor,
   RoadSegment,
@@ -355,6 +357,30 @@ export const PLAYER_CAR_SPAWN: SpawnPose = {
   heading: Math.PI / 2,
 };
 
+export const MISSION_STARTS: Readonly<Record<MissionId, MissionStartConfig>> = {
+  mission_1_bulevar: {
+    playerSpawn: { x: -24, z: -112, heading: Math.PI / 2 },
+    carSpawn: { x: -16, z: -102, heading: 0 },
+    startInVehicle: false,
+    initialWantedStars: 0,
+    defaultTimeOfDay: 'golden_hour',
+  },
+  mission_2_cristo_rey: {
+    playerSpawn: { x: 122, z: 77, heading: -Math.PI / 2 },
+    carSpawn: { x: 122, z: 77, heading: -Math.PI / 2 },
+    startInVehicle: true,
+    initialWantedStars: 3,
+    defaultTimeOfDay: 'night',
+  },
+  free_roam: {
+    playerSpawn: { x: 6, z: 14, heading: Math.PI / 2 },
+    carSpawn: { x: -4, z: 18, heading: Math.PI },
+    startInVehicle: false,
+    initialWantedStars: 0,
+    defaultTimeOfDay: 'golden_hour',
+  },
+};
+
 export const MISSION_WAYPOINTS: MissionWaypointsConfig = {
   mission1Pickup: {
     id: 'm1_torre_pickup',
@@ -380,6 +406,14 @@ export const MISSION_WAYPOINTS: MissionWaypointsConfig = {
     radius: 14,
     district: 'Iglesia La Ermita',
   },
+  mission1Hideout: {
+    id: 'm1_san_antonio_hideout',
+    landmarkId: 'san_antonio',
+    x: -82,
+    z: 36,
+    radius: 15,
+    district: 'Barrio San Antonio',
+  },
   mission2Stage: {
     id: 'm2_estadio_stage',
     landmarkId: 'estadio_pascual',
@@ -387,6 +421,22 @@ export const MISSION_WAYPOINTS: MissionWaypointsConfig = {
     z: 77,
     radius: 15,
     district: 'Estadio Pascual Guerrero',
+  },
+  mission2RingBridge: {
+    id: 'm2_ring_bridge',
+    landmarkId: 'bulevar_del_rio',
+    x: 35,
+    z: 77,
+    radius: 16,
+    district: 'Bulevar del Río',
+  },
+  mission2RingBulevar: {
+    id: 'm2_ring_bulevar',
+    landmarkId: 'bulevar_del_rio',
+    x: -4,
+    z: 16,
+    radius: 16,
+    district: 'Bulevar del Río',
   },
   mission2RampEntry: {
     id: 'm2_cristo_rey_ramp',
@@ -545,6 +595,7 @@ export const CALI_MAP: CaliMapConfig = {
   buildingColliders: BUILDING_COLLIDERS,
   playerStart: PLAYER_START,
   playerCarSpawn: PLAYER_CAR_SPAWN,
+  missionStarts: MISSION_STARTS,
   missionWaypoints: MISSION_WAYPOINTS,
   policeSpawns: POLICE_SPAWNS,
   trafficRoutes: TRAFFIC_ROUTES,

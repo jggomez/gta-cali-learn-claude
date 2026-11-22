@@ -9,6 +9,7 @@ import type {
   LandmarkId,
   MissionId,
   RadioStationId,
+  TimeOfDay,
   VehicleKind,
 } from '../types/game';
 
@@ -50,15 +51,16 @@ export const LOCALE_CALI = {
     { keys: 'F', action: 'Subir o bajar del carro' },
     { keys: 'R', action: 'Cambiar emisora FM' },
     { keys: 'C', action: 'Cambiar cámara' },
+    { keys: 'T', action: 'Cambiar Día / Noche' },
     { keys: 'Esc', action: 'Pausa' },
   ] as readonly ControlHintItem[],
 
   missions: {
     mission_1_bulevar: {
-      title: 'Fuga en el Bulevar',
+      title: 'Golpe en la Torre',
       subtitle: 'Misión 01 · Centro & Río Cali',
       description:
-        'Recoge el vinilo maestro en la Torre de Cali, atraviesa el Bulevar del Río y escapa de la tomba rumbo a La Ermita.',
+        'Roba a pie el vinilo maestro frente a la Torre de Cali, escapa en el Ferrari por el Puente de La Ermita y escóndete en San Antonio.',
       rewardCop: 250_000,
       badge: 'Misión 1',
     },
@@ -66,7 +68,7 @@ export const LOCALE_CALI = {
       title: 'Noche de Salsa en Cristo Rey',
       subtitle: 'Misión 02 · Estadio & Cerro Los Cristales',
       description:
-        'Recoge a Mateo y los parlantes frente al Estadio Pascual Guerrero y sube a toda mecha hasta el Mirador de Cristo Rey.',
+        'Carrera nocturna contrarreloj (95s) desde el Estadio Pascual Guerrero con anillos de turbo y persecución hasta Cristo Rey iluminado.',
       rewardCop: 500_000,
       badge: 'Misión 2',
     },
@@ -90,12 +92,30 @@ export const LOCALE_CALI = {
       bulevarDetail: '¡La tomba activó el operativo! Baja por la Avenida Colombia.',
       escapeLabel: 'Escapa hacia la Iglesia La Ermita',
       escapeDetail: 'Cruza el Puente de La Ermita, esquiva las patrullas y llega al atrio.',
+      heistOnFootLabel: 'Roba a pie el vinilo maestro en la Torre de Cali',
+      heistOnFootDetail:
+        'Acércate a pie al maletín dorado en Avenida Las Américas frente a la Torre.',
+      boardGetawayLabel: 'Súbete al Ferrari de escape',
+      boardGetawayDetail:
+        '¡Sonó la alarma! Corre al deportivo en la esquina y presiona [F] para escapar.',
+      crossBridgeLabel: 'Cruza el Puente de La Ermita',
+      crossBridgeDetail:
+        'Baja por Avenida Colombia, esquiva la tomba y cruza el Río Cali rumbo a La Ermita.',
+      hideoutLabel: 'Escóndete en Barrio San Antonio',
+      hideoutDetail:
+        'Regresa al oeste con el vinilo y resguárdate en la casa segura de San Antonio.',
     },
     mission2: {
       enterVehicleLabel: 'Prende motores para la rumba',
       enterVehicleDetail: 'Presiona [F] para subirte al deportivo y activar el nitro.',
       stageLabel: 'Recoge a Mateo en el Estadio Pascual',
       stageDetail: 'Cruza el puente sur hacia la Calle 5 frente al Estadio Pascual Guerrero.',
+      ringBridgeLabel: 'Atraviesa el anillo de turbo en Puente Bulevar Sur',
+      ringBridgeDetail:
+        'Lánzate al oeste por Calle 5 y cruza el anillo sobre el Río Cali (+15s y Nitro).',
+      ringBulevarLabel: 'Cruza el anillo de turbo en el Bulevar del Río',
+      ringBulevarDetail:
+        'Acelera al norte por Avenida Colombia hacia el segundo anillo (+15s y Nitro).',
       rampLabel: 'Toma la rampa hacia Cristo Rey',
       rampDetail:
         'Gira al oeste en Av. Circunvalar (Calle 13) para subir al Cerro Los Cristales.',
@@ -134,9 +154,29 @@ export const LOCALE_CALI = {
       speaker: 'mateo' as const,
       text: '¡Coronamos, parce! Nadie nos alcanza en la Sucursal del Cielo. ¡Ahora vamos por Cristo Rey!',
     },
+    m1Alarm: {
+      speaker: 'valeria' as const,
+      text: '¡Tengo el vinilo maestro, parce! Saltó la alarma de la Torre: ¡corre al Ferrari antes de que llegue la tomba!',
+    },
+    m1EscapeCar: {
+      speaker: 'mateo' as const,
+      text: '¡Eso es, ve! Písalo por Avenida Colombia, cruza el Puente de La Ermita y nos escondemos en San Antonio.',
+    },
     m2Intro: {
       speaker: 'mateo' as const,
       text: '¡Esta noche retumba toda Cali! Pasa por mí al Estadio Pascual Guerrero que tengo los parlantes listos.',
+    },
+    m2Launch: {
+      speaker: 'mateo' as const,
+      text: '¡Reloj corriendo, oís! Salimos del Pascual con la tomba encima: atraviesa los anillos de turbo hasta Cristo Rey.',
+    },
+    m2Ring1: {
+      speaker: 'valeria' as const,
+      text: '¡Qué chimba de pique por el Puente Bulevar Sur! Quince segundos extra y nitro lleno: dale al Bulevar del Río.',
+    },
+    m2Ring2: {
+      speaker: 'mateo' as const,
+      text: '¡Segundo anillo coronado, parce! Enfila por Av. Circunvalar que la rampa a Cristo Rey está iluminada.',
     },
     m2Stage: {
       speaker: 'mateo' as const,
@@ -185,9 +225,29 @@ export const LOCALE_CALI = {
       title: '¡BULEVAR SUPERADO!',
       subtitle: 'Cruza el Puente de La Ermita para escapar.',
     },
+    m1HeistAlarm: {
+      title: '¡ALARMA EN LA TORRE!',
+      subtitle: '¡Vinilo robado! Corre al Ferrari y escapa de la tomba.',
+    },
+    m1Boarded: {
+      title: '¡FERRARI EN MARCHA!',
+      subtitle: 'Cruza el Puente de La Ermita a toda mecha.',
+    },
+    m1Bridge: {
+      title: '¡PUENTE SUPERADO!',
+      subtitle: 'Escóndete con el vinilo en Barrio San Antonio.',
+    },
     m2Start: {
       title: 'NOCHE DE SALSA',
       subtitle: 'Recoge a Mateo frente al Estadio Pascual Guerrero.',
+    },
+    m2Launch: {
+      title: '¡CONTRARRELOJ NOCTURNA!',
+      subtitle: '95 segundos desde el Pascual hasta Cristo Rey.',
+    },
+    m2RingBonus: {
+      title: '¡ANILLO DE TURBO +15s!',
+      subtitle: 'Nitro recargado — sigue a toda mecha por Cali.',
     },
     m2Stage: {
       title: '¡PARLANTES A BORDO!',
@@ -196,6 +256,16 @@ export const LOCALE_CALI = {
     m2Ramp: {
       title: '¡RUMBO A CRISTO REY!',
       subtitle: 'Sube a toda mecha por el Cerro Los Cristales.',
+    },
+    timeChanged: {
+      day: {
+        title: 'ATARDECER EN CALI',
+        subtitle: 'Cielo dorado sobre La Sucursal del Cielo.',
+      },
+      night: {
+        title: 'NOCHE CALEÑA',
+        subtitle: 'Luces neón, farolas y salsa bajo las estrellas.',
+      },
     },
     freeRoamWanted: {
       title: '¡ALERTA DE LA TOMBA!',
@@ -228,6 +298,11 @@ export const LOCALE_CALI = {
     hood: 'Cámara: Capó',
     victory_orbit: 'Cámara: Mirador',
   } as Readonly<Record<CameraMode, string>>,
+
+  timeOfDayLabels: {
+    golden_hour: 'Atardecer',
+    night: 'Noche',
+  } as Readonly<Record<TimeOfDay, string>>,
 
   landmarks: {
     san_antonio: 'Barrio San Antonio',
@@ -271,6 +346,7 @@ export const LOCALE_CALI = {
     radioHint: '[R] Radio',
     pauseHint: '[Esc] Pausa',
     cameraHint: '[C] Cámara',
+    timeToggleHint: '[T] Día/Noche',
   },
 
   overlays: {
@@ -298,6 +374,13 @@ export const LOCALE_CALI = {
       title: '¡Te agarró la tomba!',
       subtitle: 'Las patrullas te cerraron el paso en las calles de Cali. ¡Inténtalo otra vez, ve!',
       retry: 'Reintentar Misión',
+      backToTitle: 'Volver al Menú',
+    },
+    timeUp: {
+      title: '¡Se acabó el tiempo!',
+      subtitle:
+        'El reloj llegó a cero antes de coronar la fiesta en Cristo Rey. ¡Métele más nitro, ve!',
+      retry: 'Reintentar Carrera',
       backToTitle: 'Volver al Menú',
     },
     victory: {
