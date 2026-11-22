@@ -47,7 +47,10 @@ export type SurfaceRole =
   | 'palm_bark'
   | 'palm_leaves'
   | 'jacaranda_bark'
-  | 'jacaranda_leaves';
+  | 'jacaranda_leaves'
+  | 'stucco'
+  | 'concrete'
+  | 'terracotta_plaster';
 
 interface NightEmissiveSpec {
   readonly dayIntensity: number;
@@ -1876,6 +1879,51 @@ function attachBuildingRooftopDetails(
 
 const COLONIAL_WARM_TINTS = [0xf4ead8, 0xf0dfca, 0xead4b9, 0xf6efe2] as const;
 const DOWNTOWN_STONE_TINTS = [0xdcd5c9, 0xd1c7b8, 0xc9c2b8, 0xd8cec2] as const;
+const COLONIAL_TERRACOTTA_TINTS = [0xf3d6bd, 0xeac3a2, 0xf6dcc6] as const;
+/** Mango, coral, turquoise, lime, rosa and lilac stucco seen across Granada and El Peñón. */
+const CALI_PASTEL_STUCCO_TINTS = [
+  0xf6c66b, 0xf2957a, 0x7fc8c2, 0xc4d97a, 0xe9a2b8, 0xb9a6dc,
+] as const;
+const CENTRO_CONCRETE_TINTS = [0xd9d2c4, 0xcfc8bb, 0xe0d8c8, 0xc8c4bc] as const;
+const TOWER_CONCRETE_TINT = 0xc9ccd0;
+const TOWER_MIN_HEIGHT_METERS = 22;
+
+export interface BuildingFacadeFinish {
+  readonly role: SurfaceRole;
+  readonly tintHex: number;
+}
+
+function pickTint(tints: readonly number[], hash: number, fallback: number): number {
+  return tints[hash % tints.length] ?? fallback;
+}
+
+/**
+ * Chooses the photographic facade finish and tint of a building by Cali district:
+ * colonial San Antonio / Oeste whitewash or terracotta, colorful Granada / El Peñón stucco,
+ * worn Centro concrete with some masonry, and concrete for towers.
+ */
+export function resolveBuildingFacadeFinish(
+  bldg: Pick<AabbCollider, 'id' | 'height'>,
+): BuildingFacadeFinish {
+  const hash = hashBuildingIndex(bldg.id);
+  if (bldg.id.startsWith('bldg_san_antonio') || bldg.id.startsWith('bldg_oeste')) {
+    return hash % 3 === 0
+      ? {
+          role: 'terracotta_plaster',
+          tintHex: pickTint(COLONIAL_TERRACOTTA_TINTS, hash, 0xf3d6bd),
+        }
+      : { role: 'stucco', tintHex: pickTint(COLONIAL_WARM_TINTS, hash, 0xf4ead8) };
+  }
+  if (bldg.height >= TOWER_MIN_HEIGHT_METERS) {
+    return { role: 'concrete', tintHex: TOWER_CONCRETE_TINT };
+  }
+  if (bldg.id.startsWith('bldg_granada') || bldg.id.startsWith('bldg_penon')) {
+    return { role: 'stucco', tintHex: pickTint(CALI_PASTEL_STUCCO_TINTS, hash, 0xf6c66b) };
+  }
+  return hash % 3 === 0
+    ? { role: 'facade', tintHex: pickTint(DOWNTOWN_STONE_TINTS, hash, 0xdcd5c9) }
+    : { role: 'concrete', tintHex: pickTint(CENTRO_CONCRETE_TINTS, hash, 0xd9d2c4) };
+}
 
 function hashBuildingIndex(id: string): number {
   let acc = 0;
@@ -2482,17 +2530,9 @@ function createSingleBuilding(
     },
   );
 
-  if (style === 'colonial_stucco') {
-    facadeMat.userData.surfaceRole = 'plaster' satisfies SurfaceRole;
-    facadeMat.userData.photoTintHex =
-      COLONIAL_WARM_TINTS[bldgHash % COLONIAL_WARM_TINTS.length] ?? 0xf4ead8;
-  } else {
-    facadeMat.userData.surfaceRole = 'facade' satisfies SurfaceRole;
-    facadeMat.userData.photoTintHex =
-      style === 'modern_glass'
-        ? 0xadb4be
-        : (DOWNTOWN_STONE_TINTS[bldgHash % DOWNTOWN_STONE_TINTS.length] ?? 0xdcd5c9);
-  }
+  const finish = resolveBuildingFacadeFinish(bldg);
+  facadeMat.userData.surfaceRole = finish.role;
+  facadeMat.userData.photoTintHex = finish.tintHex;
 
   const verticalRepeat =
     style === 'modern_glass' ? Math.max(1, Math.round(totalHeight / 22)) : 1;
@@ -4561,6 +4601,39 @@ function buildPhotoRoleProfiles(
       normalScale: 0.8,
       envMapIntensity: 0.6,
     },
+    stucco: {
+      textureSet: textures.stucco,
+      repeatX: 1.5,
+      repeatY: 1.5,
+      defaultTintHex: 0xf4ead8,
+      roughness: 0.96,
+      metalness: 0.0,
+      normalScale: 0.7,
+      envMapIntensity: 0.6,
+      clearEmissive: true,
+    },
+    concrete: {
+      textureSet: textures.concrete,
+      repeatX: 1.5,
+      repeatY: 1.5,
+      defaultTintHex: 0xd9d2c4,
+      roughness: 0.93,
+      metalness: 0.04,
+      normalScale: 0.9,
+      envMapIntensity: 0.7,
+      clearEmissive: true,
+    },
+    terracotta_plaster: {
+      textureSet: textures.terracottaPlaster,
+      repeatX: 1.5,
+      repeatY: 1.5,
+      defaultTintHex: 0xf3d6bd,
+      roughness: 0.95,
+      metalness: 0.0,
+      normalScale: 0.85,
+      envMapIntensity: 0.6,
+      clearEmissive: true,
+    },
   };
 }
 
@@ -4575,7 +4648,10 @@ function isSurfaceRole(value: unknown): value is SurfaceRole {
     value === 'palm_bark' ||
     value === 'palm_leaves' ||
     value === 'jacaranda_bark' ||
-    value === 'jacaranda_leaves'
+    value === 'jacaranda_leaves' ||
+    value === 'stucco' ||
+    value === 'concrete' ||
+    value === 'terracotta_plaster'
   );
 }
 

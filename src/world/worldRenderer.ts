@@ -128,12 +128,14 @@ const DEFAULT_DETAIL_DRAW_DISTANCE_METERS = 140;
 const DAY_TONE_MAPPING_EXPOSURE = 0.94;
 const NIGHT_TONE_MAPPING_EXPOSURE = 1.12;
 const DAY_BACKGROUND_INTENSITY = 0.72;
+const DAY_LDR_SKY_BACKGROUND_INTENSITY = 0.96;
 const NIGHT_BACKGROUND_INTENSITY = 1.0;
 const DAY_HDRI_ENVIRONMENT_INTENSITY = 0.98;
 const DAY_FALLBACK_ENVIRONMENT_INTENSITY = 0.82;
 const NIGHT_ENVIRONMENT_INTENSITY = 0.24;
-const DAY_FOG_COLOR_HEX = 0xc9916a;
-const DAY_FOG_DENSITY = 0.00105;
+// Warm apricot aerial perspective of the 5 pm "brisa caleña" haze over the valley
+const DAY_FOG_COLOR_HEX = 0xd6a47a;
+const DAY_FOG_DENSITY = 0.0013;
 const NIGHT_FOG_COLOR_HEX = 0x090d1f;
 const NIGHT_FOG_DENSITY = 0.0023;
 const FLOATING_ARROW_BASE_Y = 8.0;
@@ -160,6 +162,7 @@ export interface AtmosphereConfig {
 export function resolveAtmosphereConfig(
   timeOfDay: TimeOfDay,
   hasHdriEnvironment: boolean,
+  hasTonemappedSkyBackground = false,
 ): AtmosphereConfig {
   const isNight = timeOfDay === 'night';
   return {
@@ -168,7 +171,9 @@ export function resolveAtmosphereConfig(
       : DAY_TONE_MAPPING_EXPOSURE,
     backgroundIntensity: isNight
       ? NIGHT_BACKGROUND_INTENSITY
-      : DAY_BACKGROUND_INTENSITY,
+      : hasTonemappedSkyBackground
+        ? DAY_LDR_SKY_BACKGROUND_INTENSITY
+        : DAY_BACKGROUND_INTENSITY,
     environmentIntensity: isNight
       ? NIGHT_ENVIRONMENT_INTENSITY
       : hasHdriEnvironment
@@ -652,6 +657,7 @@ export class WorldRenderer {
   private readonly lightingGroup: THREE.Group;
   private environmentMap: THREE.Texture | null;
   private hdriEnvTexture: THREE.Texture | null = null;
+  private skyBackgroundTexture: THREE.Texture | null = null;
   private loadedAssets: LoadedWorldAssets | null = null;
   private ferrariTemplate: THREE.Group | null = null;
   private characterAsset: LoadedCharacterAsset | null = null;
@@ -915,13 +921,15 @@ export class WorldRenderer {
 
   private applyAtmosphereForTimeOfDay(timeOfDay: TimeOfDay): void {
     const isNight = timeOfDay === 'night';
+    const skyBackground = this.skyBackgroundTexture ?? this.hdriEnvTexture;
     const atmosphere = resolveAtmosphereConfig(
       timeOfDay,
       this.hdriEnvTexture !== null,
+      this.skyBackgroundTexture !== null,
     );
 
-    this.skyDome.visible = isNight || !this.hdriEnvTexture;
-    this.scene.background = isNight ? null : this.hdriEnvTexture;
+    this.skyDome.visible = isNight || !skyBackground;
+    this.scene.background = isNight ? null : skyBackground;
     this.scene.backgroundIntensity = atmosphere.backgroundIntensity;
     this.scene.environmentIntensity = atmosphere.environmentIntensity;
     this.scene.fog = new THREE.FogExp2(
@@ -1176,6 +1184,7 @@ export class WorldRenderer {
     this.scene.environment = null;
     this.hdriEnvTexture?.dispose();
     this.hdriEnvTexture = null;
+    this.skyBackgroundTexture = null;
     this.environmentMap?.dispose();
     this.environmentMap = null;
 
@@ -1195,7 +1204,9 @@ export class WorldRenderer {
 
   private async loadRealWorldAssets(): Promise<void> {
     try {
-      const assets = await loadWorldAssets();
+      const assets = await loadWorldAssets(undefined, {
+        maxAnisotropy: this.renderer.capabilities.getMaxAnisotropy(),
+      });
 
       if (this.disposed) {
         assets.dispose();
@@ -1215,8 +1226,11 @@ export class WorldRenderer {
   private applyLoadedAssets(assets: LoadedWorldAssets): void {
     this.loadedAssets = assets;
 
+    this.skyBackgroundTexture = assets.skyBackgroundTexture;
     if (assets.hdriTexture) {
       this.applyHdriEnvironment(assets.hdriTexture);
+    } else if (assets.skyBackgroundTexture) {
+      this.applyAtmosphereForTimeOfDay(this.currentTimeOfDay);
     }
 
     applyPhotographicAssets(this.worldGroup, assets.textures);
@@ -1266,7 +1280,8 @@ export class WorldRenderer {
 
       this.hdriEnvTexture = envTex;
       this.scene.environment = envTex;
-      this.scene.backgroundBlurriness = 0.015;
+      // Blurriness > 0 would route the 2K sky through a low-res PMREM, so keep it crisp
+      this.scene.backgroundBlurriness = this.skyBackgroundTexture ? 0 : 0.015;
       this.applyAtmosphereForTimeOfDay(this.currentTimeOfDay);
 
       if (this.environmentMap) {

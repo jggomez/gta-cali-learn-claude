@@ -518,7 +518,7 @@ export function createSunsetLighting(): THREE.Group {
   hemisphere.name = 'sunset_hemisphere_light';
   lightGroup.add(hemisphere);
 
-  const sunLight = new THREE.DirectionalLight(0xffe0b5, 2.85);
+  const sunLight = new THREE.DirectionalLight(0xffd39c, 3.0);
   sunLight.name = 'sunset_key_light';
   sunLight.position.copy(SUN_SHADOW_OFFSET);
   sunLight.castShadow = true;
@@ -557,8 +557,8 @@ export function setLightingTimeOfDay(
     lightingGroup.userData.keyLight ??
     lightingGroup.getObjectByName('sunset_key_light');
   if (keyLight instanceof THREE.DirectionalLight) {
-    keyLight.color.setHex(isNight ? 0x7da2ff : 0xffe0b5);
-    keyLight.intensity = isNight ? 0.65 : 2.85;
+    keyLight.color.setHex(isNight ? 0x7da2ff : 0xffd39c);
+    keyLight.intensity = isNight ? 0.65 : 3.0;
   }
 
   const hemisphere = lightingGroup.getObjectByName('sunset_hemisphere_light');

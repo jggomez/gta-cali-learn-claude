@@ -678,8 +678,8 @@ describe('photorealistic golden-hour lighting, free-orbit camera, photographic P
     const skyRim = lighting.getObjectByName('sunset_sky_rim') as THREE.DirectionalLight | undefined;
 
     expect(keyLight).toBeInstanceOf(THREE.DirectionalLight);
-    expect(keyLight?.color.getHex()).toBe(0xffe0b5);
-    expect(keyLight?.intensity).toBeCloseTo(2.85, 2);
+    expect(keyLight?.color.getHex()).toBe(0xffd39c);
+    expect(keyLight?.intensity).toBeCloseTo(3.0, 2);
 
     expect(hemi).toBeInstanceOf(THREE.HemisphereLight);
     expect(hemi?.color.getHex()).toBe(0x9bc4e8);
@@ -736,7 +736,7 @@ describe('photorealistic golden-hour lighting, free-orbit camera, photographic P
     expect(Math.abs(orbit.pitchOffset)).toBeLessThan(0.1);
   });
 
-  it('upgrades all 10 Cali surface roles in-place via applyPhotographicAssets and handles null slots safely', () => {
+  it('upgrades all 13 Cali surface roles in-place via applyPhotographicAssets and handles null slots safely', () => {
     const { group } = buildCaliWorld(CALI_MAP);
     const textures: LoadedWorldTextureSets = {
       asphalt: createMockPbrMaps(),
@@ -749,6 +749,9 @@ describe('photorealistic golden-hour lighting, free-orbit camera, photographic P
       palmLeaves: createMockPbrMaps(),
       jacarandaBark: createMockPbrMaps(),
       jacarandaLeaves: createMockPbrMaps(),
+      stucco: createMockPbrMaps(),
+      concrete: createMockPbrMaps(),
+      terracottaPlaster: createMockPbrMaps(),
     };
 
     applyPhotographicAssets(group, textures);
@@ -783,6 +786,9 @@ describe('photorealistic golden-hour lighting, free-orbit camera, photographic P
       palmLeaves: null,
       jacarandaBark: null,
       jacarandaLeaves: null,
+      stucco: null,
+      concrete: null,
+      terracottaPlaster: null,
     };
     expect(() => applyPhotographicAssets(group, nullTextures)).not.toThrow();
 
@@ -1061,8 +1067,8 @@ describe('starlit night lighting, sculpted Ferrari liveries, curved buses/chivas
     expect(skyRim.intensity).toBeCloseTo(0.25, 2);
 
     setLightingTimeOfDay(lighting, 'golden_hour');
-    expect(keyLight.color.getHex()).toBe(0xffe0b5);
-    expect(keyLight.intensity).toBeCloseTo(2.85, 2);
+    expect(keyLight.color.getHex()).toBe(0xffd39c);
+    expect(keyLight.intensity).toBeCloseTo(3.0, 2);
     expect(hemi.color.getHex()).toBe(0x9bc4e8);
     expect(hemi.groundColor.getHex()).toBe(0x6b5240);
     expect(hemi.intensity).toBeCloseTo(0.9, 2);

@@ -892,8 +892,9 @@ describe('CinematicGradePass and post-processing grading', () => {
     expect(dayHdri.toneMappingExposure).toBeCloseTo(0.94, 3);
     expect(dayHdri.backgroundIntensity).toBeCloseTo(0.72, 3);
     expect(dayHdri.environmentIntensity).toBeCloseTo(0.98, 3);
-    expect(dayHdri.fogColorHex).toBe(0xc9916a);
-    expect(dayHdri.fogDensity).toBeCloseTo(0.00105, 5);
+    // Warm 5 pm "brisa caleña" haze: apricot aerial perspective slightly denser than plain sunset fog
+    expect(dayHdri.fogColorHex).toBe(0xd6a47a);
+    expect(dayHdri.fogDensity).toBeCloseTo(0.0013, 5);
 
     const dayFallback = resolveAtmosphereConfig('golden_hour', false);
     expect(dayFallback.toneMappingExposure).toBeCloseTo(0.94, 3);
@@ -906,6 +907,12 @@ describe('CinematicGradePass and post-processing grading', () => {
     expect(nightHdri.environmentIntensity).toBeCloseTo(0.24, 3);
     expect(nightHdri.fogColorHex).toBe(0x090d1f);
     expect(nightHdri.fogDensity).toBeCloseTo(0.0023, 5);
+
+    // The 2K sky background is an already tonemapped sRGB JPEG, so it is shown near full intensity
+    const dayLdrSky = resolveAtmosphereConfig('golden_hour', true, true);
+    expect(dayLdrSky.backgroundIntensity).toBeGreaterThan(0.9);
+    expect(dayLdrSky.backgroundIntensity).toBeLessThanOrEqual(1);
+    expect(resolveAtmosphereConfig('night', true, true).backgroundIntensity).toBeCloseTo(1.0, 3);
   });
 });
 
