@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { CALI_MAP } from '../../../src/config/caliMap';
+import { CALI_MAP, getTerrainElevation } from '../../../src/config/caliMap';
 import type {
   CameraMode,
   VehicleKind,
@@ -27,7 +27,10 @@ import {
 } from '../../../src/world/sceneSetup';
 import {
   createFerrariPlayerMesh,
+  createGpsChevronMesh,
+  createMissionPropMeshes,
   createObjectiveBeacon,
+  createPedestrianMesh,
   createPlayerMesh,
   createRiggedCharacterMesh,
   createVehicleMesh,
@@ -35,6 +38,7 @@ import {
 import {
   WorldRenderer,
   disposeObjectTree,
+  sampleGpsRoutePose,
 } from '../../../src/world/worldRenderer';
 
 function countGeometryVertices(root: THREE.Object3D): number {
@@ -839,5 +843,170 @@ describe('photorealistic golden-hour lighting, free-orbit camera, photographic P
     rig.mixer.uncacheRoot(rig.mixer.getRoot());
     disposeObjectTree(rig.group);
     disposeObjectTree(asset.scene);
+  });
+});
+
+describe('daylight checkpoints, 3D mission props, GPS chevrons, pedestrians, and San Antonio road conformance', () => {
+  it('adds a bold floating downward GTA arrow (7-9m height) to createObjectiveBeacon while preserving ring/beam contracts', () => {
+    const beacon = createObjectiveBeacon();
+
+    expect(beacon.userData.targetRing).toBeInstanceOf(THREE.Object3D);
+    expect(beacon.userData.lightBeam).toBeInstanceOf(THREE.Object3D);
+    expect(Array.isArray(beacon.userData.beamMaterials)).toBe(true);
+    expect((beacon.userData.beamMaterials as THREE.Material[]).length).toBeGreaterThanOrEqual(3);
+
+    const floatingArrow = beacon.userData.floatingArrow as THREE.Object3D | undefined;
+    expect(floatingArrow).toBeInstanceOf(THREE.Object3D);
+    expect(countGeometryVertices(floatingArrow!)).toBeGreaterThan(0);
+    expect(floatingArrow!.position.y).toBeGreaterThanOrEqual(7);
+    expect(floatingArrow!.position.y).toBeLessThanOrEqual(9);
+
+    disposeObjectTree(beacon);
+  });
+
+  it('builds all 3 physical 3D mission props (vinyl_briefcase, mateo_speakers, summit_stage) with animated sub-parts', () => {
+    const props = createMissionPropMeshes();
+
+    expect(Object.keys(props).sort()).toEqual([
+      'mateo_speakers',
+      'summit_stage',
+      'vinyl_briefcase',
+    ]);
+
+    for (const [key, prop] of Object.entries(props)) {
+      expect(prop, `prop ${key} should be THREE.Group`).toBeInstanceOf(THREE.Group);
+      expect(countGeometryVertices(prop), `prop ${key} should have vertices`).toBeGreaterThan(50);
+      const box = new THREE.Box3().setFromObject(prop);
+      expect(box.min.y).toBeGreaterThanOrEqual(-0.05);
+      expect(box.min.y).toBeLessThanOrEqual(0.15);
+    }
+
+    expect(props.vinyl_briefcase.userData.spinningRecord).toBeInstanceOf(THREE.Object3D);
+    expect(props.mateo_speakers.userData.wavingArm).toBeInstanceOf(THREE.Object3D);
+    expect(Array.isArray(props.mateo_speakers.userData.wooferCones)).toBe(true);
+    expect((props.mateo_speakers.userData.wooferCones as THREE.Object3D[]).length).toBeGreaterThanOrEqual(2);
+    expect(Array.isArray(props.summit_stage.userData.equalizerBars)).toBe(true);
+    expect((props.summit_stage.userData.equalizerBars as THREE.Object3D[]).length).toBeGreaterThanOrEqual(4);
+
+    for (const prop of Object.values(props)) {
+      disposeObjectTree(prop);
+    }
+  });
+
+  it('builds a road-hugging GPS chevron mesh and articulated shadow-casting pedestrian meshes', () => {
+    const chevron = createGpsChevronMesh();
+    expect(chevron).toBeInstanceOf(THREE.Group);
+    expect(countGeometryVertices(chevron)).toBeGreaterThan(0);
+    expect(chevron.userData.glowMaterial).toBeInstanceOf(THREE.Material);
+    disposeObjectTree(chevron);
+
+    const pedestrian = createPedestrianMesh(0xff6b35, 0x1e3a5f);
+    expect(pedestrian).toBeInstanceOf(THREE.Group);
+    expect(countGeometryVertices(pedestrian)).toBeGreaterThan(0);
+    expect(pedestrian.userData.leftLeg).toBeInstanceOf(THREE.Object3D);
+    expect(pedestrian.userData.rightLeg).toBeInstanceOf(THREE.Object3D);
+    expect(pedestrian.userData.leftArm).toBeInstanceOf(THREE.Object3D);
+    expect(pedestrian.userData.rightArm).toBeInstanceOf(THREE.Object3D);
+
+    let shadowCasters = 0;
+    pedestrian.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.castShadow) {
+        shadowCasters += 1;
+      }
+    });
+    expect(shadowCasters).toBeGreaterThanOrEqual(4);
+
+    const pedBox = new THREE.Box3().setFromObject(pedestrian);
+    expect(pedBox.min.y).toBeCloseTo(0, 1);
+    expect(pedBox.max.y).toBeGreaterThan(1.4);
+    expect(pedBox.max.y).toBeLessThan(2.0);
+    disposeObjectTree(pedestrian);
+  });
+
+  it('conforms road meshes smoothly to getTerrainElevation across the San Antonio intersection (-68, 36) without vertical slab lips', () => {
+    const { group } = buildCaliWorld(CALI_MAP);
+    group.updateMatrixWorld(true);
+
+    const terrain = group.getObjectByName('cali_terrain') as THREE.Mesh | undefined;
+    const circunvalar = group.getObjectByName('road_av_circunvalar');
+    const sanAntonio = group.getObjectByName('road_calle_san_antonio');
+
+    expect(terrain).toBeInstanceOf(THREE.Mesh);
+    expect(circunvalar).toBeInstanceOf(THREE.Group);
+    expect(sanAntonio).toBeInstanceOf(THREE.Group);
+
+    const circunvalarSurface = circunvalar?.children[0] as THREE.Mesh | undefined;
+    const sanAntonioSurface = sanAntonio?.children[0] as THREE.Mesh | undefined;
+    expect(circunvalarSurface).toBeInstanceOf(THREE.Mesh);
+    expect(sanAntonioSurface).toBeInstanceOf(THREE.Mesh);
+
+    const raycaster = new THREE.Raycaster();
+    const down = new THREE.Vector3(0, -1, 0);
+    const sampleSurfaceY = (target: THREE.Object3D, x: number, z: number): number | null => {
+      raycaster.set(new THREE.Vector3(x, 50, z), down);
+      const hits = raycaster.intersectObject(target, false);
+      return hits[0]?.point.y ?? null;
+    };
+
+    const intersectionPoints: readonly (readonly [number, number])[] = [
+      [-74, 36],
+      [-72, 36],
+      [-70, 36],
+      [-68, 36],
+      [-66, 36],
+      [-64, 36],
+      [-62.5, 36],
+      [-61, 36],
+      [-68, 31],
+      [-68, 41],
+    ];
+
+    for (const [x, z] of intersectionPoints) {
+      const expectedTerrainY = getTerrainElevation(x, z);
+      const nsY = sampleSurfaceY(circunvalarSurface!, x, z);
+      const ewY = sampleSurfaceY(sanAntonioSurface!, x, z);
+      const terrainMeshY = sampleSurfaceY(terrain!, x, z);
+
+      expect(nsY, `av_circunvalar missing surface at (${x}, ${z})`).not.toBeNull();
+      expect(ewY, `calle_san_antonio missing surface at (${x}, ${z})`).not.toBeNull();
+      expect(terrainMeshY, `terrain missing surface at (${x}, ${z})`).not.toBeNull();
+
+      // Both roads must conform tightly to getTerrainElevation(x, z) + ROAD_OFFSET (~0.07..0.10m)
+      expect(Math.abs(nsY! - (expectedTerrainY + 0.08))).toBeLessThan(0.05);
+      expect(Math.abs(ewY! - (expectedTerrainY + 0.08))).toBeLessThan(0.05);
+
+      // Tiny tier offset (~0.008m) between N-S and E-W roads — zero 0.15m+ slab lip
+      expect(Math.abs(nsY! - ewY!)).toBeLessThan(0.03);
+
+      // Road asphalt must sit strictly above the displaced terrain triangles (zero dirt clip)
+      expect(ewY!).toBeGreaterThan(terrainMeshY!);
+      expect(nsY!).toBeGreaterThan(terrainMeshY!);
+    }
+
+    disposeObjectTree(group);
+  });
+
+  it('samples 3D GPS chevron poses and headings cleanly along multi-segment routes', () => {
+    const route = [
+      { x: -68, z: 36 },
+      { x: -68, z: 36 }, // degenerate duplicate point should be skipped safely
+      { x: -4, z: 36 }, // 64m east (+X -> heading +PI/2)
+      { x: -4, z: -24 }, // 60m north (-Z -> heading PI)
+    ] as const;
+
+    const firstSegment = sampleGpsRoutePose(route, 10);
+    expect(firstSegment).not.toBeNull();
+    expect(firstSegment!.x).toBeCloseTo(-58, 3);
+    expect(firstSegment!.z).toBeCloseTo(36, 3);
+    expect(firstSegment!.heading).toBeCloseTo(Math.PI / 2, 4);
+
+    const secondSegment = sampleGpsRoutePose(route, 74);
+    expect(secondSegment).not.toBeNull();
+    expect(secondSegment!.x).toBeCloseTo(-4, 3);
+    expect(secondSegment!.z).toBeCloseTo(26, 3);
+    expect(Math.abs(secondSegment!.heading)).toBeCloseTo(Math.PI, 4);
+
+    expect(sampleGpsRoutePose(route, 200)).toBeNull();
+    expect(sampleGpsRoutePose([], 10)).toBeNull();
   });
 });

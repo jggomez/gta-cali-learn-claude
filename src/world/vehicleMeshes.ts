@@ -6,8 +6,10 @@
 
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
-import type { VehicleKind } from '../types/game';
+import type { ObjectivePropKind, VehicleKind } from '../types/game';
 import type { LoadedCharacterAsset } from './assetLoader';
+
+export type MissionPropKey = Exclude<ObjectivePropKind, 'none'>;
 
 export interface RiggedCharacterActions {
   readonly idle?: THREE.AnimationAction;
@@ -2172,62 +2174,129 @@ export function createRiggedCharacterMesh(
 }
 
 /**
- * Creates a bloom-ready holographic mission light pillar paired with a spinning ground target ring
- * and hovering downward chevron indicator.
+ * Creates a bold 2D-to-3D extruded downward arrow geometry centered on Z = 0.
+ */
+function createDownwardArrowGeometry(
+  scale = 1,
+  depth = 0.48,
+): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape();
+  shape.moveTo(0, -1.55 * scale);
+  shape.lineTo(1.42 * scale, 0.04 * scale);
+  shape.lineTo(0.6 * scale, 0.04 * scale);
+  shape.lineTo(0.6 * scale, 1.32 * scale);
+  shape.lineTo(-0.6 * scale, 1.32 * scale);
+  shape.lineTo(-0.6 * scale, 0.04 * scale);
+  shape.lineTo(-1.42 * scale, 0.04 * scale);
+  shape.closePath();
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: true,
+    bevelThickness: 0.06 * scale,
+    bevelSize: 0.05 * scale,
+    bevelSegments: 2,
+  });
+  geometry.translate(0, 0, -depth * 0.5);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/**
+ * Creates a flat road-hugging 3D V-chevron geometry lying in the XZ plane pointing toward +Z.
+ */
+function createRoadChevronGeometry(
+  halfWidth: number,
+  length: number,
+  thickness: number,
+  height: number,
+): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape();
+  shape.moveTo(0, length * 0.5);
+  shape.lineTo(halfWidth, -length * 0.5);
+  shape.lineTo(halfWidth - thickness, -length * 0.5);
+  shape.lineTo(0, length * 0.5 - thickness * 1.15);
+  shape.lineTo(-(halfWidth - thickness), -length * 0.5);
+  shape.lineTo(-halfWidth, -length * 0.5);
+  shape.closePath();
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: height,
+    bevelEnabled: false,
+  });
+  // Rotate so shape +Y maps to world +Z and extrusion depth goes along +Y
+  geometry.rotateX(Math.PI / 2);
+  geometry.translate(0, height * 0.5, 0);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/**
+ * Creates a high-contrast daylight-visible GTA mission checkpoint beacon:
+ * vivid ground ring with dark contrasting trim, 12m translucent glowing cylinder wall,
+ * sky light pillar, and a giant 3D floating downward chevron arrow bobbing 7-9m overhead.
  */
 export function createObjectiveBeacon(): THREE.Group {
   const group = new THREE.Group();
   group.name = 'objective_beacon';
 
-  const outerBeamMat = new THREE.MeshBasicMaterial({
-    color: 0x00f0ff,
-    transparent: true,
-    opacity: 0.22,
+  const darkTrimMat = new THREE.MeshBasicMaterial({
+    color: 0x0b0d14,
     side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
+  });
+  const outerBeamMat = new THREE.MeshBasicMaterial({
+    color: 0xffc400,
+    transparent: true,
+    opacity: 0.24,
+    side: THREE.DoubleSide,
     depthWrite: false,
   });
   const innerBeamMat = new THREE.MeshBasicMaterial({
-    color: 0x00f0ff,
+    color: 0xffc400,
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.48,
     side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const wallMat = new THREE.MeshBasicMaterial({
+    color: 0xffc400,
+    transparent: true,
+    opacity: 0.34,
+    side: THREE.DoubleSide,
     depthWrite: false,
   });
   const ringMat = new THREE.MeshBasicMaterial({
-    color: 0x00f0ff,
-    transparent: true,
-    opacity: 0.92,
-    side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const chevronMat = new THREE.MeshBasicMaterial({
-    color: 0x00f0ff,
+    color: 0xffc400,
     transparent: true,
     opacity: 0.96,
     side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
+  const arrowMat = new THREE.MeshStandardMaterial({
+    color: 0xffc400,
+    emissive: 0xffc400,
+    emissiveIntensity: 1.15,
+    roughness: 0.22,
+    metalness: 0.18,
+  });
 
-  // Soft vertical volumetric light pillar
+  // Tall daylight-visible sky beacon pillar
   const lightBeam = new THREE.Group();
   lightBeam.name = 'objective_light_beam';
 
-  addMesh(lightBeam, new THREE.CylinderGeometry(1.18, 1.55, 64, 18, 1, true), outerBeamMat, {
+  addMesh(lightBeam, new THREE.CylinderGeometry(0.95, 1.38, 64, 18, 1, true), outerBeamMat, {
     y: 32,
     castShadow: false,
     receiveShadow: false,
   });
-  addMesh(lightBeam, new THREE.CylinderGeometry(0.4, 0.56, 64, 14, 1, true), innerBeamMat, {
+  addMesh(lightBeam, new THREE.CylinderGeometry(0.36, 0.54, 64, 14, 1, true), innerBeamMat, {
     y: 32,
     castShadow: false,
     receiveShadow: false,
   });
-  for (const ringY of [5, 13, 24] as const) {
-    addMesh(lightBeam, new THREE.TorusGeometry(1.42, 0.06, 8, 28), innerBeamMat, {
+  for (const ringY of [15, 25, 36] as const) {
+    addMesh(lightBeam, new THREE.TorusGeometry(1.42, 0.08, 8, 28), ringMat, {
       y: ringY,
       rx: Math.PI / 2,
       castShadow: false,
@@ -2236,60 +2305,700 @@ export function createObjectiveBeacon(): THREE.Group {
   }
   group.add(lightBeam);
 
-  // Spinning ground holographic target ring + hovering pulsing chevron
+  // High-contrast GTA ground checkpoint ring + 12m glowing vertical cylinder wall
   const targetRing = new THREE.Group();
   targetRing.name = 'objective_target_ring';
-  targetRing.position.y = 0.28;
+  targetRing.position.y = 0.22;
 
-  addMesh(targetRing, new THREE.TorusGeometry(3.2, 0.16, 10, 32), ringMat, {
+  // Dark contrasting outer trim ring so golden/cyan ring pops cleanly over bright sunlit asphalt
+  addMesh(targetRing, new THREE.TorusGeometry(3.56, 0.22, 10, 36), darkTrimMat, {
     rx: Math.PI / 2,
     castShadow: false,
     receiveShadow: false,
   });
-  addMesh(targetRing, new THREE.RingGeometry(1.85, 2.28, 32), ringMat, {
+  addMesh(targetRing, new THREE.TorusGeometry(3.2, 0.25, 12, 36), ringMat, {
+    rx: Math.PI / 2,
+    castShadow: false,
+    receiveShadow: false,
+  });
+  addMesh(targetRing, new THREE.RingGeometry(2.05, 2.56, 36), ringMat, {
     rx: -Math.PI / 2,
     castShadow: false,
     receiveShadow: false,
   });
 
-  // Holographic 3D downward chevron floating above target center
-  const chevronArmGeo = new THREE.BoxGeometry(1.35, 0.24, 0.24);
-  addMesh(targetRing, chevronArmGeo, chevronMat, {
-    x: -0.44,
-    y: 2.85,
-    rz: -Math.PI / 4,
+  // Translucent glowing 12m vertical GTA checkpoint cylinder wall
+  addMesh(targetRing, new THREE.CylinderGeometry(3.18, 3.18, 12, 32, 1, true), wallMat, {
+    y: 6.0,
     castShadow: false,
     receiveShadow: false,
   });
-  addMesh(targetRing, chevronArmGeo, chevronMat, {
-    x: 0.44,
-    y: 2.85,
-    rz: Math.PI / 4,
-    castShadow: false,
-    receiveShadow: false,
-  });
-  addMesh(targetRing, new THREE.OctahedronGeometry(0.42, 0), chevronMat, {
-    y: 3.9,
+  addMesh(targetRing, new THREE.TorusGeometry(3.18, 0.09, 8, 32), ringMat, {
+    y: 12.0,
+    rx: Math.PI / 2,
     castShadow: false,
     receiveShadow: false,
   });
 
-  // Perimeter diamond markers
-  const markerGeo = new THREE.OctahedronGeometry(0.42, 0);
+  // Bold perimeter diamond markers with contrasting bases
+  const markerGeo = new THREE.OctahedronGeometry(0.45, 0);
+  const markerRimGeo = new THREE.TorusGeometry(0.36, 0.07, 6, 16);
   for (let i = 0; i < 4; i += 1) {
     const angle = (i / 4) * Math.PI * 2;
+    const mx = Math.cos(angle) * 3.2;
+    const mz = Math.sin(angle) * 3.2;
     addMesh(targetRing, markerGeo, ringMat, {
-      x: Math.cos(angle) * 3.2,
-      y: 0.85,
-      z: Math.sin(angle) * 3.2,
+      x: mx,
+      y: 0.9,
+      z: mz,
+      castShadow: false,
+      receiveShadow: false,
+    });
+    addMesh(targetRing, markerRimGeo, darkTrimMat, {
+      x: mx,
+      y: 0.3,
+      z: mz,
+      rx: Math.PI / 2,
       castShadow: false,
       receiveShadow: false,
     });
   }
   group.add(targetRing);
 
+  // Giant bold 3D floating downward GTA chevron arrow (bobbing 7-9m above ground)
+  const floatingArrow = new THREE.Group();
+  floatingArrow.name = 'objective_floating_arrow';
+  floatingArrow.position.y = 8.0;
+
+  addMesh(floatingArrow, createDownwardArrowGeometry(1.0, 0.5), arrowMat, {
+    name: 'floating_arrow_core',
+    castShadow: false,
+    receiveShadow: false,
+  });
+  // Dark high-contrast silhouette outline frame for instant readability against bright HDRI sky
+  addMesh(floatingArrow, createDownwardArrowGeometry(1.1, 0.32), darkTrimMat, {
+    name: 'floating_arrow_trim',
+    castShadow: false,
+    receiveShadow: false,
+  });
+  // Secondary upper chevron wing accentuating the downward pointer
+  const upperWingGeo = new THREE.BoxGeometry(1.55, 0.34, 0.36);
+  for (const side of [-1, 1] as const) {
+    addMesh(floatingArrow, upperWingGeo, arrowMat, {
+      x: side * 0.56,
+      y: 1.95,
+      rz: side * (Math.PI / 5),
+      castShadow: false,
+      receiveShadow: false,
+    });
+  }
+  group.add(floatingArrow);
+
   group.userData.lightBeam = lightBeam;
   group.userData.targetRing = targetRing;
-  group.userData.beamMaterials = [outerBeamMat, innerBeamMat, ringMat, chevronMat];
+  group.userData.floatingArrow = floatingArrow;
+  group.userData.beamMaterials = [
+    outerBeamMat,
+    innerBeamMat,
+    wallMat,
+    ringMat,
+    arrowMat,
+  ];
+  return group;
+}
+
+function buildVinylBriefcaseProp(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'mission_prop_vinyl_briefcase';
+
+  const pedestalMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1c26,
+    roughness: 0.38,
+    metalness: 0.55,
+  });
+  const goldGlowMat = new THREE.MeshStandardMaterial({
+    color: 0xffc400,
+    emissive: 0xffb300,
+    emissiveIntensity: 1.15,
+    roughness: 0.24,
+    metalness: 0.65,
+  });
+  const aluminumMat = new THREE.MeshPhysicalMaterial({
+    color: 0xd8e0ec,
+    metalness: 0.9,
+    roughness: 0.2,
+    clearcoat: 0.7,
+    clearcoatRoughness: 0.12,
+  });
+  const velvetMat = new THREE.MeshStandardMaterial({
+    color: 0x2b0c18,
+    roughness: 0.92,
+    metalness: 0.04,
+  });
+  const goldVinylMat = new THREE.MeshPhysicalMaterial({
+    color: 0xffc830,
+    emissive: 0xd48c00,
+    emissiveIntensity: 0.45,
+    metalness: 0.88,
+    roughness: 0.16,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.08,
+  });
+  const grooveMat = new THREE.MeshStandardMaterial({
+    color: 0x6b4500,
+    metalness: 0.7,
+    roughness: 0.3,
+  });
+  const labelMat = new THREE.MeshStandardMaterial({
+    color: 0xe61c45,
+    emissive: 0x8f0d28,
+    emissiveIntensity: 0.55,
+    roughness: 0.32,
+  });
+  const chromeMat = createChromeMaterial();
+
+  // Stepped obsidian pedestal with glowing gold collar rings
+  addMesh(group, new THREE.CylinderGeometry(1.05, 1.2, 0.24, 24), pedestalMat, { y: 0.12 });
+  addMesh(group, new THREE.CylinderGeometry(0.68, 0.84, 0.66, 20), pedestalMat, { y: 0.57 });
+  addMesh(group, new THREE.CylinderGeometry(0.86, 0.78, 0.1, 24), pedestalMat, { y: 0.94 });
+  addMesh(group, new THREE.TorusGeometry(1.08, 0.045, 8, 28), goldGlowMat, {
+    y: 0.24,
+    rx: Math.PI / 2,
+    castShadow: false,
+  });
+  addMesh(group, new THREE.TorusGeometry(0.84, 0.04, 8, 28), goldGlowMat, {
+    y: 0.96,
+    rx: Math.PI / 2,
+    castShadow: false,
+  });
+
+  // Open brushed metallic aluminum heist briefcase resting atop pedestal
+  const briefcase = new THREE.Group();
+  briefcase.name = 'heist_briefcase';
+  briefcase.position.set(0, 1.0, 0);
+
+  // Lower case shell + velvet interior + front handle & clasps
+  addMesh(briefcase, new THREE.BoxGeometry(1.1, 0.16, 0.76), aluminumMat, { y: 0.08 });
+  addMesh(briefcase, new THREE.BoxGeometry(0.98, 0.05, 0.64), velvetMat, { y: 0.15 });
+  addMesh(briefcase, new THREE.BoxGeometry(0.32, 0.06, 0.08), chromeMat, { y: 0.08, z: 0.42 });
+  for (const sx of [-0.36, 0.36] as const) {
+    addMesh(briefcase, new THREE.BoxGeometry(0.1, 0.08, 0.04), goldGlowMat, {
+      x: sx,
+      y: 0.12,
+      z: 0.39,
+      castShadow: false,
+    });
+  }
+
+  // Hinged open upper lid tilted back ~102 deg
+  const lidPivot = new THREE.Group();
+  lidPivot.position.set(0, 0.16, -0.37);
+  lidPivot.rotation.x = -1.78;
+  addMesh(lidPivot, new THREE.BoxGeometry(1.1, 0.11, 0.76), aluminumMat, { y: 0.055, z: 0.37 });
+  addMesh(lidPivot, new THREE.BoxGeometry(0.98, 0.04, 0.64), velvetMat, { y: 0.01, z: 0.37 });
+  briefcase.add(lidPivot);
+  group.add(briefcase);
+
+  // Hovering spinning golden Salsa vinyl LP record above the open briefcase
+  const spinningRecord = new THREE.Group();
+  spinningRecord.name = 'golden_salsa_vinyl';
+  const recordBaseY = 1.95;
+  spinningRecord.position.set(0, recordBaseY, 0.04);
+
+  addMesh(spinningRecord, new THREE.CylinderGeometry(0.56, 0.56, 0.035, 32), goldVinylMat, {
+    rx: Math.PI / 2,
+  });
+  for (const grooveR of [0.34, 0.44, 0.51] as const) {
+    addMesh(spinningRecord, new THREE.TorusGeometry(grooveR, 0.012, 6, 28), grooveMat, {
+      z: 0.02,
+      castShadow: false,
+    });
+    addMesh(spinningRecord, new THREE.TorusGeometry(grooveR, 0.012, 6, 28), grooveMat, {
+      z: -0.02,
+      castShadow: false,
+    });
+  }
+  addMesh(spinningRecord, new THREE.CylinderGeometry(0.19, 0.19, 0.046, 20), labelMat, {
+    rx: Math.PI / 2,
+    castShadow: false,
+  });
+  addMesh(spinningRecord, new THREE.CylinderGeometry(0.035, 0.035, 0.055, 10), pedestalMat, {
+    rx: Math.PI / 2,
+    castShadow: false,
+  });
+  addMesh(spinningRecord, new THREE.TorusGeometry(0.68, 0.025, 8, 32), goldGlowMat, {
+    castShadow: false,
+  });
+  group.add(spinningRecord);
+
+  attachContactShadow(group, 2.7, 2.7, 0.5, 0.025);
+
+  group.userData.spinningRecord = spinningRecord;
+  group.userData.recordBaseY = recordBaseY;
+  return group;
+}
+
+function buildMateoSpeakersProp(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'mission_prop_mateo_speakers';
+
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xc9885c, roughness: 0.64 });
+  const jacketMat = new THREE.MeshStandardMaterial({
+    color: 0x167a8a,
+    roughness: 0.48,
+    metalness: 0.08,
+  });
+  const shirtMat = new THREE.MeshStandardMaterial({ color: 0xf4f0e8, roughness: 0.62 });
+  const jeansMat = new THREE.MeshStandardMaterial({ color: 0x24344d, roughness: 0.84 });
+  const capMat = new THREE.MeshStandardMaterial({ color: 0xd62d28, roughness: 0.52 });
+  const shoeMat = new THREE.MeshStandardMaterial({ color: 0xf0eee9, roughness: 0.5 });
+  const shadesMat = createTintedGlassMaterial(0x10131c);
+
+  const cabinetMat = new THREE.MeshStandardMaterial({
+    color: 0x161720,
+    roughness: 0.72,
+    metalness: 0.18,
+  });
+  const goldTrimMat = new THREE.MeshStandardMaterial({
+    color: 0xffb800,
+    emissive: 0xd98a00,
+    emissiveIntensity: 0.45,
+    roughness: 0.28,
+    metalness: 0.78,
+  });
+  const coneMat = new THREE.MeshStandardMaterial({
+    color: 0x2a2d3a,
+    roughness: 0.45,
+    metalness: 0.25,
+  });
+  const dustCapMat = new THREE.MeshStandardMaterial({
+    color: 0xffc400,
+    roughness: 0.25,
+    metalness: 0.75,
+  });
+
+  // Articulated Mateo NPC standing beside the DJ speaker stacks (grounded at y = 0)
+  const mateo = new THREE.Group();
+  mateo.name = 'npc_mateo';
+  mateo.position.set(-1.15, 0, 0.25);
+
+  const legGeo = new THREE.CylinderGeometry(0.095, 0.082, 0.7, 10);
+  const shoeGeo = new THREE.BoxGeometry(0.16, 0.1, 0.28);
+  for (const sx of [-0.13, 0.13] as const) {
+    addMesh(mateo, legGeo, jeansMat, { x: sx, y: 0.44 });
+    addMesh(mateo, shoeGeo, shoeMat, { x: sx, y: 0.05, z: 0.03 });
+  }
+
+  // Torso: white tee + open turquoise Cali jacket with gold stripe trim
+  addMesh(mateo, new THREE.CylinderGeometry(0.21, 0.19, 0.58, 12), shirtMat, { y: 1.08 });
+  addMesh(mateo, new THREE.BoxGeometry(0.5, 0.48, 0.3), jacketMat, { y: 1.12, z: -0.02 });
+  addMesh(mateo, new THREE.BoxGeometry(0.52, 0.05, 0.32), goldTrimMat, {
+    y: 0.89,
+    z: -0.02,
+    castShadow: false,
+  });
+
+  // Resting left arm
+  const leftArm = new THREE.Group();
+  leftArm.position.set(0.32, 1.31, 0);
+  addMesh(leftArm, new THREE.CylinderGeometry(0.072, 0.062, 0.34, 8), jacketMat, { y: -0.17 });
+  addMesh(leftArm, new THREE.CylinderGeometry(0.055, 0.048, 0.22, 8), skinMat, { y: -0.43 });
+  mateo.add(leftArm);
+
+  // Raised enthusiastic waving right arm (animated in WorldRenderer)
+  const wavingArm = new THREE.Group();
+  wavingArm.name = 'mateo_waving_arm';
+  wavingArm.position.set(-0.32, 1.32, 0);
+  wavingArm.rotation.z = -2.35;
+  addMesh(wavingArm, new THREE.CylinderGeometry(0.072, 0.062, 0.34, 8), jacketMat, { y: -0.17 });
+  addMesh(wavingArm, new THREE.CylinderGeometry(0.055, 0.048, 0.24, 8), skinMat, { y: -0.44 });
+  addMesh(wavingArm, new THREE.SphereGeometry(0.06, 8, 8), skinMat, { y: -0.58 });
+  mateo.add(wavingArm);
+
+  // Head, shades, and signature red Cali cap
+  addMesh(mateo, new THREE.CylinderGeometry(0.07, 0.08, 0.12, 8), skinMat, { y: 1.43 });
+  addMesh(mateo, new THREE.SphereGeometry(0.16, 12, 10), skinMat, { y: 1.56 });
+  addMesh(mateo, new THREE.BoxGeometry(0.27, 0.07, 0.08), shadesMat, {
+    y: 1.57,
+    z: 0.135,
+    castShadow: false,
+  });
+  addMesh(
+    mateo,
+    new THREE.SphereGeometry(0.172, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
+    capMat,
+    { y: 1.59 },
+  );
+  addMesh(mateo, new THREE.BoxGeometry(0.24, 0.035, 0.18), capMat, {
+    y: 1.61,
+    z: 0.16,
+    rx: 0.12,
+  });
+  group.add(mateo);
+
+  // Two stacked black & gold DJ PA sound speaker towers beside Mateo
+  const wooferCones: THREE.Object3D[] = [];
+  const cabinetGeo = new THREE.BoxGeometry(0.96, 1.06, 0.78);
+  const topTrimGeo = new THREE.BoxGeometry(1.0, 0.05, 0.82);
+  const wooferRingGeo = new THREE.TorusGeometry(0.27, 0.032, 8, 22);
+  const wooferConeGeo = new THREE.CylinderGeometry(0.25, 0.14, 0.09, 18);
+  const dustCapGeo = new THREE.SphereGeometry(0.095, 10, 8);
+  const tweeterGeo = new THREE.BoxGeometry(0.38, 0.14, 0.06);
+
+  // Low stage riser beneath the dual speaker stacks
+  addMesh(group, new THREE.BoxGeometry(2.35, 0.16, 1.05), cabinetMat, {
+    x: 1.15,
+    y: 0.08,
+    z: 0,
+  });
+
+  for (const stackX of [0.58, 1.72] as const) {
+    for (const tier of [0, 1] as const) {
+      const cy = 0.16 + 0.53 + tier * 1.08;
+      addMesh(group, cabinetGeo, cabinetMat, { x: stackX, y: cy });
+      addMesh(group, topTrimGeo, goldTrimMat, {
+        x: stackX,
+        y: cy + 0.51,
+        castShadow: false,
+      });
+      addMesh(group, topTrimGeo, goldTrimMat, {
+        x: stackX,
+        y: cy - 0.51,
+        castShadow: false,
+      });
+
+      // Pulsing circular woofer assembly on front face (+Z)
+      const wooferGroup = new THREE.Group();
+      wooferGroup.position.set(stackX, cy - 0.1, 0.4);
+      addMesh(wooferGroup, wooferRingGeo, goldTrimMat, { castShadow: false });
+      addMesh(wooferGroup, wooferConeGeo, coneMat, { rx: Math.PI / 2, castShadow: false });
+      addMesh(wooferGroup, dustCapGeo, dustCapMat, { z: 0.025, castShadow: false });
+      group.add(wooferGroup);
+      wooferCones.push(wooferGroup);
+
+      // Horn tweeter above woofer
+      addMesh(group, tweeterGeo, goldTrimMat, {
+        x: stackX,
+        y: cy + 0.3,
+        z: 0.4,
+        castShadow: false,
+      });
+    }
+  }
+
+  attachContactShadow(group, 4.4, 2.2, 0.52, 0.025);
+
+  group.userData.wavingArm = wavingArm;
+  group.userData.wooferCones = wooferCones;
+  return group;
+}
+
+function buildSummitStageProp(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'mission_prop_summit_stage';
+
+  const deckMat = new THREE.MeshStandardMaterial({
+    color: 0x1d1c28,
+    roughness: 0.68,
+    metalness: 0.24,
+  });
+  const boothMat = new THREE.MeshStandardMaterial({
+    color: 0x141521,
+    roughness: 0.42,
+    metalness: 0.35,
+  });
+  const trussMat = new THREE.MeshStandardMaterial({
+    color: 0xaab2c0,
+    roughness: 0.32,
+    metalness: 0.82,
+  });
+  const warmGoldLedMat = new THREE.MeshStandardMaterial({
+    color: 0xffc84a,
+    emissive: 0xffa812,
+    emissiveIntensity: 1.5,
+    roughness: 0.2,
+  });
+  const magentaLedMat = new THREE.MeshStandardMaterial({
+    color: 0xff3d8e,
+    emissive: 0xff247a,
+    emissiveIntensity: 1.35,
+    roughness: 0.22,
+  });
+  const platterMat = new THREE.MeshPhysicalMaterial({
+    color: 0xe6ecf5,
+    metalness: 0.9,
+    roughness: 0.16,
+    clearcoat: 0.8,
+  });
+  const spotLensMat = new THREE.MeshStandardMaterial({
+    color: 0xfff0c2,
+    emissive: 0xffcc66,
+    emissiveIntensity: 2.2,
+    roughness: 0.12,
+  });
+  const spotBeamMat = new THREE.MeshBasicMaterial({
+    color: 0xffcf70,
+    transparent: true,
+    opacity: 0.16,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+
+  // Raised sunset salsa party stage deck with warm gold edge lighting
+  addMesh(group, new THREE.BoxGeometry(5.2, 0.36, 2.6), deckMat, { y: 0.18 });
+  addMesh(group, new THREE.BoxGeometry(5.26, 0.08, 0.08), warmGoldLedMat, {
+    y: 0.34,
+    z: 1.3,
+    castShadow: false,
+  });
+  addMesh(group, new THREE.BoxGeometry(5.26, 0.08, 0.08), magentaLedMat, {
+    y: 0.08,
+    z: 1.3,
+    castShadow: false,
+  });
+
+  // Illuminated DJ booth console + dual turntables + center mixer
+  addMesh(group, new THREE.BoxGeometry(2.4, 1.12, 0.92), boothMat, { y: 0.92, z: 0.25 });
+  addMesh(group, new THREE.BoxGeometry(2.46, 0.08, 0.08), warmGoldLedMat, {
+    y: 1.46,
+    z: 0.72,
+    castShadow: false,
+  });
+  addMesh(group, new THREE.BoxGeometry(2.1, 0.1, 0.06), magentaLedMat, {
+    y: 0.94,
+    z: 0.72,
+    castShadow: false,
+  });
+  for (const tx of [-0.66, 0.66] as const) {
+    addMesh(group, new THREE.CylinderGeometry(0.28, 0.28, 0.06, 20), platterMat, {
+      x: tx,
+      y: 1.51,
+      z: 0.25,
+    });
+  }
+  addMesh(group, new THREE.BoxGeometry(0.46, 0.08, 0.42), deckMat, { y: 1.52, z: 0.25 });
+
+  // Twin vertical truss towers & overhead lighting gantry
+  const postGeo = new THREE.CylinderGeometry(0.085, 0.085, 3.4, 8);
+  for (const sx of [-2.35, 2.35] as const) {
+    addMesh(group, postGeo, trussMat, { x: sx, y: 2.06, z: -0.4 });
+    addMesh(group, postGeo, trussMat, { x: sx, y: 2.06, z: 0.2 });
+    // Flanking stage speaker cabinets on deck corners
+    addMesh(group, new THREE.BoxGeometry(0.82, 1.25, 0.72), boothMat, {
+      x: sx * 0.78,
+      y: 0.98,
+      z: 0.42,
+    });
+    addMesh(group, new THREE.TorusGeometry(0.24, 0.03, 8, 18), warmGoldLedMat, {
+      x: sx * 0.78,
+      y: 0.92,
+      z: 0.79,
+      castShadow: false,
+    });
+  }
+  addMesh(group, new THREE.BoxGeometry(5.1, 0.22, 0.68), trussMat, { y: 3.74, z: -0.1 });
+
+  // Twin warm truss spotlight fixtures + soft golden light cones angling onto booth
+  const spotHousingGeo = new THREE.CylinderGeometry(0.18, 0.24, 0.42, 12);
+  const spotLensGeo = new THREE.CircleGeometry(0.2, 12);
+  const spotConeGeo = new THREE.ConeGeometry(1.15, 3.2, 16, 1, true);
+  for (const sx of [-1.55, 1.55] as const) {
+    const spotGroup = new THREE.Group();
+    spotGroup.position.set(sx, 3.55, 0.15);
+    spotGroup.rotation.z = sx > 0 ? -0.34 : 0.34;
+    addMesh(spotGroup, spotHousingGeo, boothMat);
+    addMesh(spotGroup, spotLensGeo, spotLensMat, {
+      y: -0.22,
+      rx: Math.PI / 2,
+      castShadow: false,
+    });
+    addMesh(spotGroup, spotConeGeo, spotBeamMat, {
+      y: -1.8,
+      castShadow: false,
+      receiveShadow: false,
+    });
+    group.add(spotGroup);
+  }
+
+  // Animated 7-band glowing equalizer bar backdrop
+  const eqColors = [
+    0xffb800,
+    0xff7a2e,
+    0xff2e93,
+    0x00f0ff,
+    0xff2e93,
+    0xff7a2e,
+    0xffb800,
+  ] as const;
+  const equalizerBars: THREE.Mesh[] = [];
+  const barGeo = new THREE.BoxGeometry(0.32, 1.9, 0.12);
+  barGeo.translate(0, 0.95, 0);
+
+  eqColors.forEach((hex, idx) => {
+    const barMat = new THREE.MeshStandardMaterial({
+      color: hex,
+      emissive: hex,
+      emissiveIntensity: 1.45,
+      roughness: 0.2,
+    });
+    const bx = (idx - 3) * 0.56;
+    const barMesh = addMesh(group, barGeo, barMat, {
+      x: bx,
+      y: 0.42,
+      z: -0.88,
+      name: `summit_eq_bar_${idx}`,
+      castShadow: false,
+    });
+    equalizerBars.push(barMesh);
+  });
+
+  attachContactShadow(group, 5.8, 3.4, 0.56, 0.025);
+
+  group.userData.equalizerBars = equalizerBars;
+  return group;
+}
+
+/**
+ * Creates the 3 physical 3D mission props mounted inside active mission checkpoints:
+ * vinyl_briefcase, mateo_speakers, and summit_stage.
+ */
+export function createMissionPropMeshes(): Record<MissionPropKey, THREE.Group> {
+  return {
+    vinyl_briefcase: buildVinylBriefcaseProp(),
+    mateo_speakers: buildMateoSpeakersProp(),
+    summit_stage: buildSummitStageProp(),
+  };
+}
+
+/**
+ * Creates a sleek glowing gold/cyan road-hugging directional GTA GPS arrow chevron
+ * pointing toward local +Z for placement above upcoming turns along gpsRoute.
+ */
+export function createGpsChevronMesh(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'gps_road_chevron';
+
+  const outlineMat = new THREE.MeshBasicMaterial({
+    color: 0x0b0e16,
+    transparent: true,
+    opacity: 0.85,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const glowMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffc400,
+    transparent: true,
+    opacity: 0.94,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const accentMaterial = new THREE.MeshBasicMaterial({
+    color: 0x00f0ff,
+    transparent: true,
+    opacity: 0.9,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+
+  addMesh(group, createRoadChevronGeometry(1.24, 1.65, 0.44, 0.06), outlineMat, {
+    y: -0.02,
+    castShadow: false,
+    receiveShadow: false,
+  });
+  addMesh(group, createRoadChevronGeometry(1.12, 1.5, 0.34, 0.08), glowMaterial, {
+    y: 0.02,
+    castShadow: false,
+    receiveShadow: false,
+  });
+  addMesh(group, createRoadChevronGeometry(0.68, 0.92, 0.2, 0.07), accentMaterial, {
+    y: 0.06,
+    z: -0.26,
+    castShadow: false,
+    receiveShadow: false,
+  });
+
+  group.userData.glowMaterial = glowMaterial;
+  group.userData.accentMaterial = accentMaterial;
+  return group;
+}
+
+/**
+ * Creates a lightweight articulated 3D walking Cali pedestrian (grounded at y = 0, facing +Z)
+ * with shadow-casting limbs and hip/shoulder pivots exposed in userData.
+ */
+export function createPedestrianMesh(
+  shirtColorHex: number,
+  pantsColorHex: number,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'cali_pedestrian';
+
+  const skinTonePalette = [0xd89e74, 0xc4855a, 0x9c6240, 0xe3b18a] as const;
+  const skinHex =
+    skinTonePalette[Math.abs(shirtColorHex + pantsColorHex) % skinTonePalette.length] ??
+    0xc98c62;
+
+  const skinMat = new THREE.MeshStandardMaterial({ color: skinHex, roughness: 0.66 });
+  const shirtMat = new THREE.MeshStandardMaterial({
+    color: shirtColorHex,
+    roughness: 0.58,
+    metalness: 0.05,
+  });
+  const pantsMat = new THREE.MeshStandardMaterial({
+    color: pantsColorHex,
+    roughness: 0.82,
+    metalness: 0.04,
+  });
+  const shoeMat = new THREE.MeshStandardMaterial({ color: 0x1e2028, roughness: 0.78 });
+  const hairMat = new THREE.MeshStandardMaterial({ color: 0x1c1512, roughness: 0.8 });
+
+  const legGeo = new THREE.CylinderGeometry(0.082, 0.068, 0.66, 8);
+  const shoeGeo = new THREE.BoxGeometry(0.14, 0.09, 0.24);
+  const buildLegPivot = (xPos: number): THREE.Group => {
+    const pivot = new THREE.Group();
+    pivot.position.set(xPos, 0.76, 0);
+    addMesh(pivot, legGeo, pantsMat, { y: -0.34 });
+    addMesh(pivot, shoeGeo, shoeMat, { y: -0.715, z: 0.03 });
+    return pivot;
+  };
+
+  const leftLeg = buildLegPivot(0.11);
+  const rightLeg = buildLegPivot(-0.11);
+  group.add(leftLeg, rightLeg);
+
+  // Torso
+  addMesh(group, new THREE.BoxGeometry(0.42, 0.54, 0.24), shirtMat, { y: 1.04 });
+
+  // Arms
+  const upperArmGeo = new THREE.CylinderGeometry(0.062, 0.056, 0.24, 6);
+  const forearmGeo = new THREE.CylinderGeometry(0.05, 0.044, 0.28, 6);
+  const buildArmPivot = (xPos: number): THREE.Group => {
+    const pivot = new THREE.Group();
+    pivot.position.set(xPos, 1.26, 0);
+    addMesh(pivot, upperArmGeo, shirtMat, { y: -0.12 });
+    addMesh(pivot, forearmGeo, skinMat, { y: -0.36 });
+    return pivot;
+  };
+
+  const leftArm = buildArmPivot(0.28);
+  const rightArm = buildArmPivot(-0.28);
+  group.add(leftArm, rightArm);
+
+  // Head & hair
+  addMesh(group, new THREE.SphereGeometry(0.145, 10, 8), skinMat, { y: 1.49 });
+  addMesh(
+    group,
+    new THREE.SphereGeometry(0.154, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    hairMat,
+    { y: 1.51, z: -0.015 },
+  );
+
+  attachContactShadow(group, 0.76, 0.76, 0.4, 0.025);
+
+  group.userData.leftLeg = leftLeg;
+  group.userData.rightLeg = rightLeg;
+  group.userData.leftArm = leftArm;
+  group.userData.rightArm = rightArm;
   return group;
 }

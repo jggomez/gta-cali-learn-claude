@@ -45,7 +45,9 @@ export type SurfaceRole =
   | 'jacaranda_leaves';
 
 const TERRAIN_EXTENT = 520;
-const TERRAIN_SEGMENTS = 104;
+const TERRAIN_SEGMENTS = 208;
+const ROAD_OFFSET = 0.08;
+const NS_ROAD_TIER_OFFSET = 0.008;
 const ROAD_TILE_LENGTH_METERS = 16;
 const SIDEWALK_TILE_METERS = 8;
 
@@ -130,7 +132,7 @@ function getRoadSurfaceElevation(
   if (bridge) {
     return bridge.deckElevation + 0.04;
   }
-  return getTerrainElevation(x, z) + 0.08;
+  return getTerrainElevation(x, z) + ROAD_OFFSET;
 }
 
 /**
@@ -504,55 +506,58 @@ function createTerrainRibbonGeometry(
   yOffset: number,
   map: CaliMapConfig,
   uvTileLength = ROAD_TILE_LENGTH_METERS,
+  minLengthSteps = 2,
 ): THREE.BufferGeometry {
   const dx = end.x - start.x;
   const dz = end.z - start.z;
   const length = Math.hypot(dx, dz);
-  const steps = Math.max(2, Math.ceil(length / 4));
+  const stepSizeMeters = width > 1.5 ? 2.0 : 3.0;
+  const lengthSteps = Math.max(
+    minLengthSteps,
+    Math.ceil(length / stepSizeMeters),
+  );
+  const widthSteps = width > 1.5 ? Math.max(8, Math.ceil(width / 1.5)) : 1;
   const dirX = dx / (length || 1);
   const dirZ = dz / (length || 1);
   const perpX = -dirZ;
   const perpZ = dirX;
-  const halfW = width * 0.5;
 
-  const positions = new Float32Array((steps + 1) * 2 * 3);
-  const uvs = new Float32Array((steps + 1) * 2 * 2);
+  const cols = widthSteps + 1;
+  const vertexCount = (lengthSteps + 1) * cols;
+  const positions = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
   const indices: number[] = [];
 
-  for (let i = 0; i <= steps; i += 1) {
-    const t = i / steps;
+  for (let i = 0; i <= lengthSteps; i += 1) {
+    const t = i / lengthSteps;
     const cx = start.x + dx * t;
     const cz = start.z + dz * t;
-
-    const lx = cx - perpX * halfW;
-    const lz = cz - perpZ * halfW;
-    const rx = cx + perpX * halfW;
-    const rz = cz + perpZ * halfW;
-
-    const ly = getRoadSurfaceElevation(lx, lz, map) + yOffset;
-    const ry = getRoadSurfaceElevation(rx, rz, map) + yOffset;
-
-    const base = i * 6;
-    positions[base] = lx;
-    positions[base + 1] = ly;
-    positions[base + 2] = lz;
-    positions[base + 3] = rx;
-    positions[base + 4] = ry;
-    positions[base + 5] = rz;
-
     const vCoord = (t * length) / Math.max(1, uvTileLength);
-    const uvBase = i * 4;
-    uvs[uvBase] = 0;
-    uvs[uvBase + 1] = vCoord;
-    uvs[uvBase + 2] = 1;
-    uvs[uvBase + 3] = vCoord;
 
-    if (i < steps) {
-      const a = i * 2;
-      const b = a + 1;
-      const c = a + 2;
-      const d = a + 3;
-      indices.push(a, b, c, b, d, c);
+    for (let j = 0; j <= widthSteps; j += 1) {
+      const u = j / widthSteps;
+      const lateral = (u - 0.5) * width;
+      const px = cx + perpX * lateral;
+      const pz = cz + perpZ * lateral;
+      const py = getRoadSurfaceElevation(px, pz, map) + yOffset;
+
+      const vertIdx = i * cols + j;
+      const posBase = vertIdx * 3;
+      positions[posBase] = px;
+      positions[posBase + 1] = py;
+      positions[posBase + 2] = pz;
+
+      const uvBase = vertIdx * 2;
+      uvs[uvBase] = u;
+      uvs[uvBase + 1] = vCoord;
+
+      if (i < lengthSteps && j < widthSteps) {
+        const a = vertIdx;
+        const b = a + 1;
+        const c = a + cols;
+        const d = c + 1;
+        indices.push(a, b, c, b, d, c);
+      }
     }
   }
 
@@ -631,7 +636,7 @@ function buildRoadsGroup(map: CaliMapConfig): THREE.Group {
     const perpX = -dirZ;
     const perpZ = dirX;
     const isNorthSouth = Math.abs(dz) > Math.abs(dx);
-    const layerOffset = isNorthSouth ? 0.018 : 0;
+    const layerOffset = isNorthSouth ? NS_ROAD_TIER_OFFSET : 0;
 
     // Slightly extend non-ramp ends to knit corners seamlessly without crossing into river
     const ext = road.isRamp ? 0 : Math.min(road.width * 0.42, 6);
@@ -662,6 +667,7 @@ function buildRoadsGroup(map: CaliMapConfig): THREE.Group {
         layerOffset,
         map,
         ROAD_TILE_LENGTH_METERS,
+        24,
       ),
       asphaltMat,
     );
@@ -685,9 +691,10 @@ function buildRoadsGroup(map: CaliMapConfig): THREE.Group {
           lineStart,
           lineEnd,
           0.18,
-          layerOffset + 0.025,
+          layerOffset + 0.018,
           map,
           ROAD_TILE_LENGTH_METERS,
+          24,
         ),
         whiteLaneMat,
       );
@@ -712,7 +719,7 @@ function buildRoadsGroup(map: CaliMapConfig): THREE.Group {
             dStart,
             dEnd,
             0.22,
-            layerOffset + 0.028,
+            layerOffset + 0.02,
             map,
             dashLen,
           ),
@@ -733,6 +740,7 @@ function buildRoadsGroup(map: CaliMapConfig): THREE.Group {
           layerOffset + 0.055,
           map,
           ROAD_TILE_LENGTH_METERS,
+          24,
         ),
         medianConcreteMat,
       );
@@ -748,6 +756,7 @@ function buildRoadsGroup(map: CaliMapConfig): THREE.Group {
           layerOffset + 0.072,
           map,
           ROAD_TILE_LENGTH_METERS,
+          24,
         ),
         medianReflectorMat,
       );
@@ -767,7 +776,15 @@ function buildRoadsGroup(map: CaliMapConfig): THREE.Group {
           z: road.end.z + perpZ * edgeOffset * side,
         };
         const railMesh = new THREE.Mesh(
-          createTerrainRibbonGeometry(railStart, railEnd, 0.45, 0.72, map),
+          createTerrainRibbonGeometry(
+            railStart,
+            railEnd,
+            0.45,
+            0.72,
+            map,
+            ROAD_TILE_LENGTH_METERS,
+            24,
+          ),
           rampGuardMat,
         );
         segmentGroup.add(railMesh);

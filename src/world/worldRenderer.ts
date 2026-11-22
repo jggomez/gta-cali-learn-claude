@@ -13,6 +13,8 @@ import type {
   CaliMapConfig,
   CameraMode,
   MissionSnapshot,
+  PedestrianSnapshot,
+  Vec2,
   VehicleKind,
   VehicleSnapshot,
   WorldSnapshot,
@@ -39,10 +41,14 @@ import {
 } from './sceneSetup';
 import {
   createFerrariPlayerMesh,
+  createGpsChevronMesh,
+  createMissionPropMeshes,
   createObjectiveBeacon,
+  createPedestrianMesh,
   createPlayerMesh,
   createRiggedCharacterMesh,
   createVehicleMesh,
+  type MissionPropKey,
   type RiggedCharacterActions,
 } from './vehicleMeshes';
 
@@ -55,6 +61,81 @@ const COLLISION_SPARK_THRESHOLD = 0.14;
 const COLLISION_SPARK_COOLDOWN_SECONDS = 0.09;
 const CHARACTER_RUN_SPEED_THRESHOLD_MPS = 5.2;
 const CHARACTER_CROSSFADE_SECONDS = 0.22;
+const FLOATING_ARROW_BASE_Y = 8.0;
+const GPS_CHEVRON_DISTANCES = [10, 22, 34, 46, 58] as const;
+const GPS_CHEVRON_ELEVATION_OFFSET = 0.35;
+const MISSION_PROP_KEYS: readonly MissionPropKey[] = [
+  'vinyl_briefcase',
+  'mateo_speakers',
+  'summit_stage',
+];
+
+export interface GpsRoutePose {
+  readonly x: number;
+  readonly z: number;
+  readonly heading: number;
+}
+
+/**
+ * Samples a world position and forward heading (+Z aligned) along a 2D GPS route polyline
+ * at a given distance in meters from the start of the route. Returns null if the route ends earlier.
+ */
+export function sampleGpsRoutePose(
+  route: readonly Vec2[],
+  distanceMeters: number,
+): GpsRoutePose | null {
+  if (route.length < 2 || !Number.isFinite(distanceMeters) || distanceMeters < 0) {
+    return null;
+  }
+
+  let accumulated = 0;
+  for (let i = 0; i < route.length - 1; i += 1) {
+    const a = route[i];
+    const b = route[i + 1];
+    if (!a || !b) {
+      continue;
+    }
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const segLen = Math.hypot(dx, dz);
+    if (segLen < 0.001) {
+      continue;
+    }
+
+    if (accumulated + segLen >= distanceMeters) {
+      const t = (distanceMeters - accumulated) / segLen;
+      return {
+        x: a.x + dx * t,
+        z: a.z + dz * t,
+        heading: Math.atan2(dx, dz),
+      };
+    }
+    accumulated += segLen;
+  }
+
+  return null;
+}
+
+function hashPedestrianPhase(id: string): number {
+  let sum = 0;
+  for (let i = 0; i < id.length; i += 1) {
+    sum += id.charCodeAt(i) * (i + 1);
+  }
+  return (sum % 628) / 100;
+}
+
+function getHeadlightMountHeight(kind: VehicleKind): number {
+  switch (kind) {
+    case 'mio_bus':
+    case 'chiva':
+      return 1.25;
+    case 'banshee':
+      return 0.88;
+    case 'taxi':
+    case 'police':
+      return 1.02;
+  }
+}
 
 type CharacterLocomotionState = 'idle' | 'walk' | 'run';
 
@@ -192,10 +273,13 @@ export class WorldRenderer {
   private characterActions: RiggedCharacterActions = {};
   private activeCharacterState: CharacterLocomotionState = 'idle';
   private readonly objectiveBeacon: THREE.Group;
+  private readonly missionProps: Record<MissionPropKey, THREE.Group>;
+  private readonly gpsChevrons: readonly THREE.Group[];
   private readonly particles: ParticleSystem;
   private readonly headlightSpot: THREE.SpotLight;
   private readonly headlightTarget: THREE.Object3D;
   private readonly vehiclePool = new Map<string, PooledVehicleEntry>();
+  private readonly pedestrianPool = new Map<string, THREE.Group>();
   private readonly prevSpeeds = new Map<string, number>();
   private readonly cameraOrbit: CameraOrbitState = createCameraOrbitState();
   private readonly landmarkCount: number;
@@ -296,6 +380,20 @@ export class WorldRenderer {
     this.objectiveBeacon.visible = false;
     this.scene.add(this.objectiveBeacon);
 
+    this.missionProps = createMissionPropMeshes();
+    for (const propKey of MISSION_PROP_KEYS) {
+      const prop = this.missionProps[propKey];
+      prop.visible = false;
+      this.scene.add(prop);
+    }
+
+    this.gpsChevrons = GPS_CHEVRON_DISTANCES.map(() => {
+      const chevron = createGpsChevronMesh();
+      chevron.visible = false;
+      this.scene.add(chevron);
+      return chevron;
+    });
+
     this.particles = new ParticleSystem();
     this.scene.add(this.particles.group);
 
@@ -365,10 +463,13 @@ export class WorldRenderer {
     this.animateWater(safeDt, animTime);
     this.syncPlayer(world, safeDt);
     this.syncVehicles(world.vehicles, safeDt);
+    this.syncPedestrians(world.pedestrians);
     this.syncPlayerHeadlight(world);
     this.syncCollisionSparks(world);
     this.particles.update(safeDt);
     this.syncObjectiveBeacon(mission, safeDt);
+    this.syncMissionProps(mission, safeDt);
+    this.syncGpsChevrons(mission);
 
     updateCameraRig(
       this.camera,
@@ -449,6 +550,7 @@ export class WorldRenderer {
 
     disposeObjectTree(this.scene);
     this.vehiclePool.clear();
+    this.pedestrianPool.clear();
     this.prevSpeeds.clear();
     this.renderer.dispose();
   }
@@ -660,7 +762,7 @@ export class WorldRenderer {
     const noseOffset = activeVehicle.halfLength + 0.25;
 
     const lampX = activeVehicle.x + forwardX * noseOffset;
-    const lampY = activeVehicle.y + 1.05;
+    const lampY = activeVehicle.y + getHeadlightMountHeight(activeVehicle.kind);
     const lampZ = activeVehicle.z + forwardZ * noseOffset;
 
     const targetX = activeVehicle.x + forwardX * HEADLIGHT_LOOK_AHEAD_METERS;
@@ -910,6 +1012,55 @@ export class WorldRenderer {
     }
   }
 
+  private syncPedestrians(
+    pedestrians: readonly PedestrianSnapshot[] | undefined,
+  ): void {
+    const list = pedestrians ?? [];
+    const activeIds = new Set<string>();
+
+    for (const ped of list) {
+      activeIds.add(ped.id);
+      let mesh = this.pedestrianPool.get(ped.id);
+      if (!mesh) {
+        mesh = createPedestrianMesh(ped.shirtColorHex, ped.pantsColorHex);
+        this.scene.add(mesh);
+        this.pedestrianPool.set(ped.id, mesh);
+      }
+
+      mesh.position.set(ped.x, ped.y, ped.z);
+      mesh.rotation.y = ped.heading;
+
+      const absSpeed = Math.abs(ped.speedMps);
+      const moving = absSpeed > 0.2;
+      const phase = hashPedestrianPhase(ped.id);
+      const swingRate = ped.fleeing ? 14.5 : 8.5;
+      const swingAmp = !moving || this.reducedMotion ? 0 : ped.fleeing ? 0.72 : 0.48;
+      const swing = Math.sin(this.elapsedSeconds * swingRate + phase) * swingAmp;
+
+      const leftLeg = mesh.userData.leftLeg as THREE.Object3D | undefined;
+      const rightLeg = mesh.userData.rightLeg as THREE.Object3D | undefined;
+      const leftArm = mesh.userData.leftArm as THREE.Object3D | undefined;
+      const rightArm = mesh.userData.rightArm as THREE.Object3D | undefined;
+
+      if (leftLeg) leftLeg.rotation.x = swing;
+      if (rightLeg) rightLeg.rotation.x = -swing;
+      if (leftArm) {
+        leftArm.rotation.x = ped.fleeing ? -0.95 - swing * 0.75 : -swing * 0.65;
+      }
+      if (rightArm) {
+        rightArm.rotation.x = ped.fleeing ? -0.95 + swing * 0.75 : swing * 0.65;
+      }
+    }
+
+    for (const [id, mesh] of this.pedestrianPool.entries()) {
+      if (!activeIds.has(id)) {
+        this.scene.remove(mesh);
+        disposeObjectTree(mesh);
+        this.pedestrianPool.delete(id);
+      }
+    }
+  }
+
   private syncObjectiveBeacon(mission: MissionSnapshot, dt: number): void {
     const objective = mission.activeObjective;
     if (!objective || !objective.target) {
@@ -924,11 +1075,14 @@ export class WorldRenderer {
 
     if (this.lastBeaconColorHex !== beaconColorHex) {
       const mats = this.objectiveBeacon.userData.beamMaterials as
-        | THREE.MeshBasicMaterial[]
+        | (THREE.MeshBasicMaterial | THREE.MeshStandardMaterial)[]
         | undefined;
       if (mats) {
         for (const mat of mats) {
           mat.color.setHex(beaconColorHex);
+          if (mat instanceof THREE.MeshStandardMaterial) {
+            mat.emissive.setHex(beaconColorHex);
+          }
         }
       }
       this.lastBeaconColorHex = beaconColorHex;
@@ -940,20 +1094,147 @@ export class WorldRenderer {
     const lightBeam = this.objectiveBeacon.userData.lightBeam as
       | THREE.Object3D
       | undefined;
+    const floatingArrow = this.objectiveBeacon.userData.floatingArrow as
+      | THREE.Object3D
+      | undefined;
 
     const ringScale = THREE.MathUtils.clamp(radius / 5.5, 0.85, 2.8);
     if (targetRing) {
-      targetRing.scale.setScalar(ringScale);
+      targetRing.scale.set(ringScale, 1, ringScale);
       if (!this.reducedMotion) {
-        targetRing.rotation.y += dt * 1.4;
+        targetRing.rotation.y += dt * 1.25;
       }
     }
 
     if (lightBeam) {
       const pulse = this.reducedMotion
         ? 1
-        : 0.88 + Math.sin(this.elapsedSeconds * 3.8) * 0.16;
+        : 0.9 + Math.sin(this.elapsedSeconds * 3.6) * 0.14;
       lightBeam.scale.set(pulse, 1, pulse);
+    }
+
+    if (floatingArrow) {
+      const bobOffset = this.reducedMotion
+        ? 0
+        : Math.sin(this.elapsedSeconds * 2.8) * 0.85;
+      floatingArrow.position.y = FLOATING_ARROW_BASE_Y + bobOffset;
+      if (!this.reducedMotion) {
+        floatingArrow.rotation.y += dt * 1.45;
+      }
+    }
+  }
+
+  private syncMissionProps(mission: MissionSnapshot, dt: number): void {
+    const objective = mission.activeObjective;
+    const target = objective?.target ?? null;
+    const propKind = objective?.propKind;
+    const activeKey: MissionPropKey | null =
+      target && propKind && propKind !== 'none' ? propKind : null;
+
+    for (const key of MISSION_PROP_KEYS) {
+      const prop = this.missionProps[key];
+      const isVisible = key === activeKey && target !== null;
+      prop.visible = isVisible;
+      if (!isVisible || !target) {
+        continue;
+      }
+
+      const groundY = sampleObjectiveGroundY(target.x, target.z, this.map);
+      prop.position.set(target.x, groundY, target.z);
+
+      if (key === 'vinyl_briefcase') {
+        const record = prop.userData.spinningRecord as THREE.Object3D | undefined;
+        const baseY =
+          typeof prop.userData.recordBaseY === 'number'
+            ? prop.userData.recordBaseY
+            : 1.95;
+        if (record) {
+          if (!this.reducedMotion) {
+            record.rotation.y += dt * 1.85;
+            record.position.y = baseY + Math.sin(this.elapsedSeconds * 2.6) * 0.09;
+          } else {
+            record.position.y = baseY;
+          }
+        }
+      } else if (key === 'mateo_speakers') {
+        const wavingArm = prop.userData.wavingArm as THREE.Object3D | undefined;
+        if (wavingArm) {
+          wavingArm.rotation.z = this.reducedMotion
+            ? -2.35
+            : -2.35 + Math.sin(this.elapsedSeconds * 5.2) * 0.42;
+        }
+        const wooferCones = prop.userData.wooferCones as
+          | THREE.Object3D[]
+          | undefined;
+        if (wooferCones) {
+          const pulseScale = this.reducedMotion
+            ? 1
+            : 1 + Math.abs(Math.sin(this.elapsedSeconds * 8.4)) * 0.07;
+          for (const cone of wooferCones) {
+            cone.scale.setScalar(pulseScale);
+          }
+        }
+      } else if (key === 'summit_stage') {
+        const eqBars = prop.userData.equalizerBars as THREE.Object3D[] | undefined;
+        if (eqBars) {
+          eqBars.forEach((bar, idx) => {
+            bar.scale.y = this.reducedMotion
+              ? 0.72
+              : 0.35 + 0.65 * Math.abs(Math.sin(this.elapsedSeconds * 5.5 + idx * 0.85));
+          });
+        }
+      }
+    }
+  }
+
+  private syncGpsChevrons(mission: MissionSnapshot): void {
+    const route = mission.activeObjective?.gpsRoute;
+    if (!route || route.length < 2) {
+      for (const chevron of this.gpsChevrons) {
+        chevron.visible = false;
+      }
+      return;
+    }
+
+    for (let i = 0; i < this.gpsChevrons.length; i += 1) {
+      const chevron = this.gpsChevrons[i];
+      const distance = GPS_CHEVRON_DISTANCES[i];
+      if (!chevron || distance === undefined) {
+        continue;
+      }
+
+      const pose = sampleGpsRoutePose(route, distance);
+      if (!pose) {
+        chevron.visible = false;
+        continue;
+      }
+
+      const groundY = sampleObjectiveGroundY(pose.x, pose.z, this.map);
+      chevron.position.set(
+        pose.x,
+        groundY + GPS_CHEVRON_ELEVATION_OFFSET,
+        pose.z,
+      );
+      chevron.rotation.y = pose.heading;
+      chevron.visible = true;
+
+      const wave = this.reducedMotion
+        ? 0.85
+        : 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(this.elapsedSeconds * 5.2 - i * 0.95));
+      chevron.scale.setScalar(0.92 + wave * 0.16);
+
+      const glowMat = chevron.userData.glowMaterial as
+        | THREE.MeshBasicMaterial
+        | undefined;
+      const accentMat = chevron.userData.accentMaterial as
+        | THREE.MeshBasicMaterial
+        | undefined;
+      if (glowMat) {
+        glowMat.opacity = 0.5 + wave * 0.46;
+      }
+      if (accentMat) {
+        accentMat.opacity = 0.45 + wave * 0.5;
+      }
     }
   }
 }
