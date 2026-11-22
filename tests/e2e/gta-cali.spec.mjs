@@ -537,6 +537,39 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     await expect(page.getByTestId('btn-time-toggle')).toContainText('Noche');
     run.dataCheck('source-on-screen', 'KeyT toggled Night <-> Golden-Hour live on btn-time-toggle');
 
+    // Return to Title -> launch Free Roam and verify fresh PASO 1 DE 6 tour at La Ermita
+    await page.getByTestId('btn-pause').click();
+    await expect(page.getByTestId('pause-overlay')).toBeVisible();
+    await page.getByTestId('btn-pause-title').click();
+    await expect(page.getByTestId('title-screen')).toBeVisible();
+
+    await page.getByTestId('btn-free-roam').click();
+    await page.waitForFunction(
+      () =>
+        window.__GTA_CALI__?.mode === 'playing' &&
+        window.__GTA_CALI__?.mission.activeMission === 'free_roam' &&
+        (window.__GTA_CALI__?.world.pedestrians?.length ?? 0) === 18,
+      null,
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId('hud-step-progress')).toContainText('PASO 1 DE 6');
+    const freeRoamSnap = await page.evaluate(() => ({
+      landmarkId: window.__GTA_CALI__?.mission.activeObjective?.landmarkId,
+      stepIndex: window.__GTA_CALI__?.mission.activeObjective?.stepIndex,
+      totalSteps: window.__GTA_CALI__?.mission.activeObjective?.totalSteps,
+      pedestrians: window.__GTA_CALI__?.world.pedestrians?.length ?? 0,
+    }));
+    expect(freeRoamSnap.landmarkId).toBe('la_ermita');
+    expect(freeRoamSnap.stepIndex).toBe(0);
+    expect(freeRoamSnap.totalSteps).toBe(6);
+    expect(freeRoamSnap.pedestrians).toBe(18);
+    run.dataCheck(
+      'source-on-screen',
+      `Free Roam started at PASO 1 DE 6 (${freeRoamSnap.landmarkId}), pedestrians=${freeRoamSnap.pedestrians}`,
+    );
+    await waitForNextFrames(page, 3);
+    await page.screenshot({ path: resolve(EVIDENCE_DIR, 'gameplay-freeroam-1280.png') });
+
     // Reload and verify localStorage audio preference persisted
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForFunction(() => window.__GTA_CALI__?.audio.station === 'sucursal_synth');
