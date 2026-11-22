@@ -515,6 +515,82 @@ describe('MissionDirector', () => {
     expect(snap.activeObjective?.target).toBeNull();
   });
 
+  it('starts Free Roam cleanly at stepIndex 0 (la_ermita) even when localStorage already has all 6 landmarks discovered', () => {
+    const backing = new MemoryStorage();
+    const storage = new StorageAdapter(backing);
+    storage.saveRecords({
+      version: 1,
+      bestTimes: { mission_1_bulevar: 35, mission_2_cristo_rey: 48 },
+      completedMissions: ['mission_1_bulevar', 'mission_2_cristo_rey'],
+      discoveredLandmarks: CALI_MAP.landmarks.map((landmark) => landmark.id),
+      totalCashCop: 750_000,
+      preferredStation: 'salsa_brava',
+      muted: false,
+    });
+
+    const director = new MissionDirector(CALI_MAP, storage);
+    const roamSpawn = CALI_MAP.missionStarts.free_roam.playerSpawn;
+    const roamCar = CALI_MAP.missionStarts.free_roam.carSpawn;
+
+    // Immediately after startMission('free_roam'): PASO 1 DE 6 targeting la_ermita
+    let snap = director.startMission('free_roam');
+    expect(snap.discoveredLandmarks).toHaveLength(6);
+    expect(snap.activeObjective?.stepIndex).toBe(0);
+    expect(snap.activeObjective?.totalSteps).toBe(6);
+    expect(snap.activeObjective?.landmarkId).toBe('la_ermita');
+    expect(snap.activeObjective?.target).not.toBeNull();
+
+    // Frame 1 at Free Roam spawn (6, 14) and walking to parked car (-4, 18) MUST NOT auto-skip Step 0
+    snap = director.update(makeWorld({ mode: 'on_foot', x: roamSpawn.x, z: roamSpawn.z }), 0.016);
+    expect(snap.activeObjective?.stepIndex).toBe(0);
+    expect(snap.activeObjective?.landmarkId).toBe('la_ermita');
+    expect(snap.activeObjective?.distanceMeters).toBeGreaterThan(0);
+
+    snap = director.update(makeWorld({ mode: 'on_foot', x: roamCar.x, z: roamCar.z }), 0.5);
+    expect(snap.activeObjective?.stepIndex).toBe(0);
+    expect(snap.activeObjective?.landmarkId).toBe('la_ermita');
+
+    // Progress sequentially through all 6 tour stops: 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6
+    const tourOrder = [
+      'la_ermita',
+      'torre_de_cali',
+      'san_antonio',
+      'cristo_rey',
+      'estadio_pascual',
+      'bulevar_del_rio',
+    ] as const;
+
+    for (let i = 0; i < tourOrder.length; i += 1) {
+      const targetId = tourOrder[i];
+      const landmark = CALI_MAP.landmarks.find((entry) => entry.id === targetId);
+      expect(landmark).toBeDefined();
+      snap = director.update(
+        makeWorld({ mode: 'driving', x: landmark!.position.x, z: landmark!.position.z }),
+        1,
+      );
+      expect(snap.activeObjective?.stepIndex).toBe(i + 1);
+      expect(snap.dialogue?.speaker).toBe('system');
+      expect(snap.dialogue?.text).toContain(LOCALE_CALI.landmarks[targetId!]);
+      // Lifetime discoveredLandmarks remains intact throughout the tour
+      expect(snap.discoveredLandmarks).toHaveLength(6);
+
+      const nextExpectedId = tourOrder[i + 1];
+      if (nextExpectedId) {
+        expect(snap.activeObjective?.landmarkId).toBe(nextExpectedId);
+      } else {
+        expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.freeRoam.allDiscoveredLabel);
+        expect(snap.activeObjective?.target).toBeNull();
+      }
+    }
+
+    // Returning to title and starting Free Roam again resets tour cleanly back to stepIndex 0
+    director.returnToTitle();
+    snap = director.startMission('free_roam');
+    expect(snap.activeObjective?.stepIndex).toBe(0);
+    expect(snap.activeObjective?.landmarkId).toBe('la_ermita');
+    expect(director.getRecords().discoveredLandmarks).toHaveLength(6);
+  });
+
   it('supports pause/resume, returnToTitle, audio preferences, dialogue timeout, and viral ticker rotation', () => {
     const storage = new StorageAdapter(new MemoryStorage());
     const director = new MissionDirector(CALI_MAP, storage);

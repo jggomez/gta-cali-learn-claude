@@ -18,6 +18,7 @@ import type {
   DialogueToast,
   FailureReason,
   GameMode,
+  LandmarkDef,
   LandmarkId,
   MissionId,
   MissionSnapshot,
@@ -49,6 +50,15 @@ const VALID_LANDMARKS: ReadonlySet<string> = new Set<LandmarkId>([
   'estadio_pascual',
   'cristo_rey',
 ]);
+
+const FREE_ROAM_TOUR_ORDER: readonly LandmarkId[] = [
+  'la_ermita',
+  'torre_de_cali',
+  'san_antonio',
+  'cristo_rey',
+  'estadio_pascual',
+  'bulevar_del_rio',
+];
 
 const VALID_STATIONS: ReadonlySet<string> = new Set<RadioStationId>([
   'salsa_brava',
@@ -313,6 +323,8 @@ export class MissionDirector {
   private isCountdown = false;
   private countdownRemaining = 0;
   private failureReason: FailureReason | null = null;
+  private freeRoamVisited: LandmarkId[] = [];
+  private freeRoamLeftSpawnZone = false;
 
   public constructor(map: CaliMapConfig = CALI_MAP, storage?: StorageAdapter) {
     this.map = map;
@@ -346,6 +358,8 @@ export class MissionDirector {
     this.isCountdown = false;
     this.countdownRemaining = 0;
     this.failureReason = null;
+    this.freeRoamVisited = [];
+    this.freeRoamLeftSpawnZone = false;
     this.timeOfDay = this.map.missionStarts[missionId].defaultTimeOfDay;
 
     if (missionId === 'mission_1_bulevar') {
@@ -412,6 +426,8 @@ export class MissionDirector {
     this.isCountdown = false;
     this.countdownRemaining = 0;
     this.failureReason = null;
+    this.freeRoamVisited = [];
+    this.freeRoamLeftSpawnZone = false;
     this.timeOfDay = 'golden_hour';
     return this.getSnapshot();
   }
@@ -734,38 +750,98 @@ export class MissionDirector {
     this.setDialogue(dialogueId, dialogueContent, COMPLETE_DIALOGUE_SECONDS);
   }
 
+  private isFreeRoamSpawnLandmark(landmark: LandmarkDef): boolean {
+    const spawn = this.map.missionStarts.free_roam.playerSpawn;
+    return (
+      distance2D(spawn.x, spawn.z, landmark.position.x, landmark.position.z) <=
+      landmark.discoveryRadius
+    );
+  }
+
+  private getOrderedFreeRoamLandmarks(): readonly LandmarkDef[] {
+    const ordered: LandmarkDef[] = [];
+    for (const id of FREE_ROAM_TOUR_ORDER) {
+      const match = this.map.landmarks.find((landmark) => landmark.id === id);
+      if (match) {
+        ordered.push(match);
+      }
+    }
+    for (const landmark of this.map.landmarks) {
+      if (!ordered.includes(landmark)) {
+        ordered.push(landmark);
+      }
+    }
+    return ordered;
+  }
+
   private checkLandmarkDiscoveries(world: WorldSnapshot): void {
-    let discoveredAny = false;
+    const isFreeRoam = this.activeMission === 'free_roam';
+    if (isFreeRoam && !this.freeRoamLeftSpawnZone) {
+      const insideSpawnLandmark = this.map.landmarks.some(
+        (landmark) =>
+          this.isFreeRoamSpawnLandmark(landmark) &&
+          distance2D(
+            world.player.x,
+            world.player.z,
+            landmark.position.x,
+            landmark.position.z,
+          ) <= landmark.discoveryRadius,
+      );
+      if (!insideSpawnLandmark) {
+        this.freeRoamLeftSpawnZone = true;
+      }
+    }
+
+    let discoveredAnyLifetime = false;
     let lastDiscoveredId: LandmarkId | null = null;
     const updated = [...this.records.discoveredLandmarks];
 
     for (const landmark of this.map.landmarks) {
-      if (updated.includes(landmark.id)) {
-        continue;
-      }
       const dist = distance2D(
         world.player.x,
         world.player.z,
         landmark.position.x,
         landmark.position.z,
       );
-      if (dist <= landmark.discoveryRadius) {
+      if (dist > landmark.discoveryRadius) {
+        continue;
+      }
+
+      const deferSpawnLandmark =
+        isFreeRoam &&
+        !this.freeRoamLeftSpawnZone &&
+        this.freeRoamVisited.length === 0 &&
+        this.isFreeRoamSpawnLandmark(landmark);
+      if (deferSpawnLandmark) {
+        continue;
+      }
+
+      if (!updated.includes(landmark.id)) {
         updated.push(landmark.id);
-        discoveredAny = true;
+        discoveredAnyLifetime = true;
+        lastDiscoveredId = landmark.id;
+      }
+
+      if (isFreeRoam && !this.freeRoamVisited.includes(landmark.id)) {
+        this.freeRoamVisited.push(landmark.id);
         lastDiscoveredId = landmark.id;
       }
     }
 
-    if (discoveredAny) {
+    if (discoveredAnyLifetime) {
       this.records = this.storage.saveRecords({
         ...this.records,
         discoveredLandmarks: updated,
       });
+    }
 
-      if (
-        lastDiscoveredId !== null &&
-        (this.dialogue === null || this.dialogue.id.startsWith('landmark_'))
-      ) {
+    if (lastDiscoveredId !== null) {
+      const canShowDialogue =
+        this.dialogue === null ||
+        this.dialogue.id.startsWith('landmark_') ||
+        (isFreeRoam && this.dialogue.id === 'freeRoamIntro');
+
+      if (canShowDialogue) {
         const displayName = LOCALE_CALI.landmarks[lastDiscoveredId];
         this.setDialogue(
           `landmark_${lastDiscoveredId}`,
@@ -947,9 +1023,11 @@ export class MissionDirector {
   }
 
   private createFreeRoamObjective(): ObjectiveSnapshot {
-    const discovered = this.records.discoveredLandmarks;
-    const total = this.map.landmarks.length;
-    const nextLandmark = this.map.landmarks.find((landmark) => !discovered.includes(landmark.id));
+    const orderedLandmarks = this.getOrderedFreeRoamLandmarks();
+    const total = orderedLandmarks.length;
+    const nextLandmark = orderedLandmarks.find(
+      (landmark) => !this.freeRoamVisited.includes(landmark.id),
+    );
 
     if (!nextLandmark) {
       return {
@@ -975,7 +1053,7 @@ export class MissionDirector {
       target: { x: nextLandmark.position.x, z: nextLandmark.position.z },
       radius: nextLandmark.discoveryRadius,
       landmarkId: nextLandmark.id,
-      stepIndex: discovered.length,
+      stepIndex: this.freeRoamVisited.length,
       totalSteps: total,
       beaconColorHex: BEACON_EMERALD,
       propKind: 'none',
