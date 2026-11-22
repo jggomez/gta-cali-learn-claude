@@ -7,13 +7,14 @@ import {
 } from '../../../src/config/caliMap';
 import {
   clamp,
+  getVehicleHandlingProfile,
   normalizeAngle,
   resolveCircleWorldCollision,
   stepOnFoot,
   stepPlayerVehicle,
   type VehicleMotionState,
 } from '../../../src/simulation/physics';
-import type { InputState } from '../../../src/types/game';
+import type { InputState, VehicleKind } from '../../../src/types/game';
 
 function createInput(overrides: Partial<InputState> = {}): InputState {
   return {
@@ -304,5 +305,85 @@ describe('simulation/physics on-foot movement', () => {
     expect(sprint.isSprinting).toBe(true);
     expect(sprint.speedMps).toBeCloseTo(10.5, 4);
     expect(sprint.x).toBeCloseTo(start.x + 1.05, 3);
+  });
+});
+
+describe('simulation/physics per-vehicle handling profiles', () => {
+  it('defines distinct speed and agility tiers across all Cali VehicleKinds', () => {
+    const banshee = getVehicleHandlingProfile('banshee');
+    const police = getVehicleHandlingProfile('police');
+    const taxi = getVehicleHandlingProfile('taxi');
+    const chiva = getVehicleHandlingProfile('chiva');
+    const mioBus = getVehicleHandlingProfile('mio_bus');
+
+    expect(banshee.baseMaxSpeedMps).toBe(40);
+    expect(banshee.boostMaxSpeedMps).toBe(54);
+    expect(police.baseMaxSpeedMps).toBe(36);
+    expect(police.boostMaxSpeedMps).toBe(47);
+    expect(taxi.baseMaxSpeedMps).toBe(30);
+    expect(taxi.boostMaxSpeedMps).toBe(38);
+    expect(chiva.baseMaxSpeedMps).toBe(22);
+    expect(chiva.boostMaxSpeedMps).toBe(28);
+    expect(mioBus.baseMaxSpeedMps).toBe(21);
+    expect(mioBus.boostMaxSpeedMps).toBe(26);
+
+    expect(banshee.baseTurnRate).toBeGreaterThan(chiva.baseTurnRate);
+    expect(chiva.baseTurnRate).toBeGreaterThan(mioBus.baseTurnRate);
+  });
+
+  it('accelerates banshee faster than taxi faster than mio_bus under identical throttle', () => {
+    const runThrottle = (kind: VehicleKind): number => {
+      let state = createVehicleState({ x: -4, z: 140, heading: Math.PI });
+      for (let i = 0; i < 240; i += 1) {
+        const next = stepPlayerVehicle(
+          state,
+          createInput({ forward: true }),
+          1 / 60,
+          CALI_MAP,
+          kind,
+        );
+        state = { ...state, ...next };
+      }
+      return state.speedMps;
+    };
+
+    const bansheeSpeed = runThrottle('banshee');
+    const taxiSpeed = runThrottle('taxi');
+    const busSpeed = runThrottle('mio_bus');
+
+    expect(bansheeSpeed).toBeGreaterThan(taxiSpeed + 8);
+    expect(taxiSpeed).toBeGreaterThan(busSpeed + 7);
+    expect(taxiSpeed).toBeLessThanOrEqual(30.5);
+    expect(busSpeed).toBeLessThanOrEqual(21.5);
+  });
+
+  it('gives mio_bus a wider turning radius than banshee at the same speed', () => {
+    const start = createVehicleState({
+      x: -4,
+      z: 20,
+      heading: Math.PI,
+      speedMps: 18,
+    });
+
+    const bansheeTurn = stepPlayerVehicle(
+      start,
+      createInput({ forward: true, left: true }),
+      0.05,
+      CALI_MAP,
+      'banshee',
+    );
+    const busTurn = stepPlayerVehicle(
+      start,
+      createInput({ forward: true, left: true }),
+      0.05,
+      CALI_MAP,
+      'mio_bus',
+    );
+
+    const bansheeDelta = Math.abs(
+      normalizeAngle(bansheeTurn.heading - start.heading),
+    );
+    const busDelta = Math.abs(normalizeAngle(busTurn.heading - start.heading));
+    expect(bansheeDelta).toBeGreaterThan(busDelta * 1.3);
   });
 });

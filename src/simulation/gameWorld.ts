@@ -27,10 +27,14 @@ import {
   stepPlayerVehicle,
 } from './physics';
 import {
+  createInitialPedestrians,
   createInitialVehicles,
+  stepPedestrians,
   stepPoliceVehicle,
   stepTrafficVehicle,
+  toPedestrianSnapshot,
   toVehicleSnapshot,
+  type SimPedestrian,
   type SimVehicle,
 } from './trafficAi';
 
@@ -40,11 +44,21 @@ export interface ResetWorldOptions {
   readonly wantedStars?: WantedLevel;
 }
 
-const VEHICLE_ENTER_RADIUS = 6.0;
+const VEHICLE_ENTER_RADIUS = 6.5;
+const BANSHEE_PREFERENCE_RADIUS = 3.5;
+const VEHICLE_TIE_EPSILON = 0.25;
+const HIJACK_MIN_NITRO = 60;
 const BUST_RANGE_METERS = 6.8;
 const BUST_MAX_SPEED_KMH = 20;
 const BUST_DURATION_SECONDS = 3.2;
 const BUST_DECAY_PER_SECOND = 0.45;
+const POLICE_RAM_DISTANCE_METERS = 4.2;
+const POLICE_RAM_MIN_SPEED_MPS = 10;
+const POLICE_RAM_COOLDOWN_SECONDS = 2.5;
+const EVADE_CLEAR_DISTANCE_METERS = 58;
+const EVADE_RESET_DISTANCE_METERS = 50;
+const EVADE_DURATION_SECONDS = 12;
+const EVADE_DECAY_PER_SECOND = 0.3;
 const DRIFT_SCORE_MIN_KMH = 25;
 const DRIFT_SCORE_MULTIPLIER = 2.5;
 const UNOCCUPIED_COAST_DECEL_MPS2 = 16;
@@ -93,8 +107,11 @@ export class GameWorld {
   private playerInRiverHazard = false;
 
   private vehicles: SimVehicle[] = [];
+  private pedestrians: SimPedestrian[] = [];
   private wantedStars: WantedLevel = 0;
   private bustProgress = 0;
+  private policeEvadeProgress = 0;
+  private policeRamCooldownSeconds = 0;
   private isBusted = false;
   private driftScorePoints = 0;
   private topSpeedKmh = 0;
@@ -110,8 +127,11 @@ export class GameWorld {
 
   public reset(options?: ResetWorldOptions): void {
     this.vehicles = createInitialVehicles(this.map);
+    this.pedestrians = createInitialPedestrians(this.map);
     this.timeSeconds = 0;
     this.bustProgress = 0;
+    this.policeEvadeProgress = 0;
+    this.policeRamCooldownSeconds = 0;
     this.isBusted = false;
     this.driftScorePoints = 0;
     this.topSpeedKmh = 0;
@@ -149,9 +169,13 @@ export class GameWorld {
   }
 
   public setWantedStars(stars: WantedLevel): void {
+    if (stars !== this.wantedStars) {
+      this.policeEvadeProgress = 0;
+    }
     this.wantedStars = stars;
     if (stars === 0) {
       this.bustProgress = 0;
+      this.policeEvadeProgress = 0;
     }
     this.syncPoliceSirens();
   }
@@ -160,6 +184,10 @@ export class GameWorld {
     const clampedDt = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
     this.timeSeconds += clampedDt;
     this.collisionImpact = 0;
+    this.policeRamCooldownSeconds = Math.max(
+      0,
+      this.policeRamCooldownSeconds - clampedDt,
+    );
 
     const interactTriggered = input.interactPressed && !this.prevInteractPressed;
     this.prevInteractPressed = input.interactPressed;
@@ -170,10 +198,19 @@ export class GameWorld {
 
     if (clampedDt > 0 && !this.isBusted) {
       this.stepPlayer(clampedDt, input);
-      this.stepUnoccupiedPlayerCar(clampedDt);
+      this.stepUnoccupiedPlayerVehicles(clampedDt);
       this.stepNpcVehicles(clampedDt);
+      stepPedestrians(
+        this.pedestrians,
+        this.vehicles,
+        this.playerX,
+        this.playerZ,
+        clampedDt,
+        this.map,
+      );
       this.resolveVehicleToVehicleBumps();
       this.updateBustMechanic(clampedDt);
+      this.updatePoliceEvasion(clampedDt);
     } else if (clampedDt > 0) {
       this.syncPoliceSirens();
     }
@@ -198,6 +235,7 @@ export class GameWorld {
       speedKmh: Math.abs(this.playerSpeedMps) * 3.6,
       vehicleId: this.activeVehicleId,
       nearbyVehicleId: nearby?.id ?? null,
+      nearbyVehicleKind: nearby?.kind ?? null,
       canEnterVehicle: nearby !== null,
       nitro: activeVehicle?.nitro ?? playerCar?.nitro ?? 0,
       isDrifting: activeVehicle?.isDrifting ?? false,
@@ -210,8 +248,10 @@ export class GameWorld {
       timeSeconds: this.timeSeconds,
       player,
       vehicles: this.vehicles.map(toVehicleSnapshot),
+      pedestrians: this.pedestrians.map(toPedestrianSnapshot),
       wantedStars: this.wantedStars,
       bustProgress: this.bustProgress,
+      policeEvadeProgress: this.policeEvadeProgress,
       isBusted: this.isBusted,
       driftScore: Math.round(this.driftScorePoints),
       topSpeedKmh: this.topSpeedKmh,
@@ -256,7 +296,21 @@ export class GameWorld {
       }
     }
 
-    return bestBanshee ?? nearestAny;
+    if (!nearestAny) {
+      return null;
+    }
+
+    if (
+      bestBanshee &&
+      bestBanshee.id !== nearestAny.id &&
+      (Math.abs(bestBansheeDist - nearestAnyDist) <= VEHICLE_TIE_EPSILON ||
+        (bestBansheeDist <= BANSHEE_PREFERENCE_RADIUS &&
+          nearestAnyDist <= BANSHEE_PREFERENCE_RADIUS))
+    ) {
+      return bestBanshee;
+    }
+
+    return nearestAny;
   }
 
   private handleInteractToggle(): void {
@@ -265,10 +319,27 @@ export class GameWorld {
       if (!target) {
         return;
       }
+
+      if (target.role !== 'player') {
+        if (!target.isHijackedByPlayer) {
+          target.speedMps = 0;
+          target.nitro = Math.max(target.nitro, HIJACK_MIN_NITRO);
+        }
+        target.isHijackedByPlayer = true;
+        target.sirenActive = false;
+        if (target.kind === 'police') {
+          if (this.wantedStars < 1) {
+            this.wantedStars = 1;
+            this.policeEvadeProgress = 0;
+          }
+        }
+      }
+
       this.playerMode = 'driving';
       this.activeVehicleId = target.id;
       this.playerIsSprinting = false;
       this.syncPlayerFromVehicle(target);
+      this.syncPoliceSirens();
       return;
     }
 
@@ -281,6 +352,7 @@ export class GameWorld {
 
     vehicle.isDrifting = false;
     vehicle.isBoosting = false;
+    vehicle.sirenActive = false;
     vehicle.speedMps *= 0.25;
 
     const exitPos = this.findSafeExitPosition(vehicle);
@@ -349,7 +421,13 @@ export class GameWorld {
   private stepPlayer(dt: number, input: InputState): void {
     const activeVehicle = this.getActiveVehicle();
     if (this.playerMode === 'driving' && activeVehicle) {
-      const result = stepPlayerVehicle(activeVehicle, input, dt, this.map);
+      const result = stepPlayerVehicle(
+        activeVehicle,
+        input,
+        dt,
+        this.map,
+        activeVehicle.kind,
+      );
       activeVehicle.x = result.x;
       activeVehicle.y = result.y;
       activeVehicle.z = result.z;
@@ -396,13 +474,16 @@ export class GameWorld {
     this.topSpeedKmh = Math.max(this.topSpeedKmh, footResult.speedKmh);
   }
 
-  private stepUnoccupiedPlayerCar(dt: number): void {
+  private stepUnoccupiedPlayerVehicles(dt: number): void {
     for (const vehicle of this.vehicles) {
-      if (vehicle.role !== 'player' || vehicle.id === this.activeVehicleId) {
+      const isPlayerOwned =
+        vehicle.role === 'player' || vehicle.isHijackedByPlayer;
+      if (!isPlayerOwned || vehicle.id === this.activeVehicleId) {
         continue;
       }
       vehicle.isDrifting = false;
       vehicle.isBoosting = false;
+      vehicle.sirenActive = false;
       if (Math.abs(vehicle.speedMps) > 0.05) {
         const delta = UNOCCUPIED_COAST_DECEL_MPS2 * dt;
         vehicle.speedMps =
@@ -425,6 +506,8 @@ export class GameWorld {
         if (col.collided) {
           vehicle.speedMps = 0;
         }
+      } else {
+        vehicle.speedMps = 0;
       }
     }
   }
@@ -436,7 +519,12 @@ export class GameWorld {
     }
 
     const candidates = this.vehicles
-      .filter((v) => v.role === 'police' && v.id !== this.activeVehicleId)
+      .filter(
+        (v) =>
+          v.role === 'police' &&
+          !v.isHijackedByPlayer &&
+          v.id !== this.activeVehicleId,
+      )
       .map((v) => ({
         id: v.id,
         distSq:
@@ -456,7 +544,8 @@ export class GameWorld {
     const activeIds = this.selectActivePoliceIds();
     for (const vehicle of this.vehicles) {
       if (vehicle.role === 'police') {
-        vehicle.sirenActive = activeIds.has(vehicle.id);
+        vehicle.sirenActive =
+          !vehicle.isHijackedByPlayer && activeIds.has(vehicle.id);
       }
     }
   }
@@ -465,7 +554,7 @@ export class GameWorld {
     const activePoliceIds = this.selectActivePoliceIds();
 
     for (const vehicle of this.vehicles) {
-      if (vehicle.id === this.activeVehicleId) {
+      if (vehicle.id === this.activeVehicleId || vehicle.isHijackedByPlayer) {
         continue;
       }
 
@@ -487,6 +576,29 @@ export class GameWorld {
     }
   }
 
+  private checkPoliceRam(
+    other: SimVehicle,
+    dist: number,
+    playerSpeedMps: number,
+  ): void {
+    if (
+      other.role !== 'police' ||
+      other.isHijackedByPlayer ||
+      dist >= POLICE_RAM_DISTANCE_METERS ||
+      playerSpeedMps <= POLICE_RAM_MIN_SPEED_MPS ||
+      this.policeRamCooldownSeconds > 0
+    ) {
+      return;
+    }
+
+    this.wantedStars = Math.min(3, this.wantedStars + 1) as WantedLevel;
+    this.policeEvadeProgress = 0;
+    this.policeRamCooldownSeconds = POLICE_RAM_COOLDOWN_SECONDS;
+    const ramImpact = clamp(playerSpeedMps / 28, 0.45, 1);
+    this.collisionImpact = Math.max(this.collisionImpact, ramImpact);
+    this.syncPoliceSirens();
+  }
+
   private resolveVehicleToVehicleBumps(): void {
     const activeVehicle = this.getActiveVehicle();
     if (!activeVehicle) {
@@ -494,6 +606,7 @@ export class GameWorld {
     }
 
     const playerRadius = Math.max(activeVehicle.halfWidth, 1.25);
+    const playerSpeedBeforeBump = Math.abs(activeVehicle.speedMps);
 
     for (const other of this.vehicles) {
       if (other.id === activeVehicle.id) {
@@ -504,12 +617,14 @@ export class GameWorld {
       const dx = activeVehicle.x - other.x;
       const dz = activeVehicle.z - other.z;
       const distSq = dx * dx + dz * dz;
+      const dist = Math.sqrt(distSq);
+
+      this.checkPoliceRam(other, dist, playerSpeedBeforeBump);
 
       if (distSq >= minSep * minSep) {
         continue;
       }
 
-      const dist = Math.sqrt(distSq);
       const nx = dist > 1e-4 ? dx / dist : 1;
       const nz = dist > 1e-4 ? dz / dist : 0;
       const overlap = minSep - dist;
@@ -543,19 +658,13 @@ export class GameWorld {
     }
   }
 
-  private updateBustMechanic(dt: number): void {
-    if (this.wantedStars === 0) {
-      this.bustProgress = 0;
-      return;
-    }
-
-    const playerSpeedKmh = Math.abs(this.playerSpeedMps) * 3.6;
-    let policeInRange = false;
-
+  private getClosestPursuingPoliceDistance(): number {
+    let minDist = Number.POSITIVE_INFINITY;
     for (const vehicle of this.vehicles) {
       if (
         vehicle.role !== 'police' ||
         !vehicle.sirenActive ||
+        vehicle.isHijackedByPlayer ||
         vehicle.id === this.activeVehicleId
       ) {
         continue;
@@ -564,11 +673,22 @@ export class GameWorld {
         vehicle.x - this.playerX,
         vehicle.z - this.playerZ,
       );
-      if (dist <= BUST_RANGE_METERS) {
-        policeInRange = true;
-        break;
+      if (dist < minDist) {
+        minDist = dist;
       }
     }
+    return minDist;
+  }
+
+  private updateBustMechanic(dt: number): void {
+    if (this.wantedStars === 0) {
+      this.bustProgress = 0;
+      return;
+    }
+
+    const playerSpeedKmh = Math.abs(this.playerSpeedMps) * 3.6;
+    const policeInRange =
+      this.getClosestPursuingPoliceDistance() <= BUST_RANGE_METERS;
 
     if (policeInRange && playerSpeedKmh < BUST_MAX_SPEED_KMH) {
       this.bustProgress = clamp(
@@ -582,6 +702,35 @@ export class GameWorld {
     } else {
       this.bustProgress = clamp(
         this.bustProgress - dt * BUST_DECAY_PER_SECOND,
+        0,
+        1,
+      );
+    }
+  }
+
+  private updatePoliceEvasion(dt: number): void {
+    if (this.wantedStars === 0) {
+      this.policeEvadeProgress = 0;
+      return;
+    }
+
+    const minPursuerDist = this.getClosestPursuingPoliceDistance();
+
+    if (minPursuerDist > EVADE_CLEAR_DISTANCE_METERS) {
+      this.policeEvadeProgress = clamp(
+        this.policeEvadeProgress + dt / EVADE_DURATION_SECONDS,
+        0,
+        1,
+      );
+      if (this.policeEvadeProgress >= 1 - 1e-6) {
+        this.policeEvadeProgress = 1;
+        this.wantedStars = 0;
+        this.bustProgress = 0;
+        this.syncPoliceSirens();
+      }
+    } else if (minPursuerDist < EVADE_RESET_DISTANCE_METERS) {
+      this.policeEvadeProgress = clamp(
+        this.policeEvadeProgress - dt * EVADE_DECAY_PER_SECOND,
         0,
         1,
       );

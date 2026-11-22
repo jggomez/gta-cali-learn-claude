@@ -7,6 +7,7 @@ import { CALI_MAP, getTerrainElevation } from '../config/caliMap';
 import type {
   BridgeSpan,
   CaliMapConfig,
+  PedestrianSnapshot,
   TrafficRoute,
   Vec2,
   VehicleKind,
@@ -45,6 +46,27 @@ export interface SimVehicle {
   patrolAxisX: number;
   patrolAxisZ: number;
   patrolDirection: 1 | -1;
+  isHijackedByPlayer: boolean;
+}
+
+export interface SimPedestrian {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  heading: number;
+  speedMps: number;
+  fleeing: boolean;
+  fleeTimerSeconds: number;
+  fleeHeading: number;
+  shirtColorHex: number;
+  pantsColorHex: number;
+  patrolStartX: number;
+  patrolStartZ: number;
+  patrolEndX: number;
+  patrolEndZ: number;
+  patrolTargetEnd: boolean;
+  walkSpeedMps: number;
 }
 
 interface VehicleDimensions {
@@ -139,6 +161,7 @@ function createVehicleRecord(params: {
     patrolAxisX: Math.sin(params.heading),
     patrolAxisZ: Math.cos(params.heading),
     patrolDirection: 1,
+    isHijackedByPlayer: false,
   };
 }
 
@@ -374,7 +397,7 @@ export function stepTrafficVehicle(
   map: CaliMapConfig = CALI_MAP,
 ): void {
   const safeDt = clamp(dt, 0, 0.1);
-  if (safeDt <= 0 || route.waypoints.length === 0) {
+  if (safeDt <= 0 || vehicle.isHijackedByPlayer || route.waypoints.length === 0) {
     return;
   }
 
@@ -419,6 +442,10 @@ export function stepPoliceVehicle(
   map: CaliMapConfig = CALI_MAP,
 ): void {
   const safeDt = clamp(dt, 0, 0.1);
+  if (police.isHijackedByPlayer) {
+    police.sirenActive = false;
+    return;
+  }
   police.sirenActive = active;
   police.isDrifting = false;
   police.isBoosting = false;
@@ -482,4 +509,269 @@ export function stepPoliceVehicle(
     safeDt,
     map,
   );
+}
+
+interface PedestrianCorridorDef {
+  readonly id: string;
+  readonly startX: number;
+  readonly startZ: number;
+  readonly endX: number;
+  readonly endZ: number;
+  readonly initialFraction: number;
+  readonly walkSpeedMps: number;
+}
+
+const PEDESTRIAN_COLLISION_RADIUS = 0.45;
+const PEDESTRIAN_THREAT_SPEED_MPS = 8.0;
+const PEDESTRIAN_THREAT_RADIUS_METERS = 9.5;
+const PEDESTRIAN_FLEE_SPEED_MPS = 4.6;
+const PEDESTRIAN_FLEE_DURATION_SECONDS = 2.5;
+const PEDESTRIAN_WAYPOINT_RADIUS = 1.1;
+const PEDESTRIAN_PLAYER_AVOID_RADIUS = 1.25;
+
+const CALI_SHIRT_PALETTE: readonly number[] = [
+  0xff5e7e, // hibiscus coral
+  0xffb800, // mango gold
+  0x00d2d3, // tropical turquoise
+  0xf8fafc, // crisp Cali linen
+  0xe63946, // salsa red
+  0x10b981, // palm emerald
+  0xf97316, // sunset tangerine
+  0x9b5de5, // vice violet
+  0xff2e93, // neon pink
+];
+
+const CALI_PANTS_PALETTE: readonly number[] = [
+  0x1e3a5f, // denim navy
+  0x2b2d42, // charcoal
+  0xd4a373, // khaki linen
+  0x334155, // slate indigo
+  0x3d2c2e, // espresso
+  0x1d4e56, // deep teal
+];
+
+/**
+ * 18 safe sidewalk patrol corridors across iconic Cali districts,
+ * strictly outside all building colliders, solid landmarks, and Río Cali water.
+ */
+const PEDESTRIAN_CORRIDORS: readonly PedestrianCorridorDef[] = [
+  // Barrio San Antonio sidewalks (z = 36 ± 8)
+  { id: 'ped_san_antonio_0', startX: -86, startZ: 28, endX: -62, endZ: 28, initialFraction: 0.25, walkSpeedMps: 1.55 },
+  { id: 'ped_san_antonio_1', startX: -56, startZ: 28, endX: -22, endZ: 28, initialFraction: 0.5, walkSpeedMps: 1.65 },
+  { id: 'ped_san_antonio_2', startX: -84, startZ: 44, endX: -58, endZ: 44, initialFraction: 0.35, walkSpeedMps: 1.6 },
+  { id: 'ped_san_antonio_3', startX: -52, startZ: 44, endX: -20, endZ: 44, initialFraction: 0.65, walkSpeedMps: 1.7 },
+
+  // Bulevar del Río promenade (x = 12, x = -12)
+  { id: 'ped_bulevar_0', startX: 12, startZ: -8, endX: 12, endZ: 24, initialFraction: 0.3, walkSpeedMps: 1.55 },
+  { id: 'ped_bulevar_1', startX: 12, startZ: 28, endX: 12, endZ: 60, initialFraction: 0.6, walkSpeedMps: 1.65 },
+  { id: 'ped_bulevar_2', startX: -12, startZ: -10, endX: -12, endZ: 24, initialFraction: 0.4, walkSpeedMps: 1.6 },
+  { id: 'ped_bulevar_3', startX: -12, startZ: 42, endX: -12, endZ: 66, initialFraction: 0.5, walkSpeedMps: 1.55 },
+
+  // Iglesia La Ermita / Carrera 1 sidewalks (x = 58 ± 8, clear of church footprint)
+  { id: 'ped_ermita_0', startX: 50, startZ: -56, endX: 50, endZ: -36, initialFraction: 0.4, walkSpeedMps: 1.6 },
+  { id: 'ped_ermita_1', startX: 50, startZ: -8, endX: 50, endZ: 16, initialFraction: 0.5, walkSpeedMps: 1.7 },
+  { id: 'ped_ermita_2', startX: 66, startZ: -60, endX: 66, endZ: -39, initialFraction: 0.3, walkSpeedMps: 1.55 },
+  { id: 'ped_ermita_3', startX: 66, startZ: -8, endX: 66, endZ: 18, initialFraction: 0.6, walkSpeedMps: 1.65 },
+
+  // Avenida Colombia sidewalks (x = -4 ± 9)
+  { id: 'ped_colombia_0', startX: -13, startZ: -96, endX: -13, endZ: -44, initialFraction: 0.35, walkSpeedMps: 1.65 },
+  { id: 'ped_colombia_1', startX: 5, startZ: -94, endX: 5, endZ: -42, initialFraction: 0.6, walkSpeedMps: 1.6 },
+  { id: 'ped_colombia_2', startX: -13, startZ: 94, endX: -13, endZ: 144, initialFraction: 0.45, walkSpeedMps: 1.55 },
+
+  // Estadio Pascual Guerrero / Calle 5 sidewalks (z = 77 ± 9)
+  { id: 'ped_estadio_0', startX: 106, startZ: 68, endX: 158, endZ: 68, initialFraction: 0.3, walkSpeedMps: 1.6 },
+  { id: 'ped_estadio_1', startX: 104, startZ: 86, endX: 134, endZ: 86, initialFraction: 0.5, walkSpeedMps: 1.7 },
+  { id: 'ped_estadio_2', startX: 138, startZ: 86, endX: 166, endZ: 86, initialFraction: 0.4, walkSpeedMps: 1.6 },
+];
+
+export function toPedestrianSnapshot(ped: SimPedestrian): PedestrianSnapshot {
+  return {
+    id: ped.id,
+    x: ped.x,
+    y: ped.y,
+    z: ped.z,
+    heading: ped.heading,
+    speedMps: ped.speedMps,
+    fleeing: ped.fleeing,
+    shirtColorHex: ped.shirtColorHex,
+    pantsColorHex: ped.pantsColorHex,
+  };
+}
+
+export function createInitialPedestrians(
+  map: CaliMapConfig = CALI_MAP,
+): SimPedestrian[] {
+  return PEDESTRIAN_CORRIDORS.map((corridor, index) => {
+    const rawX =
+      corridor.startX + (corridor.endX - corridor.startX) * corridor.initialFraction;
+    const rawZ =
+      corridor.startZ + (corridor.endZ - corridor.startZ) * corridor.initialFraction;
+    const safePos = resolveCircleWorldCollision(
+      rawX,
+      rawZ,
+      PEDESTRIAN_COLLISION_RADIUS,
+      map,
+    );
+    const patrolTargetEnd = index % 2 === 0;
+    const targetX = patrolTargetEnd ? corridor.endX : corridor.startX;
+    const targetZ = patrolTargetEnd ? corridor.endZ : corridor.startZ;
+    const heading = normalizeAngle(
+      Math.atan2(targetX - safePos.x, targetZ - safePos.z),
+    );
+    const shirtColorHex =
+      CALI_SHIRT_PALETTE[index % CALI_SHIRT_PALETTE.length] ?? 0xff5e7e;
+    const pantsColorHex =
+      CALI_PANTS_PALETTE[index % CALI_PANTS_PALETTE.length] ?? 0x1e3a5f;
+
+    return {
+      id: corridor.id,
+      x: safePos.x,
+      y: getTerrainElevation(safePos.x, safePos.z),
+      z: safePos.z,
+      heading,
+      speedMps: corridor.walkSpeedMps,
+      fleeing: false,
+      fleeTimerSeconds: 0,
+      fleeHeading: heading,
+      shirtColorHex,
+      pantsColorHex,
+      patrolStartX: corridor.startX,
+      patrolStartZ: corridor.startZ,
+      patrolEndX: corridor.endX,
+      patrolEndZ: corridor.endZ,
+      patrolTargetEnd,
+      walkSpeedMps: corridor.walkSpeedMps,
+    };
+  });
+}
+
+function findNearestThreatVehicle(
+  ped: SimPedestrian,
+  vehicles: readonly SimVehicle[],
+): SimVehicle | null {
+  let closest: SimVehicle | null = null;
+  let closestDistSq =
+    PEDESTRIAN_THREAT_RADIUS_METERS * PEDESTRIAN_THREAT_RADIUS_METERS;
+
+  for (const vehicle of vehicles) {
+    if (Math.abs(vehicle.speedMps) <= PEDESTRIAN_THREAT_SPEED_MPS) {
+      continue;
+    }
+    const dx = ped.x - vehicle.x;
+    const dz = ped.z - vehicle.z;
+    const distSq = dx * dx + dz * dz;
+    if (distSq < closestDistSq) {
+      closestDistSq = distSq;
+      closest = vehicle;
+    }
+  }
+  return closest;
+}
+
+function computeLateralEscapeHeading(
+  ped: SimPedestrian,
+  threat: SimVehicle,
+): number {
+  const dx = ped.x - threat.x;
+  const dz = ped.z - threat.z;
+  const dist = Math.hypot(dx, dz);
+  const awayX = dist > 1e-4 ? dx / dist : 1;
+  const awayZ = dist > 1e-4 ? dz / dist : 0;
+
+  const rightX = -Math.cos(threat.heading);
+  const rightZ = Math.sin(threat.heading);
+  const sideSign = dx * rightX + dz * rightZ >= 0 ? 1 : -1;
+
+  const escapeX = rightX * sideSign * 0.65 + awayX * 0.35;
+  const escapeZ = rightZ * sideSign * 0.65 + awayZ * 0.35;
+  return normalizeAngle(Math.atan2(escapeX, escapeZ));
+}
+
+export function stepPedestrians(
+  pedestrians: SimPedestrian[],
+  vehicles: readonly SimVehicle[],
+  playerX: number,
+  playerZ: number,
+  dt: number,
+  map: CaliMapConfig = CALI_MAP,
+): void {
+  const safeDt = clamp(dt, 0, 0.1);
+  if (safeDt <= 0) {
+    return;
+  }
+
+  for (const ped of pedestrians) {
+    const threat = findNearestThreatVehicle(ped, vehicles);
+    if (threat) {
+      ped.fleeing = true;
+      ped.fleeTimerSeconds = PEDESTRIAN_FLEE_DURATION_SECONDS;
+      ped.fleeHeading = computeLateralEscapeHeading(ped, threat);
+    }
+
+    if (ped.fleeing) {
+      ped.fleeTimerSeconds = Math.max(0, ped.fleeTimerSeconds - safeDt);
+      ped.heading = ped.fleeHeading;
+      ped.speedMps = PEDESTRIAN_FLEE_SPEED_MPS;
+
+      const nextX = ped.x + Math.sin(ped.heading) * ped.speedMps * safeDt;
+      const nextZ = ped.z + Math.cos(ped.heading) * ped.speedMps * safeDt;
+      const col = resolveCircleWorldCollision(
+        nextX,
+        nextZ,
+        PEDESTRIAN_COLLISION_RADIUS,
+        map,
+      );
+      ped.x = col.x;
+      ped.z = col.z;
+      ped.y = getTerrainElevation(col.x, col.z);
+
+      if (col.collided) {
+        ped.fleeHeading = normalizeAngle(ped.fleeHeading + Math.PI * 0.5);
+      }
+      if (ped.fleeTimerSeconds <= 0 && !threat) {
+        ped.fleeing = false;
+        ped.speedMps = ped.walkSpeedMps;
+      }
+      continue;
+    }
+
+    let targetX = ped.patrolTargetEnd ? ped.patrolEndX : ped.patrolStartX;
+    let targetZ = ped.patrolTargetEnd ? ped.patrolEndZ : ped.patrolStartZ;
+    if (
+      Math.hypot(targetX - ped.x, targetZ - ped.z) < PEDESTRIAN_WAYPOINT_RADIUS
+    ) {
+      ped.patrolTargetEnd = !ped.patrolTargetEnd;
+      targetX = ped.patrolTargetEnd ? ped.patrolEndX : ped.patrolStartX;
+      targetZ = ped.patrolTargetEnd ? ped.patrolEndZ : ped.patrolStartZ;
+    }
+
+    let walkHeading = normalizeAngle(
+      Math.atan2(targetX - ped.x, targetZ - ped.z),
+    );
+    const dxPlayer = ped.x - playerX;
+    const dzPlayer = ped.z - playerZ;
+    if (
+      dxPlayer * dxPlayer + dzPlayer * dzPlayer <
+      PEDESTRIAN_PLAYER_AVOID_RADIUS * PEDESTRIAN_PLAYER_AVOID_RADIUS
+    ) {
+      const awayPlayer = Math.atan2(dxPlayer, dzPlayer);
+      const diff = normalizeAngle(awayPlayer - walkHeading);
+      walkHeading = normalizeAngle(walkHeading + clamp(diff, -0.35, 0.35));
+    }
+
+    ped.heading = walkHeading;
+    ped.speedMps = ped.walkSpeedMps;
+
+    const nextX = ped.x + Math.sin(ped.heading) * ped.speedMps * safeDt;
+    const nextZ = ped.z + Math.cos(ped.heading) * ped.speedMps * safeDt;
+    const col = resolveCircleWorldCollision(
+      nextX,
+      nextZ,
+      PEDESTRIAN_COLLISION_RADIUS,
+      map,
+    );
+    ped.x = col.x;
+    ped.z = col.z;
+    ped.y = getTerrainElevation(col.x, col.z);
+  }
 }

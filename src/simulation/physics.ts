@@ -15,7 +15,22 @@ import type {
   CaliMapConfig,
   InputState,
   LandmarkId,
+  VehicleKind,
 } from '../types/game';
+
+export interface VehicleHandlingProfile {
+  readonly baseMaxSpeedMps: number;
+  readonly boostMaxSpeedMps: number;
+  readonly maxReverseSpeedMps: number;
+  readonly accelMps2: number;
+  readonly boostAccelMps2: number;
+  readonly brakeDecelMps2: number;
+  readonly reverseAccelMps2: number;
+  readonly coastDragMps2: number;
+  readonly baseTurnRate: number;
+  readonly driftTurnMultiplier: number;
+  readonly maxSteerAngle: number;
+}
 
 export interface CollisionResult {
   readonly x: number;
@@ -27,6 +42,7 @@ export interface CollisionResult {
 }
 
 export interface VehicleMotionState {
+  readonly kind?: VehicleKind;
   readonly x: number;
   readonly y: number;
   readonly z: number;
@@ -82,24 +98,89 @@ const DRIVABLE_LANDMARK_IDS: ReadonlySet<LandmarkId> = new Set([
   'san_antonio',
 ]);
 
-const BASE_MAX_SPEED_MPS = 40;
-const BOOST_MAX_SPEED_MPS = 54;
-const MAX_REVERSE_SPEED_MPS = -14;
-const ACCEL_MPS2 = 22;
-const BOOST_ACCEL_MPS2 = 34;
-const BRAKE_DECEL_MPS2 = 34;
-const REVERSE_ACCEL_MPS2 = 14;
-const COAST_DRAG_MPS2 = 7.5;
+const VEHICLE_HANDLING_PROFILES: Readonly<
+  Record<VehicleKind, VehicleHandlingProfile>
+> = {
+  banshee: {
+    baseMaxSpeedMps: 40,
+    boostMaxSpeedMps: 54,
+    maxReverseSpeedMps: -14,
+    accelMps2: 22,
+    boostAccelMps2: 34,
+    brakeDecelMps2: 34,
+    reverseAccelMps2: 14,
+    coastDragMps2: 7.5,
+    baseTurnRate: 2.35,
+    driftTurnMultiplier: 1.48,
+    maxSteerAngle: 0.52,
+  },
+  police: {
+    baseMaxSpeedMps: 36,
+    boostMaxSpeedMps: 47,
+    maxReverseSpeedMps: -13,
+    accelMps2: 20,
+    boostAccelMps2: 30,
+    brakeDecelMps2: 32,
+    reverseAccelMps2: 13,
+    coastDragMps2: 7.5,
+    baseTurnRate: 2.25,
+    driftTurnMultiplier: 1.4,
+    maxSteerAngle: 0.5,
+  },
+  taxi: {
+    baseMaxSpeedMps: 30,
+    boostMaxSpeedMps: 38,
+    maxReverseSpeedMps: -11,
+    accelMps2: 17,
+    boostAccelMps2: 24,
+    brakeDecelMps2: 28,
+    reverseAccelMps2: 11,
+    coastDragMps2: 7.2,
+    baseTurnRate: 2.2,
+    driftTurnMultiplier: 1.35,
+    maxSteerAngle: 0.5,
+  },
+  chiva: {
+    baseMaxSpeedMps: 22,
+    boostMaxSpeedMps: 28,
+    maxReverseSpeedMps: -8,
+    accelMps2: 11.5,
+    boostAccelMps2: 16,
+    brakeDecelMps2: 21,
+    reverseAccelMps2: 8,
+    coastDragMps2: 6.5,
+    baseTurnRate: 1.65,
+    driftTurnMultiplier: 1.15,
+    maxSteerAngle: 0.42,
+  },
+  mio_bus: {
+    baseMaxSpeedMps: 21,
+    boostMaxSpeedMps: 26,
+    maxReverseSpeedMps: -7.5,
+    accelMps2: 10.5,
+    boostAccelMps2: 14.5,
+    brakeDecelMps2: 19,
+    reverseAccelMps2: 7.5,
+    coastDragMps2: 6.0,
+    baseTurnRate: 1.45,
+    driftTurnMultiplier: 1.1,
+    maxSteerAngle: 0.38,
+  },
+};
+
 const OVERBOOST_DECAY_MPS2 = 12;
 const HANDBRAKE_DECEL_MPS2 = 14;
 
 const NITRO_DRAIN_PER_SEC = 28;
 const NITRO_RECHARGE_PER_SEC = 14;
-const MAX_STEER_ANGLE = 0.52;
-const BASE_TURN_RATE = 2.35;
-const DRIFT_TURN_MULTIPLIER = 1.48;
 const DRIFT_SLIP_ANGLE = 0.22;
 const DRIFT_MIN_SPEED_MPS = 6.5;
+
+export function getVehicleHandlingProfile(
+  kind: VehicleKind,
+): VehicleHandlingProfile {
+  return VEHICLE_HANDLING_PROFILES[kind];
+}
 
 const WALK_SPEED_MPS = 6.5;
 const SPRINT_SPEED_MPS = 10.5;
@@ -334,6 +415,7 @@ export function stepPlayerVehicle(
   input: InputState,
   dt: number,
   map: CaliMapConfig = CALI_MAP,
+  kind?: VehicleKind,
 ): VehicleStepResult {
   const safeDt = clamp(dt, 0, 0.1);
   if (safeDt <= 0) {
@@ -354,6 +436,7 @@ export function stepPlayerVehicle(
     };
   }
 
+  const profile = getVehicleHandlingProfile(kind ?? state.kind ?? 'banshee');
   const steerInput = (input.left ? 1 : 0) - (input.right ? 1 : 0);
   const isBoosting =
     input.boost && (input.forward || state.speedMps > 2) && state.nitro > 0;
@@ -367,26 +450,35 @@ export function stepPlayerVehicle(
 
   let speed = state.speedMps;
   if (isBoosting) {
-    speed = Math.min(BOOST_MAX_SPEED_MPS, speed + BOOST_ACCEL_MPS2 * safeDt);
+    speed = Math.min(
+      profile.boostMaxSpeedMps,
+      speed + profile.boostAccelMps2 * safeDt,
+    );
   } else if (input.forward && !input.backward) {
     if (speed < 0) {
-      speed = Math.min(0, speed + BRAKE_DECEL_MPS2 * safeDt);
-    } else if (speed < BASE_MAX_SPEED_MPS) {
-      speed = Math.min(BASE_MAX_SPEED_MPS, speed + ACCEL_MPS2 * safeDt);
+      speed = Math.min(0, speed + profile.brakeDecelMps2 * safeDt);
+    } else if (speed < profile.baseMaxSpeedMps) {
+      speed = Math.min(
+        profile.baseMaxSpeedMps,
+        speed + profile.accelMps2 * safeDt,
+      );
     } else {
       speed = Math.max(
-        BASE_MAX_SPEED_MPS,
+        profile.baseMaxSpeedMps,
         speed - OVERBOOST_DECAY_MPS2 * safeDt,
       );
     }
   } else if (input.backward && !input.forward) {
     if (speed > 0) {
-      speed = Math.max(0, speed - BRAKE_DECEL_MPS2 * safeDt);
+      speed = Math.max(0, speed - profile.brakeDecelMps2 * safeDt);
     } else {
-      speed = Math.max(MAX_REVERSE_SPEED_MPS, speed - REVERSE_ACCEL_MPS2 * safeDt);
+      speed = Math.max(
+        profile.maxReverseSpeedMps,
+        speed - profile.reverseAccelMps2 * safeDt,
+      );
     }
   } else {
-    speed = approachZero(speed, COAST_DRAG_MPS2 * safeDt);
+    speed = approachZero(speed, profile.coastDragMps2 * safeDt);
   }
 
   const isDrifting =
@@ -401,7 +493,7 @@ export function stepPlayerVehicle(
     speed = approachZero(speed, handbrakeDecel * safeDt);
   }
 
-  const targetSteerAngle = steerInput * MAX_STEER_ANGLE;
+  const targetSteerAngle = steerInput * profile.maxSteerAngle;
   const steerLerp = clamp(safeDt * 10, 0, 1);
   const nextSteerAngle =
     state.steerAngle + (targetSteerAngle - state.steerAngle) * steerLerp;
@@ -409,10 +501,10 @@ export function stepPlayerVehicle(
   const absSpeed = Math.abs(speed);
   const lowSpeedRamp = clamp(absSpeed / 6, 0, 1);
   const highSpeedDamp = 1 - 0.35 * clamp((absSpeed - 15) / 40, 0, 1);
-  const driftMultiplier = isDrifting ? DRIFT_TURN_MULTIPLIER : 1;
+  const driftMultiplier = isDrifting ? profile.driftTurnMultiplier : 1;
   const directionSign = speed >= 0 ? 1 : -1;
   const turnRate =
-    BASE_TURN_RATE * lowSpeedRamp * highSpeedDamp * driftMultiplier;
+    profile.baseTurnRate * lowSpeedRamp * highSpeedDamp * driftMultiplier;
   const nextHeading = normalizeAngle(
     state.heading + steerInput * directionSign * turnRate * safeDt,
   );
