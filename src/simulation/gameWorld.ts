@@ -12,25 +12,32 @@ import {
 import type {
   CaliMapConfig,
   InputState,
+  PlayerCarKind,
   PlayerMode,
   PlayerSnapshot,
   SpawnPose,
+  TrafficLightPhase,
   TrafficRoute,
   WantedLevel,
   WorldSnapshot,
 } from '../types/game';
 import {
   PLAYER_COLLISION_RADIUS,
+  STUNT_GRAVITY_MPS2,
   clamp,
+  isVehicleOnStuntRamp,
   resolveCircleWorldCollision,
   stepOnFoot,
   stepPlayerVehicle,
+  stepVerticalMotion,
 } from './physics';
 import {
   createInitialPedestrians,
   createInitialVehicles,
+  getVehicleDimensions,
   stepPedestrians,
   stepPoliceVehicle,
+  stepRacerVehicle,
   stepTrafficVehicle,
   toPedestrianSnapshot,
   toVehicleSnapshot,
@@ -43,9 +50,58 @@ export interface ResetWorldOptions {
   readonly spawn?: SpawnPose;
   readonly carSpawn?: SpawnPose;
   readonly wantedStars?: WantedLevel;
+  readonly playerCarKind?: PlayerCarKind;
+  readonly playerPaintHex?: number;
+  readonly playerNeonHex?: number;
+  readonly enableRivals?: boolean;
 }
 
 const MAX_NITRO = 100;
+const TRAFFIC_LIGHT_CYCLE_SECONDS = 20;
+
+const STUNT_JUMP_COOLDOWN_SECONDS = 4;
+const STUNT_JUMP_NITRO_BONUS = 35;
+
+const PAY_N_SPRAY_COOLDOWN_SECONDS = 6;
+const CALI_RESPRAY_COLORS: readonly number[] = [
+  0xe63946,
+  0x10b981,
+  0xff2e93,
+  0xffc400,
+  0x0284c7,
+  0xf8fafc,
+];
+
+const DRIFT_COMBO_MIN_KMH = 28;
+const DRIFT_COMBO_MAX_MULTIPLIER = 5;
+const DRIFT_COMBO_STEP_SECONDS = 1.0;
+const DRIFT_COMBO_COP_PER_KMH_SEC = 25;
+const DRIFT_CASHOUT_GRACE_SECONDS = 1.4;
+const DRIFT_MIN_CASHOUT_COP = 500;
+const DRIFT_CRASH_CANCEL_IMPACT = 0.35;
+
+const ROADBLOCK_COOLDOWN_SECONDS = 2.5;
+const ROADBLOCK_SMASH_MIN_SPEED_MPS = 26;
+const ROADBLOCK_SMASH_SPEED_FACTOR = 0.78;
+const ROADBLOCK_SMASH_IMPACT = 0.45;
+const ROADBLOCK_SLOW_SPEED_FACTOR = 0.42;
+const ROADBLOCK_SLOW_IMPACT = 0.65;
+const ROADBLOCK_CLEAR_AIRBORNE_METERS = 2.2;
+
+export function computeTrafficLightPhase(timeSeconds: number): TrafficLightPhase {
+  const safeTime = Number.isFinite(timeSeconds) && timeSeconds >= 0 ? timeSeconds : 0;
+  const phaseTime = safeTime % TRAFFIC_LIGHT_CYCLE_SECONDS;
+  if (phaseTime < 8) {
+    return 'ns_green';
+  }
+  if (phaseTime < 10) {
+    return 'ns_yellow';
+  }
+  if (phaseTime < 18) {
+    return 'ew_green';
+  }
+  return 'ew_yellow';
+}
 
 const VEHICLE_ENTER_RADIUS = 6.5;
 const BANSHEE_PREFERENCE_RADIUS = 3.5;
@@ -123,6 +179,28 @@ export class GameWorld {
   private collisionImpact = 0;
   private prevInteractPressed = false;
 
+  private driftComboMultiplier = 1;
+  private driftChainSeconds = 0;
+  private driftRecoverySeconds = 0;
+  private driftBankPendingCop = 0;
+  private lastDriftCashoutCop = 0;
+
+  private airborneSeconds = 0;
+  private lastStuntJumpName: string | null = null;
+  private lastStuntJumpCop = 0;
+  private lastStuntJumpAt = 0;
+  private stuntJumpCooldowns = new Map<string, number>();
+
+  private lastPayNSprayAt = 0;
+  private lastPayNSprayName: string | null = null;
+  private payNSprayCooldowns = new Map<string, number>();
+  private payNSprayRequested = false;
+
+  private roadblockCooldowns = new Map<string, number>();
+  private hornActive = false;
+  private rivalsEnabled = false;
+  private playerRaceCheckpointIndex = 0;
+
   public constructor(map: CaliMapConfig = CALI_MAP) {
     this.map = map;
     this.routeMap = new Map(map.trafficRoutes.map((route) => [route.id, route]));
@@ -130,7 +208,12 @@ export class GameWorld {
   }
 
   public reset(options?: ResetWorldOptions): void {
-    this.vehicles = createInitialVehicles(this.map);
+    this.vehicles = createInitialVehicles(this.map, {
+      playerCarKind: options?.playerCarKind,
+      playerPaintHex: options?.playerPaintHex,
+      playerNeonHex: options?.playerNeonHex,
+      enableRivals: options?.enableRivals,
+    });
     this.pedestrians = createInitialPedestrians(this.map);
     this.timeSeconds = 0;
     this.bustProgress = 0;
@@ -144,6 +227,28 @@ export class GameWorld {
     this.playerIsSprinting = false;
     this.playerInRiverHazard = false;
     this.wantedStars = options?.wantedStars ?? 0;
+
+    this.driftComboMultiplier = 1;
+    this.driftChainSeconds = 0;
+    this.driftRecoverySeconds = 0;
+    this.driftBankPendingCop = 0;
+    this.lastDriftCashoutCop = 0;
+
+    this.airborneSeconds = 0;
+    this.lastStuntJumpName = null;
+    this.lastStuntJumpCop = 0;
+    this.lastStuntJumpAt = 0;
+    this.stuntJumpCooldowns = new Map<string, number>();
+
+    this.lastPayNSprayAt = 0;
+    this.lastPayNSprayName = null;
+    this.payNSprayCooldowns = new Map<string, number>();
+    this.payNSprayRequested = false;
+
+    this.roadblockCooldowns = new Map<string, number>();
+    this.hornActive = false;
+    this.rivalsEnabled = Boolean(options?.enableRivals);
+    this.playerRaceCheckpointIndex = 0;
 
     const playerCar = this.vehicles.find((v) => v.role === 'player') ?? null;
 
@@ -171,6 +276,36 @@ export class GameWorld {
 
     this.currentDistrict = getDistrictAt(this.playerX, this.playerZ);
     this.syncPoliceSirens();
+  }
+
+  public applyGarageCar(
+    carKind: PlayerCarKind,
+    paintHex: number,
+    neonHex: number,
+  ): void {
+    const playerCar = this.vehicles.find((v) => v.id === 'player_banshee');
+    if (!playerCar) {
+      return;
+    }
+    const dims = getVehicleDimensions(carKind);
+    playerCar.kind = carKind;
+    playerCar.colorHex = paintHex;
+    playerCar.neonHex = neonHex;
+    playerCar.halfWidth = dims.halfWidth;
+    playerCar.halfLength = dims.halfLength;
+  }
+
+  public setPlayerRaceProgress(checkpointIndex: number): void {
+    const checkpoints = this.map.missionWaypoints.mission3Checkpoints ?? [];
+    this.playerRaceCheckpointIndex = clamp(
+      Math.floor(checkpointIndex),
+      0,
+      checkpoints.length,
+    );
+  }
+
+  public requestPayNSpray(): void {
+    this.payNSprayRequested = true;
   }
 
   public refillNitro(): void {
@@ -207,6 +342,7 @@ export class GameWorld {
 
     const interactTriggered = input.interactPressed && !this.prevInteractPressed;
     this.prevInteractPressed = input.interactPressed;
+    this.hornActive = !this.isBusted && Boolean(input.hornPressed);
 
     if (interactTriggered && !this.isBusted) {
       this.handleInteractToggle();
@@ -223,14 +359,20 @@ export class GameWorld {
         this.playerZ,
         clampedDt,
         this.map,
+        this.hornActive,
       );
+      this.checkPayNSprayZones(input);
+      this.checkRoadblockZones();
       this.resolveVehicleToVehicleBumps();
+      this.updateDriftCombo(clampedDt);
+      this.updatePlayerRaceProgress();
       this.updateBustMechanic(clampedDt);
       this.updatePoliceEvasion(clampedDt);
     } else if (clampedDt > 0) {
       this.syncPoliceSirens();
     }
 
+    this.payNSprayRequested = false;
     this.currentDistrict = getDistrictAt(this.playerX, this.playerZ);
     return this.getSnapshot();
   }
@@ -240,6 +382,7 @@ export class GameWorld {
     const playerCar = this.vehicles.find((v) => v.role === 'player') ?? null;
     const nearby =
       this.playerMode === 'on_foot' ? this.findEnterableVehicle() : null;
+    const raceStanding = this.computeRaceStanding();
 
     const player: PlayerSnapshot = {
       mode: this.playerMode,
@@ -273,6 +416,20 @@ export class GameWorld {
       topSpeedKmh: this.topSpeedKmh,
       currentDistrict: this.currentDistrict,
       collisionImpact: this.collisionImpact,
+      driftComboMultiplier: this.driftComboMultiplier,
+      driftBankPendingCop: Math.round(this.driftBankPendingCop),
+      lastDriftCashoutCop: this.lastDriftCashoutCop,
+      airborneSeconds: this.airborneSeconds,
+      lastStuntJumpName: this.lastStuntJumpName,
+      lastStuntJumpCop: this.lastStuntJumpCop,
+      lastStuntJumpAt: this.lastStuntJumpAt,
+      lastPayNSprayAt: this.lastPayNSprayAt,
+      lastPayNSprayName: this.lastPayNSprayName,
+      roadblockActive: this.isRoadblockActive(),
+      racePosition: raceStanding.racePosition,
+      raceTotalRacers: raceStanding.raceTotalRacers,
+      hornActive: this.hornActive,
+      trafficLightPhase: computeTrafficLightPhase(this.timeSeconds),
     };
   }
 
@@ -292,6 +449,8 @@ export class GameWorld {
     vehicle.steerAngle = 0;
     vehicle.isDrifting = false;
     vehicle.isBoosting = false;
+    vehicle.airborneHeight = 0;
+    vehicle.verticalVelocity = 0;
   }
 
   private syncPlayerFromVehicle(vehicle: SimVehicle): void {
@@ -313,7 +472,7 @@ export class GameWorld {
       if (dist > VEHICLE_ENTER_RADIUS) {
         continue;
       }
-      if (vehicle.kind === 'banshee' && dist < bestBansheeDist) {
+      if (vehicle.role === 'player' && dist < bestBansheeDist) {
         bestBanshee = vehicle;
         bestBansheeDist = dist;
       }
@@ -448,6 +607,8 @@ export class GameWorld {
   private stepPlayer(dt: number, input: InputState): void {
     const activeVehicle = this.getActiveVehicle();
     if (this.playerMode === 'driving' && activeVehicle) {
+      const prevX = activeVehicle.x;
+      const prevZ = activeVehicle.z;
       const result = stepPlayerVehicle(
         activeVehicle,
         input,
@@ -464,6 +625,21 @@ export class GameWorld {
       activeVehicle.nitro = result.nitro;
       activeVehicle.isDrifting = result.isDrifting;
       activeVehicle.isBoosting = result.isBoosting;
+      activeVehicle.airborneHeight = result.airborneHeight;
+      activeVehicle.verticalVelocity = result.verticalVelocity;
+
+      if (
+        activeVehicle.airborneHeight <= 0 &&
+        activeVehicle.verticalVelocity <= 0
+      ) {
+        this.tryTriggerStuntJump(activeVehicle, prevX, prevZ, dt);
+      }
+
+      if (activeVehicle.airborneHeight > 0) {
+        this.airborneSeconds += dt;
+      } else {
+        this.airborneSeconds = 0;
+      }
 
       this.syncPlayerFromVehicle(activeVehicle);
       this.playerIsSprinting = false;
@@ -471,13 +647,14 @@ export class GameWorld {
       this.collisionImpact = result.collisionImpact;
       this.topSpeedKmh = Math.max(this.topSpeedKmh, result.speedKmh);
 
-      if (result.isDrifting && result.speedKmh >= DRIFT_SCORE_MIN_KMH) {
+      if (activeVehicle.isDrifting && result.speedKmh >= DRIFT_SCORE_MIN_KMH) {
         this.driftScorePoints +=
           result.speedKmh * dt * DRIFT_SCORE_MULTIPLIER;
       }
       return;
     }
 
+    this.airborneSeconds = 0;
     const footResult = stepOnFoot(
       {
         x: this.playerX,
@@ -511,6 +688,18 @@ export class GameWorld {
       vehicle.isDrifting = false;
       vehicle.isBoosting = false;
       vehicle.sirenActive = false;
+      if (vehicle.airborneHeight > 0 || vehicle.verticalVelocity > 0) {
+        const settled = stepVerticalMotion(
+          vehicle.airborneHeight,
+          vehicle.verticalVelocity,
+          dt,
+          STUNT_GRAVITY_MPS2,
+        );
+        vehicle.airborneHeight = settled.airborneHeight;
+        vehicle.verticalVelocity = settled.verticalVelocity;
+        vehicle.y =
+          getTerrainElevation(vehicle.x, vehicle.z) + vehicle.airborneHeight;
+      }
       if (Math.abs(vehicle.speedMps) > 0.05) {
         const delta = UNOCCUPIED_COAST_DECEL_MPS2 * dt;
         vehicle.speedMps =
@@ -529,7 +718,8 @@ export class GameWorld {
         );
         vehicle.x = col.x;
         vehicle.z = col.z;
-        vehicle.y = getTerrainElevation(col.x, col.z);
+        vehicle.y =
+          getTerrainElevation(col.x, col.z) + vehicle.airborneHeight;
         if (col.collided) {
           vehicle.speedMps = 0;
         }
@@ -579,6 +769,7 @@ export class GameWorld {
 
   private stepNpcVehicles(dt: number): void {
     const activePoliceIds = this.selectActivePoliceIds();
+    const raceCheckpoints = this.map.missionWaypoints.mission3Checkpoints ?? [];
 
     for (const vehicle of this.vehicles) {
       if (vehicle.id === this.activeVehicleId || vehicle.isHijackedByPlayer) {
@@ -599,8 +790,304 @@ export class GameWorld {
           dt,
           this.map,
         );
+      } else if (vehicle.role === 'racer') {
+        stepRacerVehicle(vehicle, raceCheckpoints, dt, this.map);
       }
     }
+  }
+
+  private tryTriggerStuntJump(
+    vehicle: SimVehicle,
+    prevX: number,
+    prevZ: number,
+    dt: number,
+  ): void {
+    const jumps = this.map.stuntJumps;
+    if (!jumps || jumps.length === 0) {
+      return;
+    }
+
+    const midX = (prevX + vehicle.x) * 0.5;
+    const midZ = (prevZ + vehicle.z) * 0.5;
+
+    for (const jump of jumps) {
+      const lastUsedAt = this.stuntJumpCooldowns.get(jump.id);
+      if (
+        lastUsedAt !== undefined &&
+        this.timeSeconds - lastUsedAt < STUNT_JUMP_COOLDOWN_SECONDS
+      ) {
+        continue;
+      }
+
+      const hitRamp =
+        isVehicleOnStuntRamp(
+          vehicle.x,
+          vehicle.z,
+          vehicle.heading,
+          vehicle.speedMps,
+          jump,
+        ) ||
+        isVehicleOnStuntRamp(
+          midX,
+          midZ,
+          vehicle.heading,
+          vehicle.speedMps,
+          jump,
+        );
+      if (!hitRamp) {
+        continue;
+      }
+
+      const launched = stepVerticalMotion(
+        0,
+        jump.launchVy,
+        dt,
+        STUNT_GRAVITY_MPS2,
+      );
+      vehicle.airborneHeight = launched.airborneHeight;
+      vehicle.verticalVelocity = launched.verticalVelocity;
+      vehicle.y =
+        getTerrainElevation(vehicle.x, vehicle.z) + vehicle.airborneHeight;
+      vehicle.isDrifting = false;
+      vehicle.nitro = clamp(vehicle.nitro + STUNT_JUMP_NITRO_BONUS, 0, MAX_NITRO);
+      this.stuntJumpCooldowns.set(jump.id, this.timeSeconds);
+      this.lastStuntJumpName = jump.name;
+      this.lastStuntJumpCop = jump.rewardCop;
+      this.lastStuntJumpAt = this.timeSeconds;
+      break;
+    }
+  }
+
+  private checkPayNSprayZones(input: InputState): void {
+    const zones = this.map.payNSprayZones;
+    const activeVehicle = this.getActiveVehicle();
+    if (
+      !zones ||
+      zones.length === 0 ||
+      this.playerMode !== 'driving' ||
+      !activeVehicle
+    ) {
+      return;
+    }
+
+    const shouldService =
+      this.wantedStars > 0 ||
+      this.payNSprayRequested ||
+      Boolean(input.hornPressed);
+    if (!shouldService) {
+      return;
+    }
+
+    for (const zone of zones) {
+      const dist = Math.hypot(
+        activeVehicle.x - zone.x,
+        activeVehicle.z - zone.z,
+      );
+      if (dist > zone.radius) {
+        continue;
+      }
+
+      const lastUsedAt = this.payNSprayCooldowns.get(zone.id);
+      if (
+        lastUsedAt !== undefined &&
+        this.timeSeconds - lastUsedAt < PAY_N_SPRAY_COOLDOWN_SECONDS
+      ) {
+        continue;
+      }
+
+      this.wantedStars = 0;
+      this.bustProgress = 0;
+      this.policeEvadeProgress = 0;
+      activeVehicle.nitro = MAX_NITRO;
+      activeVehicle.colorHex = this.pickFreshResprayColor(activeVehicle.colorHex);
+      this.payNSprayCooldowns.set(zone.id, this.timeSeconds);
+      this.lastPayNSprayAt = this.timeSeconds;
+      this.lastPayNSprayName = zone.name;
+      this.syncPoliceSirens();
+      break;
+    }
+  }
+
+  private pickFreshResprayColor(currentColorHex: number): number {
+    const currentIdx = CALI_RESPRAY_COLORS.indexOf(currentColorHex);
+    const nextColor =
+      CALI_RESPRAY_COLORS[(currentIdx + 1) % CALI_RESPRAY_COLORS.length] ??
+      0x10b981;
+    return nextColor === currentColorHex ? 0x10b981 : nextColor;
+  }
+
+  private isRoadblockActive(): boolean {
+    return (
+      this.wantedStars >= 3 && (this.map.roadblockZones?.length ?? 0) > 0
+    );
+  }
+
+  private checkRoadblockZones(): void {
+    if (!this.isRoadblockActive() || this.playerMode !== 'driving') {
+      return;
+    }
+    const activeVehicle = this.getActiveVehicle();
+    const zones = this.map.roadblockZones;
+    if (
+      !activeVehicle ||
+      !zones ||
+      activeVehicle.airborneHeight >= ROADBLOCK_CLEAR_AIRBORNE_METERS
+    ) {
+      return;
+    }
+
+    for (const zone of zones) {
+      const lastHitAt = this.roadblockCooldowns.get(zone.id);
+      if (
+        lastHitAt !== undefined &&
+        this.timeSeconds - lastHitAt < ROADBLOCK_COOLDOWN_SECONDS
+      ) {
+        continue;
+      }
+
+      const dx = activeVehicle.x - zone.x;
+      const dz = activeVehicle.z - zone.z;
+      const fwdX = Math.sin(zone.heading);
+      const fwdZ = Math.cos(zone.heading);
+      const rightX = -fwdZ;
+      const rightZ = fwdX;
+      const localFwd = dx * fwdX + dz * fwdZ;
+      const localRight = dx * rightX + dz * rightZ;
+      const hitDepth = Math.max(3.2, activeVehicle.halfLength + 1.0);
+
+      if (
+        Math.abs(localFwd) <= hitDepth &&
+        Math.abs(localRight) <= zone.halfWidth
+      ) {
+        this.roadblockCooldowns.set(zone.id, this.timeSeconds);
+        const canSmash =
+          activeVehicle.kind === 'willys_v8' ||
+          activeVehicle.isBoosting ||
+          Math.abs(activeVehicle.speedMps) >= ROADBLOCK_SMASH_MIN_SPEED_MPS;
+        if (canSmash) {
+          activeVehicle.speedMps *= ROADBLOCK_SMASH_SPEED_FACTOR;
+          this.collisionImpact = Math.max(
+            this.collisionImpact,
+            ROADBLOCK_SMASH_IMPACT,
+          );
+        } else {
+          activeVehicle.speedMps *= ROADBLOCK_SLOW_SPEED_FACTOR;
+          this.collisionImpact = Math.max(
+            this.collisionImpact,
+            ROADBLOCK_SLOW_IMPACT,
+          );
+        }
+        this.syncPlayerFromVehicle(activeVehicle);
+        break;
+      }
+    }
+  }
+
+  private cancelDriftCombo(): void {
+    this.driftBankPendingCop = 0;
+    this.driftChainSeconds = 0;
+    this.driftRecoverySeconds = 0;
+    this.driftComboMultiplier = 1;
+  }
+
+  private updateDriftCombo(dt: number): void {
+    if (this.collisionImpact > DRIFT_CRASH_CANCEL_IMPACT) {
+      this.cancelDriftCombo();
+      return;
+    }
+
+    const activeVehicle = this.getActiveVehicle();
+    const speedKmh = activeVehicle ? Math.abs(activeVehicle.speedMps) * 3.6 : 0;
+    const isActiveDrift =
+      this.playerMode === 'driving' &&
+      activeVehicle !== null &&
+      activeVehicle.isDrifting &&
+      speedKmh >= DRIFT_COMBO_MIN_KMH;
+
+    if (isActiveDrift) {
+      this.lastDriftCashoutCop = 0;
+      this.driftRecoverySeconds = 0;
+      this.driftChainSeconds += dt;
+      this.driftComboMultiplier = clamp(
+        1 + Math.floor(this.driftChainSeconds / DRIFT_COMBO_STEP_SECONDS),
+        1,
+        DRIFT_COMBO_MAX_MULTIPLIER,
+      );
+      this.driftBankPendingCop +=
+        speedKmh * dt * DRIFT_COMBO_COP_PER_KMH_SEC * this.driftComboMultiplier;
+      return;
+    }
+
+    if (this.driftBankPendingCop > 0) {
+      this.driftRecoverySeconds += dt;
+      if (this.driftRecoverySeconds >= DRIFT_CASHOUT_GRACE_SECONDS) {
+        const rounded = Math.round(this.driftBankPendingCop);
+        if (rounded >= DRIFT_MIN_CASHOUT_COP) {
+          this.lastDriftCashoutCop = rounded;
+        }
+        this.cancelDriftCombo();
+      }
+    } else {
+      this.driftChainSeconds = 0;
+      this.driftRecoverySeconds = 0;
+      this.driftComboMultiplier = 1;
+    }
+  }
+
+  private updatePlayerRaceProgress(): void {
+    if (!this.rivalsEnabled) {
+      return;
+    }
+    const checkpoints = this.map.missionWaypoints.mission3Checkpoints ?? [];
+    const current = checkpoints[this.playerRaceCheckpointIndex];
+    if (!current) {
+      return;
+    }
+    if (
+      Math.hypot(this.playerX - current.x, this.playerZ - current.z) <=
+      current.radius
+    ) {
+      this.playerRaceCheckpointIndex += 1;
+    }
+  }
+
+  private computeRaceStanding(): {
+    readonly racePosition: number | null;
+    readonly raceTotalRacers: number;
+  } {
+    if (!this.rivalsEnabled) {
+      return { racePosition: null, raceTotalRacers: 0 };
+    }
+    const racers = this.vehicles.filter((v) => v.role === 'racer');
+    if (racers.length === 0) {
+      return { racePosition: null, raceTotalRacers: 0 };
+    }
+
+    const checkpoints = this.map.missionWaypoints.mission3Checkpoints ?? [];
+    const distToNext = (x: number, z: number, cpIdx: number): number => {
+      const cp = checkpoints[cpIdx];
+      return cp ? Math.hypot(cp.x - x, cp.z - z) : 0;
+    };
+
+    const playerCp = this.playerRaceCheckpointIndex;
+    const playerDist = distToNext(this.playerX, this.playerZ, playerCp);
+
+    let position = 1;
+    for (const racer of racers) {
+      const racerCp = racer.waypointIndex;
+      const racerDist = distToNext(racer.x, racer.z, racerCp);
+      if (
+        racerCp > playerCp ||
+        (racerCp === playerCp && racerDist < playerDist - 0.05)
+      ) {
+        position += 1;
+      }
+    }
+
+    return {
+      racePosition: position,
+      raceTotalRacers: racers.length + 1,
+    };
   }
 
   private checkPoliceRam(
@@ -675,7 +1162,9 @@ export class GameWorld {
       );
       activeVehicle.x = playerCol.x;
       activeVehicle.z = playerCol.z;
-      activeVehicle.y = getTerrainElevation(playerCol.x, playerCol.z);
+      activeVehicle.y =
+        getTerrainElevation(playerCol.x, playerCol.z) +
+        activeVehicle.airborneHeight;
 
       const otherCol = resolveCircleWorldCollision(
         other.x - nx * overlap * 0.7,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CALI_MAP } from '../../../src/config/caliMap';
+import { CALI_MAP, DEFAULT_GARAGE_CONFIG } from '../../../src/config/caliMap';
 import { LOCALE_CALI } from '../../../src/config/localeCali';
 import {
   MissionDirector,
@@ -7,7 +7,12 @@ import {
   StorageAdapter,
   type StorageLike,
 } from '../../../src/missions/missionDirector';
-import type { PlayerMode, WantedLevel, WorldSnapshot } from '../../../src/types/game';
+import type {
+  GarageConfig,
+  PlayerMode,
+  WantedLevel,
+  WorldSnapshot,
+} from '../../../src/types/game';
 
 class MemoryStorage implements StorageLike {
   private readonly store = new Map<string, string>();
@@ -40,6 +45,12 @@ interface WorldOverrides {
   isBusted?: boolean;
   inRiverHazard?: boolean;
   timeSeconds?: number;
+  lastStuntJumpName?: string | null;
+  lastStuntJumpCop?: number;
+  lastStuntJumpAt?: number;
+  lastDriftCashoutCop?: number;
+  lastPayNSprayAt?: number;
+  lastPayNSprayName?: string | null;
 }
 
 function makeWorld(overrides: WorldOverrides = {}): WorldSnapshot {
@@ -94,6 +105,24 @@ function makeWorld(overrides: WorldOverrides = {}): WorldSnapshot {
     topSpeedKmh: 72,
     currentDistrict: 'Barrio San Antonio',
     collisionImpact: 0,
+    ...(overrides.lastStuntJumpName !== undefined
+      ? { lastStuntJumpName: overrides.lastStuntJumpName }
+      : {}),
+    ...(overrides.lastStuntJumpCop !== undefined
+      ? { lastStuntJumpCop: overrides.lastStuntJumpCop }
+      : {}),
+    ...(overrides.lastStuntJumpAt !== undefined
+      ? { lastStuntJumpAt: overrides.lastStuntJumpAt }
+      : {}),
+    ...(overrides.lastDriftCashoutCop !== undefined
+      ? { lastDriftCashoutCop: overrides.lastDriftCashoutCop }
+      : {}),
+    ...(overrides.lastPayNSprayAt !== undefined
+      ? { lastPayNSprayAt: overrides.lastPayNSprayAt }
+      : {}),
+    ...(overrides.lastPayNSprayName !== undefined
+      ? { lastPayNSprayName: overrides.lastPayNSprayName }
+      : {}),
   };
 }
 
@@ -656,5 +685,240 @@ describe('MissionDirector', () => {
     snap = director.update(makeWorld({ mode: 'driving', x: hideout.x, z: hideout.z }), 5);
     expect(snap.isNewRecord).toBe(true);
     expect(snap.bestTimes.mission_1_bulevar).toBe(20);
+  });
+
+  it('runs Mission 3 Pique Callejero across all 6 checkpoints with CP3 police ambush and 400k COP reward', () => {
+    const backing = new MemoryStorage();
+    const storage = new StorageAdapter(backing);
+    const director = new MissionDirector(CALI_MAP, storage);
+    const checkpoints = CALI_MAP.missionWaypoints.mission3Checkpoints!;
+    expect(checkpoints).toHaveLength(6);
+
+    let snap = director.startMission('mission_3_pique_bulevar');
+    expect(snap.mode).toBe('playing');
+    expect(snap.timeOfDay).toBe('golden_hour');
+    expect(snap.isCountdown).toBe(false);
+    expect(snap.targetWantedStars).toBe(0);
+    expect(snap.missionTitle).toBe(LOCALE_CALI.missions.mission_3_pique_bulevar.title);
+    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m3Intro.text);
+    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m3Start.title);
+    expect(snap.activeObjective?.id).toBe('m3_cp1_bulevar');
+    expect(snap.activeObjective?.stepIndex).toBe(0);
+    expect(snap.activeObjective?.totalSteps).toBe(6);
+
+    // CP1 -> CP2
+    snap = director.update(
+      makeWorld({ mode: 'driving', x: checkpoints[0]!.x, z: checkpoints[0]!.z }),
+      6,
+    );
+    expect(snap.activeObjective?.id).toBe('m3_cp2_ermita');
+    expect(snap.activeObjective?.stepIndex).toBe(1);
+    expect(snap.targetWantedStars).toBe(0);
+
+    // CP2 -> CP3
+    snap = director.update(
+      makeWorld({ mode: 'driving', x: checkpoints[1]!.x, z: checkpoints[1]!.z }),
+      6,
+    );
+    expect(snap.activeObjective?.id).toBe('m3_cp3_granada');
+    expect(snap.activeObjective?.stepIndex).toBe(2);
+    expect(snap.targetWantedStars).toBe(0);
+
+    // CP3 (m3_cp3_granada) -> triggers ★★ police ambush + dialogue + banner, advances to CP4
+    snap = director.update(
+      makeWorld({ mode: 'driving', x: checkpoints[2]!.x, z: checkpoints[2]!.z }),
+      7,
+    );
+    expect(snap.targetWantedStars).toBe(2);
+    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m3Ambush.text);
+    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m3Ambush.title);
+    expect(snap.banner?.accent).toBe('police');
+    expect(snap.activeObjective?.id).toBe('m3_cp4_oriente');
+    expect(snap.activeObjective?.stepIndex).toBe(3);
+
+    // CP4 -> CP5
+    snap = director.update(
+      makeWorld({ mode: 'driving', x: checkpoints[3]!.x, z: checkpoints[3]!.z, wantedStars: 2 }),
+      8,
+    );
+    expect(snap.activeObjective?.id).toBe('m3_cp5_puente_sur');
+    expect(snap.activeObjective?.stepIndex).toBe(4);
+    expect(snap.targetWantedStars).toBe(2);
+
+    // CP5 -> CP6 (final finish checkpoint)
+    snap = director.update(
+      makeWorld({ mode: 'driving', x: checkpoints[4]!.x, z: checkpoints[4]!.z, wantedStars: 2 }),
+      7,
+    );
+    expect(snap.activeObjective?.id).toBe('m3_cp6_meta_bulevar');
+    expect(snap.activeObjective?.stepIndex).toBe(5);
+    expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.mission3.finishLabel);
+
+    // CP6 -> Mission Passed + 400_000 COP + persisted best time
+    snap = director.update(
+      makeWorld({ mode: 'driving', x: checkpoints[5]!.x, z: checkpoints[5]!.z, wantedStars: 2 }),
+      6,
+    );
+    expect(snap.mode).toBe('mission_passed');
+    expect(snap.targetWantedStars).toBe(0);
+    expect(snap.activeObjective).toBeNull();
+    expect(snap.rewardCop).toBe(400_000);
+    expect(snap.cashCop).toBe(400_000);
+    expect(snap.completedMissions).toContain('mission_3_pique_bulevar');
+    expect(snap.bestTimes.mission_3_pique_bulevar).toBe(40);
+    expect(snap.isNewRecord).toBe(true);
+    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m3Passed.text);
+
+    // Reloaded from StorageAdapter preserves mission_3_pique_bulevar records
+    const reloaded = new MissionDirector(CALI_MAP, new StorageAdapter(backing));
+    expect(reloaded.getRecords().completedMissions).toContain('mission_3_pique_bulevar');
+    expect(reloaded.getRecords().bestTimes.mission_3_pique_bulevar).toBe(40);
+    expect(reloaded.getRecords().totalCashCop).toBe(400_000);
+  });
+
+  it('credits stunt jump and drift cashout COP once each and fires stuntJump/payNSpray banners & dialogues', () => {
+    const backing = new MemoryStorage();
+    const director = new MissionDirector(CALI_MAP, new StorageAdapter(backing));
+    director.startMission('free_roam');
+
+    // Stunt Jump event awards once
+    let snap = director.update(
+      makeWorld({
+        mode: 'driving',
+        x: 180,
+        z: 180,
+        lastStuntJumpName: 'Salto del Bulevar',
+        lastStuntJumpCop: 35_000,
+        lastStuntJumpAt: 4.5,
+      }),
+      0.5,
+    );
+    expect(snap.cashCop).toBe(35_000);
+    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.stuntJump.title);
+    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.stuntJump.text);
+
+    // Same timestamp repeated -> must NOT double-credit
+    snap = director.update(
+      makeWorld({
+        mode: 'driving',
+        x: 180,
+        z: 180,
+        lastStuntJumpName: 'Salto del Bulevar',
+        lastStuntJumpCop: 35_000,
+        lastStuntJumpAt: 4.5,
+      }),
+      0.5,
+    );
+    expect(snap.cashCop).toBe(35_000);
+
+    // Drift Cashout event awards once, then re-arms after clearing to 0
+    snap = director.update(
+      makeWorld({
+        mode: 'driving',
+        x: 180,
+        z: 180,
+        lastStuntJumpAt: 4.5,
+        lastStuntJumpCop: 35_000,
+        lastDriftCashoutCop: 6_500,
+      }),
+      0.5,
+    );
+    expect(snap.cashCop).toBe(41_500);
+
+    snap = director.update(
+      makeWorld({
+        mode: 'driving',
+        x: 180,
+        z: 180,
+        lastStuntJumpAt: 4.5,
+        lastStuntJumpCop: 35_000,
+        lastDriftCashoutCop: 6_500,
+      }),
+      0.5,
+    );
+    expect(snap.cashCop).toBe(41_500);
+
+    // Reset cashout to 0 then trigger a second 6_500 cashout -> credits again
+    director.update(
+      makeWorld({ mode: 'driving', x: 180, z: 180, lastDriftCashoutCop: 0 }),
+      0.5,
+    );
+    snap = director.update(
+      makeWorld({ mode: 'driving', x: 180, z: 180, lastDriftCashoutCop: 6_500 }),
+      0.5,
+    );
+    expect(snap.cashCop).toBe(48_000);
+
+    // Pay 'n' Spray fires banner & dialogue and clears mission floor stars
+    const checkpoints = CALI_MAP.missionWaypoints.mission3Checkpoints!;
+    director.startMission('mission_3_pique_bulevar');
+    director.update(makeWorld({ mode: 'driving', x: checkpoints[0]!.x, z: checkpoints[0]!.z }), 2);
+    director.update(makeWorld({ mode: 'driving', x: checkpoints[1]!.x, z: checkpoints[1]!.z }), 2);
+    snap = director.update(
+      makeWorld({ mode: 'driving', x: checkpoints[2]!.x, z: checkpoints[2]!.z }),
+      2,
+    );
+    expect(snap.targetWantedStars).toBe(2);
+
+    snap = director.update(
+      makeWorld({
+        mode: 'driving',
+        x: 96,
+        z: -12,
+        wantedStars: 0,
+        lastPayNSprayName: 'Taller Barrio Granada',
+        lastPayNSprayAt: 8.5,
+      }),
+      0.5,
+    );
+    expect(snap.targetWantedStars).toBe(0);
+    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.payNSpray.title);
+    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.payNSpray.text);
+  });
+
+  it('persists, reloads, and strictly sanitizes GarageConfig via getGarageConfig and saveGarageConfig', () => {
+    const backing = new MemoryStorage();
+    const director = new MissionDirector(CALI_MAP, new StorageAdapter(backing));
+
+    // Default fallback
+    expect(director.getGarageConfig()).toEqual(DEFAULT_GARAGE_CONFIG);
+
+    // Save valid custom GarageConfig and reload in a fresh MissionDirector
+    const customGarage: GarageConfig = {
+      carKind: 'willys_v8',
+      paintHex: 0x10b981,
+      neonHex: 0xffb800,
+      avatar: 'mateo',
+      outfit: 'tricolor',
+    };
+    const saved = director.saveGarageConfig(customGarage);
+    expect(saved).toEqual(customGarage);
+    expect(director.getGarageConfig()).toEqual(customGarage);
+
+    const reloaded = new MissionDirector(CALI_MAP, new StorageAdapter(backing));
+    expect(reloaded.getGarageConfig()).toEqual(customGarage);
+
+    // Corrupt/invalid garage fields in localStorage are strictly sanitized
+    backing.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        bestTimes: {},
+        completedMissions: [],
+        discoveredLandmarks: [],
+        totalCashCop: 0,
+        preferredStation: 'salsa_brava',
+        muted: false,
+        garage: {
+          carKind: 'invalid_spaceship',
+          paintHex: -42,
+          neonHex: 0x1ffffff,
+          avatar: 'unknown_avatar',
+          outfit: 'unknown_outfit',
+        },
+      }),
+    );
+    const sanitizedDirector = new MissionDirector(CALI_MAP, new StorageAdapter(backing));
+    expect(sanitizedDirector.getGarageConfig()).toEqual(DEFAULT_GARAGE_CONFIG);
   });
 });

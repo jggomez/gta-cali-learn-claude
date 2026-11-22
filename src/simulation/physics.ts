@@ -15,6 +15,7 @@ import type {
   CaliMapConfig,
   InputState,
   LandmarkId,
+  StuntJumpDef,
   VehicleKind,
 } from '../types/game';
 
@@ -54,6 +55,8 @@ export interface VehicleMotionState {
   readonly isBoosting: boolean;
   readonly halfWidth: number;
   readonly halfLength: number;
+  readonly airborneHeight?: number;
+  readonly verticalVelocity?: number;
 }
 
 export interface VehicleStepResult {
@@ -70,6 +73,14 @@ export interface VehicleStepResult {
   readonly collided: boolean;
   readonly collisionImpact: number;
   readonly inRiverHazard: boolean;
+  readonly airborneHeight: number;
+  readonly verticalVelocity: number;
+}
+
+export interface VerticalMotionResult {
+  readonly airborneHeight: number;
+  readonly verticalVelocity: number;
+  readonly isAirborne: boolean;
 }
 
 export interface OnFootState {
@@ -214,6 +225,8 @@ const NITRO_DRAIN_PER_SEC = 28;
 const NITRO_RECHARGE_PER_SEC = 14;
 const DRIFT_SLIP_ANGLE = 0.22;
 const DRIFT_MIN_SPEED_MPS = 6.5;
+export const STUNT_GRAVITY_MPS2 = 19;
+const STUNT_HEADING_MIN_COS = 0.35;
 
 export function getVehicleHandlingProfile(
   kind: VehicleKind,
@@ -449,6 +462,69 @@ function approachZero(value: number, delta: number): number {
   return value - Math.sign(value) * delta;
 }
 
+export function stepVerticalMotion(
+  airborneHeight: number,
+  verticalVelocity: number,
+  dt: number,
+  gravityMps2: number = STUNT_GRAVITY_MPS2,
+): VerticalMotionResult {
+  const safeDt = clamp(dt, 0, 0.1);
+  const currentHeight = Math.max(0, airborneHeight);
+  if (safeDt <= 0 || (currentHeight <= 0 && verticalVelocity <= 0)) {
+    return {
+      airborneHeight: currentHeight,
+      verticalVelocity: currentHeight <= 0 && verticalVelocity <= 0 ? 0 : verticalVelocity,
+      isAirborne: currentHeight > 0 || verticalVelocity > 0,
+    };
+  }
+
+  const nextHeight =
+    currentHeight + verticalVelocity * safeDt - 0.5 * gravityMps2 * safeDt * safeDt;
+  if (nextHeight <= 0) {
+    return {
+      airborneHeight: 0,
+      verticalVelocity: 0,
+      isAirborne: false,
+    };
+  }
+
+  return {
+    airborneHeight: nextHeight,
+    verticalVelocity: verticalVelocity - gravityMps2 * safeDt,
+    isAirborne: true,
+  };
+}
+
+export function isVehicleOnStuntRamp(
+  x: number,
+  z: number,
+  heading: number,
+  speedMps: number,
+  jump: StuntJumpDef,
+): boolean {
+  if (speedMps < jump.minSpeedMps) {
+    return false;
+  }
+  const headingDiff = normalizeAngle(heading - jump.heading);
+  if (Math.cos(headingDiff) < STUNT_HEADING_MIN_COS) {
+    return false;
+  }
+
+  const dx = x - jump.x;
+  const dz = z - jump.z;
+  const fwdX = Math.sin(jump.heading);
+  const fwdZ = Math.cos(jump.heading);
+  const rightX = -fwdZ;
+  const rightZ = fwdX;
+  const localFwd = dx * fwdX + dz * fwdZ;
+  const localRight = dx * rightX + dz * rightZ;
+
+  return (
+    Math.abs(localFwd) <= jump.length * 0.5 &&
+    Math.abs(localRight) <= jump.width * 0.5
+  );
+}
+
 export function stepPlayerVehicle(
   state: VehicleMotionState,
   input: InputState,
@@ -457,10 +533,13 @@ export function stepPlayerVehicle(
   kind?: VehicleKind,
 ): VehicleStepResult {
   const safeDt = clamp(dt, 0, 0.1);
+  const initialAirborneHeight = Math.max(0, state.airborneHeight ?? 0);
+  const initialVerticalVelocity = state.verticalVelocity ?? 0;
+
   if (safeDt <= 0) {
     return {
       x: state.x,
-      y: getTerrainElevation(state.x, state.z),
+      y: getTerrainElevation(state.x, state.z) + initialAirborneHeight,
       z: state.z,
       heading: state.heading,
       speedMps: state.speedMps,
@@ -472,6 +551,8 @@ export function stepPlayerVehicle(
       collided: false,
       collisionImpact: 0,
       inRiverHazard: false,
+      airborneHeight: initialAirborneHeight,
+      verticalVelocity: initialVerticalVelocity,
     };
   }
 
@@ -593,7 +674,13 @@ export function stepPlayerVehicle(
     }
   }
 
-  const nextY = getTerrainElevation(collision.x, collision.z);
+  const vertical = stepVerticalMotion(
+    initialAirborneHeight,
+    initialVerticalVelocity,
+    safeDt,
+    STUNT_GRAVITY_MPS2,
+  );
+  const nextY = getTerrainElevation(collision.x, collision.z) + vertical.airborneHeight;
 
   return {
     x: collision.x,
@@ -609,6 +696,8 @@ export function stepPlayerVehicle(
     collided: collision.collided,
     collisionImpact,
     inRiverHazard: collision.inRiverHazard,
+    airborneHeight: vertical.airborneHeight,
+    verticalVelocity: vertical.verticalVelocity,
   };
 }
 

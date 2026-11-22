@@ -3,7 +3,7 @@
  * Strictly decoupled from Three.js, DOM globals, simulation internals, world, audio, and UI.
  */
 
-import { CALI_MAP } from '../config/caliMap';
+import { CALI_MAP, DEFAULT_GARAGE_CONFIG } from '../config/caliMap';
 import { LOCALE_CALI } from '../config/localeCali';
 import {
   computeGpsRoute,
@@ -13,11 +13,14 @@ import {
 import type {
   BannerAccent,
   CaliMapConfig,
+  CaliOutfitId,
+  CharacterAvatarId,
   CheckpointBanner,
   DialogueSpeaker,
   DialogueToast,
   FailureReason,
   GameMode,
+  GarageConfig,
   LandmarkDef,
   LandmarkId,
   MissionId,
@@ -26,6 +29,7 @@ import type {
   ObjectiveKind,
   ObjectivePropKind,
   ObjectiveSnapshot,
+  PlayerCarKind,
   RadioStationId,
   StorageRecords,
   TimeOfDay,
@@ -39,7 +43,28 @@ export const STORAGE_KEY = 'gta_cali_records_v1';
 const VALID_MISSIONS: ReadonlySet<string> = new Set<MissionId>([
   'mission_1_bulevar',
   'mission_2_cristo_rey',
+  'mission_3_pique_bulevar',
   'free_roam',
+]);
+
+const VALID_PLAYER_CAR_KINDS: ReadonlySet<string> = new Set<PlayerCarKind>([
+  'renault4_turbo',
+  'spark_gt_turbo',
+  'willys_v8',
+  'banshee',
+]);
+
+const VALID_AVATARS: ReadonlySet<string> = new Set<CharacterAvatarId>([
+  'valeria',
+  'mateo',
+]);
+
+const VALID_OUTFITS: ReadonlySet<string> = new Set<CaliOutfitId>([
+  'urbano_cali',
+  'escarlata',
+  'azucarero',
+  'tricolor',
+  'guayabera',
 ]);
 
 const VALID_LANDMARKS: ReadonlySet<string> = new Set<LandmarkId>([
@@ -115,11 +140,52 @@ function cloneRecords(records: StorageRecords): StorageRecords {
     ...(typeof records.voicesEnabled === 'boolean'
       ? { voicesEnabled: records.voicesEnabled }
       : {}),
+    ...(records.garage ? { garage: { ...records.garage } } : {}),
   };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function sanitizeHexColor(value: unknown, fallback: number): number {
+  if (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= 0xffffff
+  ) {
+    return Math.floor(value);
+  }
+  return fallback;
+}
+
+function sanitizeGarageConfig(raw: unknown): GarageConfig {
+  if (!isPlainObject(raw)) {
+    return { ...DEFAULT_GARAGE_CONFIG };
+  }
+  const carKind: PlayerCarKind =
+    typeof raw.carKind === 'string' && VALID_PLAYER_CAR_KINDS.has(raw.carKind)
+      ? (raw.carKind as PlayerCarKind)
+      : DEFAULT_GARAGE_CONFIG.carKind;
+  const avatar: CharacterAvatarId =
+    typeof raw.avatar === 'string' && VALID_AVATARS.has(raw.avatar)
+      ? (raw.avatar as CharacterAvatarId)
+      : DEFAULT_GARAGE_CONFIG.avatar;
+  const outfit: CaliOutfitId =
+    typeof raw.outfit === 'string' && VALID_OUTFITS.has(raw.outfit)
+      ? (raw.outfit as CaliOutfitId)
+      : DEFAULT_GARAGE_CONFIG.outfit;
+  const paintHex = sanitizeHexColor(raw.paintHex, DEFAULT_GARAGE_CONFIG.paintHex);
+  const neonHex = sanitizeHexColor(raw.neonHex, DEFAULT_GARAGE_CONFIG.neonHex);
+
+  return {
+    carKind,
+    paintHex,
+    neonHex,
+    avatar,
+    outfit,
+  };
 }
 
 function sanitizeRecords(raw: unknown): StorageRecords {
@@ -174,6 +240,7 @@ function sanitizeRecords(raw: unknown): StorageRecords {
 
   const muted = typeof raw.muted === 'boolean' ? raw.muted : false;
   const voicesEnabled = typeof raw.voicesEnabled === 'boolean' ? raw.voicesEnabled : undefined;
+  const garage = isPlainObject(raw.garage) ? sanitizeGarageConfig(raw.garage) : undefined;
 
   return {
     version: 1,
@@ -184,6 +251,7 @@ function sanitizeRecords(raw: unknown): StorageRecords {
     preferredStation,
     muted,
     ...(voicesEnabled !== undefined ? { voicesEnabled } : {}),
+    ...(garage !== undefined ? { garage } : {}),
   };
 }
 
@@ -330,6 +398,9 @@ export class MissionDirector {
   private failureReason: FailureReason | null = null;
   private freeRoamVisited: LandmarkId[] = [];
   private freeRoamLeftSpawnZone = false;
+  private lastProcessedStuntJumpAt = -1;
+  private lastProcessedPayNSprayAt = -1;
+  private lastProcessedDriftCashoutCop = 0;
 
   public constructor(map: CaliMapConfig = CALI_MAP, storage?: StorageAdapter) {
     this.map = map;
@@ -365,6 +436,9 @@ export class MissionDirector {
     this.failureReason = null;
     this.freeRoamVisited = [];
     this.freeRoamLeftSpawnZone = false;
+    this.lastProcessedStuntJumpAt = -1;
+    this.lastProcessedPayNSprayAt = -1;
+    this.lastProcessedDriftCashoutCop = 0;
     this.timeOfDay = this.map.missionStarts[missionId].defaultTimeOfDay;
 
     if (missionId === 'mission_1_bulevar') {
@@ -400,6 +474,13 @@ export class MissionDirector {
         BEACON_CYAN,
         'mateo_speakers',
       );
+    } else if (missionId === 'mission_3_pique_bulevar') {
+      const checkpoints = this.map.missionWaypoints.mission3Checkpoints ?? [];
+      this.missionFloorStars = this.map.missionStarts.mission_3_pique_bulevar.initialWantedStars;
+      this.targetWantedStars = this.missionFloorStars;
+      this.setDialogue('m3Intro', LOCALE_CALI.dialogues.m3Intro, INTRO_DIALOGUE_SECONDS);
+      this.setBanner('m3Start', LOCALE_CALI.banners.m3Start, 'gold');
+      this.activeObjective = this.createMission3Objective(0, checkpoints);
     } else {
       this.setDialogue('freeRoamIntro', LOCALE_CALI.dialogues.freeRoamIntro, INTRO_DIALOGUE_SECONDS);
       this.activeObjective = this.createFreeRoamObjective();
@@ -433,8 +514,24 @@ export class MissionDirector {
     this.failureReason = null;
     this.freeRoamVisited = [];
     this.freeRoamLeftSpawnZone = false;
+    this.lastProcessedStuntJumpAt = -1;
+    this.lastProcessedPayNSprayAt = -1;
+    this.lastProcessedDriftCashoutCop = 0;
     this.timeOfDay = 'golden_hour';
     return this.getSnapshot();
+  }
+
+  public getGarageConfig(): GarageConfig {
+    return { ...(this.records.garage ?? DEFAULT_GARAGE_CONFIG) };
+  }
+
+  public saveGarageConfig(garage: GarageConfig): GarageConfig {
+    const sanitized = sanitizeGarageConfig(garage);
+    this.records = this.storage.saveRecords({
+      ...this.records,
+      garage: sanitized,
+    });
+    return { ...sanitized };
   }
 
   public saveAudioPreferences(
@@ -467,6 +564,7 @@ export class MissionDirector {
     this.tickViralTicker(safeDt);
     this.checkLandmarkDiscoveries(world);
     this.checkRiverWarning(world, safeDt);
+    this.processWorldEvents(world);
 
     if (this.activeMission !== 'free_roam' && world.isBusted) {
       this.failMission('busted');
@@ -488,6 +586,11 @@ export class MissionDirector {
       }
     } else if (this.activeMission === 'mission_2_cristo_rey') {
       this.updateMission2(world);
+      if (this.mode === 'playing') {
+        this.targetWantedStars = Math.max(this.missionFloorStars, world.wantedStars) as WantedLevel;
+      }
+    } else if (this.activeMission === 'mission_3_pique_bulevar') {
+      this.updateMission3(world);
       if (this.mode === 'playing') {
         this.targetWantedStars = Math.max(this.missionFloorStars, world.wantedStars) as WantedLevel;
       }
@@ -700,6 +803,141 @@ export class MissionDirector {
         'victory',
         'm2Passed',
         LOCALE_CALI.dialogues.m2Passed,
+      );
+    }
+  }
+
+  private updateMission3(world: WorldSnapshot): void {
+    const checkpoints = this.map.missionWaypoints.mission3Checkpoints ?? [];
+    const current = checkpoints[this.stepIndex];
+    if (!current || !this.isInsideWaypoint(world, current)) {
+      return;
+    }
+
+    if (this.stepIndex === checkpoints.length - 1) {
+      this.completeStoryMission(
+        'mission_3_pique_bulevar',
+        'mission_passed',
+        'm3Passed',
+        LOCALE_CALI.dialogues.m3Passed,
+      );
+      return;
+    }
+
+    if (current.id === 'm3_cp3_granada' || this.stepIndex === 2) {
+      this.missionFloorStars = 2;
+      this.setDialogue('m3Ambush', LOCALE_CALI.dialogues.m3Ambush, CHECKPOINT_DIALOGUE_SECONDS);
+      this.setBanner('m3Ambush', LOCALE_CALI.banners.m3Ambush, 'police');
+    }
+
+    this.stepIndex += 1;
+    this.activeObjective = this.createMission3Objective(this.stepIndex, checkpoints);
+  }
+
+  private createMission3Objective(
+    stepIdx: number,
+    checkpoints: readonly MissionWaypoint[],
+  ): ObjectiveSnapshot | null {
+    const waypoint = checkpoints[stepIdx];
+    if (!waypoint) {
+      return null;
+    }
+    const total = checkpoints.length;
+    const copy = LOCALE_CALI.objectives.mission3;
+    const isFinal = stepIdx === total - 1;
+    const label = isFinal
+      ? copy.finishLabel
+      : copy.checkpointLabel(stepIdx + 1, total);
+    const detail = isFinal
+      ? copy.finishDetail
+      : stepIdx === 3
+        ? copy.ambushDetail
+        : copy.checkpointDetail(waypoint.district);
+    const kind: ObjectiveKind = isFinal ? 'escape_police' : 'reach_point';
+    const beaconColorHex = isFinal
+      ? BEACON_GOLD
+      : stepIdx >= 3
+        ? BEACON_MAGENTA
+        : BEACON_CYAN;
+
+    return this.createWaypointObjective(
+      waypoint,
+      kind,
+      label,
+      detail,
+      stepIdx,
+      total,
+      beaconColorHex,
+      'none',
+    );
+  }
+
+  private creditCashCop(amount: number): void {
+    const delta = Math.floor(amount);
+    if (!Number.isFinite(delta) || delta <= 0) {
+      return;
+    }
+    this.records = this.storage.saveRecords({
+      ...this.records,
+      totalCashCop: this.records.totalCashCop + delta,
+    });
+  }
+
+  private processWorldEvents(world: WorldSnapshot): void {
+    const stuntAt = world.lastStuntJumpAt;
+    const stuntCop = world.lastStuntJumpCop ?? 0;
+    if (
+      stuntCop > 0 &&
+      stuntAt !== undefined &&
+      stuntAt > this.lastProcessedStuntJumpAt
+    ) {
+      this.lastProcessedStuntJumpAt = stuntAt;
+      this.creditCashCop(stuntCop);
+      const jumpName =
+        world.lastStuntJumpName ?? LOCALE_CALI.banners.stuntJump.subtitle;
+      this.setBanner(
+        `stuntJump_${stuntAt}`,
+        {
+          title: LOCALE_CALI.banners.stuntJump.title,
+          subtitle: jumpName,
+        },
+        'gold',
+      );
+      this.setDialogue(
+        `stuntJump_${stuntAt}`,
+        LOCALE_CALI.dialogues.stuntJump,
+        LANDMARK_DIALOGUE_SECONDS,
+      );
+    }
+
+    const driftCashout = world.lastDriftCashoutCop ?? 0;
+    if (driftCashout <= 0) {
+      this.lastProcessedDriftCashoutCop = 0;
+    } else if (driftCashout !== this.lastProcessedDriftCashoutCop) {
+      this.lastProcessedDriftCashoutCop = driftCashout;
+      this.creditCashCop(driftCashout);
+      this.setBanner('driftCashout', LOCALE_CALI.banners.driftCashout, 'emerald');
+    }
+
+    const payNSprayAt = world.lastPayNSprayAt;
+    if (
+      world.lastPayNSprayName &&
+      payNSprayAt !== undefined &&
+      payNSprayAt > this.lastProcessedPayNSprayAt
+    ) {
+      this.lastProcessedPayNSprayAt = payNSprayAt;
+      this.missionFloorStars = 0;
+      this.targetWantedStars = 0;
+      this.lastFreeRoamWantedStars = 0;
+      this.setBanner(
+        `payNSpray_${payNSprayAt}`,
+        LOCALE_CALI.banners.payNSpray,
+        'emerald',
+      );
+      this.setDialogue(
+        `payNSpray_${payNSprayAt}`,
+        LOCALE_CALI.dialogues.payNSpray,
+        LANDMARK_DIALOGUE_SECONDS,
       );
     }
   }

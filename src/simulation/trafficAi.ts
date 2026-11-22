@@ -3,11 +3,18 @@
  * Zero Three.js or DOM dependencies.
  */
 
-import { CALI_MAP, getTerrainElevation } from '../config/caliMap';
+import {
+  CALI_MAP,
+  DEFAULT_GARAGE_CONFIG,
+  getTerrainElevation,
+} from '../config/caliMap';
+import { computeGpsRoute } from '../config/roadGraph';
 import type {
   BridgeSpan,
   CaliMapConfig,
+  MissionWaypoint,
   PedestrianSnapshot,
+  PlayerCarKind,
   TrafficRoute,
   Vec2,
   VehicleKind,
@@ -36,6 +43,9 @@ export interface SimVehicle {
   sirenActive: boolean;
   colorHex: number;
   accentHex?: number;
+  neonHex?: number;
+  airborneHeight: number;
+  verticalVelocity: number;
   halfWidth: number;
   halfLength: number;
   routeId: string | null;
@@ -47,6 +57,8 @@ export interface SimVehicle {
   patrolAxisZ: number;
   patrolDirection: 1 | -1;
   isHijackedByPlayer: boolean;
+  racerSubWaypoints?: readonly Vec2[];
+  racerSubIndex: number;
 }
 
 export interface SimPedestrian {
@@ -69,9 +81,16 @@ export interface SimPedestrian {
   walkSpeedMps: number;
 }
 
-interface VehicleDimensions {
+export interface VehicleDimensions {
   readonly halfWidth: number;
   readonly halfLength: number;
+}
+
+export interface CreateInitialVehiclesOptions {
+  readonly playerCarKind?: PlayerCarKind;
+  readonly playerPaintHex?: number;
+  readonly playerNeonHex?: number;
+  readonly enableRivals?: boolean;
 }
 
 const VEHICLE_DIMENSIONS: Readonly<Record<VehicleKind, VehicleDimensions>> = {
@@ -85,7 +104,10 @@ const VEHICLE_DIMENSIONS: Readonly<Record<VehicleKind, VehicleDimensions>> = {
   police: { halfWidth: 1.0, halfLength: 2.3 },
 };
 
-const PLAYER_BANSHEE_COLOR = 0xff2e93;
+export function getVehicleDimensions(kind: VehicleKind): VehicleDimensions {
+  return VEHICLE_DIMENSIONS[kind];
+}
+
 const PLAYER_BANSHEE_ACCENT = 0xffb800;
 const POLICE_BODY_COLOR = 0xf4f7fb;
 const POLICE_STRIPE_COLOR = 0x16a34a;
@@ -93,6 +115,11 @@ const POLICE_STRIPE_COLOR = 0x16a34a;
 const TRAFFIC_TURN_RATE = 3.2;
 const TRAFFIC_ACCEL_MPS2 = 12;
 const TRAFFIC_ARRIVAL_RADIUS = 3.2;
+
+const RACER_ACCEL_MPS2 = 22;
+const RACER_TURN_RATE = 3.8;
+const RACER_SUBWAYPOINT_ARRIVAL_RADIUS = 6.5;
+const RACER_FINISH_DECEL_MPS2 = 14;
 
 const POLICE_PATROL_SPEED_MPS = 9.5;
 const POLICE_PATROL_HALF_SPAN = 18;
@@ -118,6 +145,8 @@ export function toVehicleSnapshot(vehicle: SimVehicle): VehicleSnapshot {
     sirenActive: vehicle.sirenActive,
     colorHex: vehicle.colorHex,
     accentHex: vehicle.accentHex,
+    neonHex: vehicle.neonHex,
+    airborneHeight: vehicle.airborneHeight,
     halfWidth: vehicle.halfWidth,
     halfLength: vehicle.halfLength,
   };
@@ -132,6 +161,7 @@ function createVehicleRecord(params: {
   heading: number;
   colorHex: number;
   accentHex?: number;
+  neonHex?: number;
   routeId?: string | null;
   waypointIndex?: number;
   baseSpeedMps?: number;
@@ -154,6 +184,9 @@ function createVehicleRecord(params: {
     sirenActive: false,
     colorHex: params.colorHex,
     accentHex: params.accentHex,
+    neonHex: params.neonHex,
+    airborneHeight: 0,
+    verticalVelocity: 0,
     halfWidth: dims.halfWidth,
     halfLength: dims.halfLength,
     routeId: params.routeId ?? null,
@@ -165,27 +198,66 @@ function createVehicleRecord(params: {
     patrolAxisZ: Math.cos(params.heading),
     patrolDirection: 1,
     isHijackedByPlayer: false,
+    racerSubIndex: 0,
   };
 }
 
 export function createInitialVehicles(
   map: CaliMapConfig = CALI_MAP,
+  options?: CreateInitialVehiclesOptions,
 ): SimVehicle[] {
   const vehicles: SimVehicle[] = [];
+  const playerCarKind = options?.playerCarKind ?? DEFAULT_GARAGE_CONFIG.carKind;
+  const playerPaintHex = options?.playerPaintHex ?? DEFAULT_GARAGE_CONFIG.paintHex;
+  const playerNeonHex = options?.playerNeonHex ?? DEFAULT_GARAGE_CONFIG.neonHex;
 
   vehicles.push(
     createVehicleRecord({
       id: 'player_banshee',
-      kind: 'banshee',
+      kind: playerCarKind,
       role: 'player',
       x: map.playerCarSpawn.x,
       z: map.playerCarSpawn.z,
       heading: map.playerCarSpawn.heading,
-      colorHex: PLAYER_BANSHEE_COLOR,
+      colorHex: playerPaintHex,
       accentHex: PLAYER_BANSHEE_ACCENT,
+      neonHex: playerNeonHex,
       nitro: 100,
     }),
   );
+
+  if (options?.enableRivals) {
+    vehicles.push(
+      createVehicleRecord({
+        id: 'rival_spark_gt',
+        kind: 'spark_gt_turbo',
+        role: 'racer',
+        x: -7,
+        z: 57,
+        heading: Math.PI,
+        colorHex: 0x00f0ff,
+        accentHex: 0x111827,
+        neonHex: 0xff2e93,
+        waypointIndex: 0,
+        baseSpeedMps: 27,
+        nitro: 100,
+      }),
+      createVehicleRecord({
+        id: 'rival_willys_v8',
+        kind: 'willys_v8',
+        role: 'racer',
+        x: -1,
+        z: 55,
+        heading: Math.PI,
+        colorHex: 0xf59e0b,
+        accentHex: 0x1e293b,
+        neonHex: 0x00e699,
+        waypointIndex: 0,
+        baseSpeedMps: 25.5,
+        nitro: 100,
+      }),
+    );
+  }
 
   for (const route of map.trafficRoutes) {
     const count = route.waypoints.length;
@@ -514,6 +586,108 @@ export function stepPoliceVehicle(
   );
 }
 
+export function stepRacerVehicle(
+  racer: SimVehicle,
+  checkpoints: readonly MissionWaypoint[],
+  dt: number,
+  map: CaliMapConfig = CALI_MAP,
+): void {
+  const safeDt = clamp(dt, 0, 0.1);
+  if (safeDt <= 0 || racer.isHijackedByPlayer || checkpoints.length === 0) {
+    return;
+  }
+
+  racer.sirenActive = false;
+
+  if (racer.waypointIndex >= checkpoints.length) {
+    racer.isDrifting = false;
+    racer.isBoosting = false;
+    const decel = RACER_FINISH_DECEL_MPS2 * safeDt;
+    racer.speedMps =
+      Math.abs(racer.speedMps) <= decel
+        ? 0
+        : racer.speedMps - Math.sign(racer.speedMps) * decel;
+    if (Math.abs(racer.speedMps) > 0.05) {
+      const nextX = racer.x + Math.sin(racer.heading) * racer.speedMps * safeDt;
+      const nextZ = racer.z + Math.cos(racer.heading) * racer.speedMps * safeDt;
+      const col = resolveCircleWorldCollision(
+        nextX,
+        nextZ,
+        Math.max(racer.halfWidth, 1.25),
+        map,
+      );
+      racer.x = col.x;
+      racer.z = col.z;
+      racer.y = getTerrainElevation(col.x, col.z);
+    }
+    return;
+  }
+
+  let checkpoint = checkpoints[racer.waypointIndex];
+  if (!checkpoint) {
+    return;
+  }
+
+  const arrivalRadius = Math.max(checkpoint.radius * 0.75, 8);
+  if (Math.hypot(checkpoint.x - racer.x, checkpoint.z - racer.z) <= arrivalRadius) {
+    racer.waypointIndex += 1;
+    racer.racerSubWaypoints = undefined;
+    racer.racerSubIndex = 0;
+    if (racer.waypointIndex >= checkpoints.length) {
+      return;
+    }
+    checkpoint = checkpoints[racer.waypointIndex];
+    if (!checkpoint) {
+      return;
+    }
+  }
+
+  if (!racer.racerSubWaypoints || racer.racerSubWaypoints.length === 0) {
+    const route = computeGpsRoute(
+      { x: racer.x, z: racer.z },
+      { x: checkpoint.x, z: checkpoint.z },
+      map,
+    );
+    racer.racerSubWaypoints =
+      route.length > 1 ? route.slice(1) : [{ x: checkpoint.x, z: checkpoint.z }];
+    racer.racerSubIndex = 0;
+  }
+
+  while (
+    racer.racerSubIndex < racer.racerSubWaypoints.length - 1 &&
+    Math.hypot(
+      (racer.racerSubWaypoints[racer.racerSubIndex]?.x ?? checkpoint.x) - racer.x,
+      (racer.racerSubWaypoints[racer.racerSubIndex]?.z ?? checkpoint.z) - racer.z,
+    ) <= RACER_SUBWAYPOINT_ARRIVAL_RADIUS
+  ) {
+    racer.racerSubIndex += 1;
+  }
+
+  const goal =
+    racer.racerSubWaypoints[racer.racerSubIndex] ?? {
+      x: checkpoint.x,
+      z: checkpoint.z,
+    };
+
+  const targetAngle = Math.atan2(goal.x - racer.x, goal.z - racer.z);
+  const headingDiff = Math.abs(normalizeAngle(targetAngle - racer.heading));
+  const isCornering = headingDiff > 0.65;
+  racer.isDrifting = isCornering && Math.abs(racer.speedMps) > 12;
+  racer.isBoosting = !isCornering && racer.speedMps > racer.baseSpeedMps * 0.85;
+
+  advanceAiVehicle(
+    racer,
+    goal.x,
+    goal.z,
+    racer.baseSpeedMps || 26,
+    RACER_ACCEL_MPS2,
+    RACER_TURN_RATE,
+    true,
+    safeDt,
+    map,
+  );
+}
+
 interface PedestrianCorridorDef {
   readonly id: string;
   readonly startX: number;
@@ -527,6 +701,8 @@ interface PedestrianCorridorDef {
 const PEDESTRIAN_COLLISION_RADIUS = 0.45;
 const PEDESTRIAN_THREAT_SPEED_MPS = 8.0;
 const PEDESTRIAN_THREAT_RADIUS_METERS = 9.5;
+const PEDESTRIAN_HORN_SCARE_RADIUS_METERS = 18;
+const PEDESTRIAN_HORN_FLEE_DURATION_SECONDS = 3.6;
 const PEDESTRIAN_FLEE_SPEED_MPS = 4.6;
 const PEDESTRIAN_FLEE_DURATION_SECONDS = 2.5;
 const PEDESTRIAN_WAYPOINT_RADIUS = 1.1;
@@ -697,17 +873,41 @@ export function stepPedestrians(
   playerZ: number,
   dt: number,
   map: CaliMapConfig = CALI_MAP,
+  hornPressed = false,
 ): void {
   const safeDt = clamp(dt, 0, 0.1);
   if (safeDt <= 0) {
     return;
   }
 
+  const hornRadiusSq =
+    PEDESTRIAN_HORN_SCARE_RADIUS_METERS * PEDESTRIAN_HORN_SCARE_RADIUS_METERS;
+
   for (const ped of pedestrians) {
+    if (hornPressed) {
+      const dxHorn = ped.x - playerX;
+      const dzHorn = ped.z - playerZ;
+      if (dxHorn * dxHorn + dzHorn * dzHorn <= hornRadiusSq) {
+        ped.fleeing = true;
+        ped.fleeTimerSeconds = Math.max(
+          ped.fleeTimerSeconds,
+          PEDESTRIAN_HORN_FLEE_DURATION_SECONDS + safeDt,
+        );
+        const dist = Math.hypot(dxHorn, dzHorn);
+        ped.fleeHeading =
+          dist > 1e-4
+            ? normalizeAngle(Math.atan2(dxHorn, dzHorn))
+            : normalizeAngle(ped.heading + Math.PI);
+      }
+    }
+
     const threat = findNearestThreatVehicle(ped, vehicles);
     if (threat) {
       ped.fleeing = true;
-      ped.fleeTimerSeconds = PEDESTRIAN_FLEE_DURATION_SECONDS;
+      ped.fleeTimerSeconds = Math.max(
+        ped.fleeTimerSeconds,
+        PEDESTRIAN_FLEE_DURATION_SECONDS,
+      );
       ped.fleeHeading = computeLateralEscapeHeading(ped, threat);
     }
 

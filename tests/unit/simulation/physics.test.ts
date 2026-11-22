@@ -6,12 +6,15 @@ import {
   isPointOnBridge,
 } from '../../../src/config/caliMap';
 import {
+  STUNT_GRAVITY_MPS2,
   clamp,
   getVehicleHandlingProfile,
+  isVehicleOnStuntRamp,
   normalizeAngle,
   resolveCircleWorldCollision,
   stepOnFoot,
   stepPlayerVehicle,
+  stepVerticalMotion,
   type VehicleMotionState,
 } from '../../../src/simulation/physics';
 import type { InputState, VehicleKind } from '../../../src/types/game';
@@ -46,6 +49,8 @@ function createVehicleState(
     isBoosting: overrides.isBoosting ?? false,
     halfWidth: overrides.halfWidth ?? 1.05,
     halfLength: overrides.halfLength ?? 2.35,
+    airborneHeight: overrides.airborneHeight,
+    verticalVelocity: overrides.verticalVelocity,
   };
 }
 
@@ -394,5 +399,122 @@ describe('simulation/physics per-vehicle handling profiles', () => {
     );
     const busDelta = Math.abs(normalizeAngle(busTurn.heading - start.heading));
     expect(bansheeDelta).toBeGreaterThan(busDelta * 1.3);
+  });
+});
+
+describe('simulation/physics stunt jump airborne motion', () => {
+  it('follows parabolic gravity = 19 m/s² arc and clamps cleanly to ground on landing', () => {
+    expect(STUNT_GRAVITY_MPS2).toBe(19);
+
+    let airborneHeight = 0;
+    let verticalVelocity = 11.5;
+    let peakHeight = 0;
+    let landed = false;
+
+    for (let i = 0; i < 60; i += 1) {
+      const next = stepVerticalMotion(airborneHeight, verticalVelocity, 0.05);
+      airborneHeight = next.airborneHeight;
+      verticalVelocity = next.verticalVelocity;
+      peakHeight = Math.max(peakHeight, airborneHeight);
+      if (i > 5 && !next.isAirborne) {
+        landed = true;
+        break;
+      }
+    }
+
+    // Theoretical apex for v0 = 11.5, g = 19 is 11.5^2 / 38 ≈ 3.48m
+    expect(peakHeight).toBeGreaterThan(3.2);
+    expect(peakHeight).toBeLessThan(3.8);
+    expect(landed).toBe(true);
+    expect(airborneHeight).toBe(0);
+    expect(verticalVelocity).toBe(0);
+  });
+
+  it('adds airborneHeight to vehicle y in stepPlayerVehicle and lands smoothly back on terrain', () => {
+    let state = createVehicleState({
+      x: -4,
+      z: 48,
+      heading: Math.PI,
+      speedMps: 30,
+      airborneHeight: 0,
+      verticalVelocity: 11.5,
+    });
+
+    const first = stepPlayerVehicle(
+      state,
+      createInput({ forward: true }),
+      0.05,
+      CALI_MAP,
+      'renault4_turbo',
+    );
+
+    const groundY = getTerrainElevation(first.x, first.z);
+    expect(first.airborneHeight).toBeGreaterThan(0.5);
+    expect(first.y).toBeCloseTo(groundY + first.airborneHeight, 5);
+    expect(first.verticalVelocity).toBeLessThan(11.5);
+
+    state = { ...state, ...first };
+    for (let i = 0; i < 40; i += 1) {
+      const next = stepPlayerVehicle(
+        state,
+        createInput({ forward: true }),
+        0.05,
+        CALI_MAP,
+        'renault4_turbo',
+      );
+      state = { ...state, ...next };
+      expect(state.airborneHeight).toBeGreaterThanOrEqual(0);
+    }
+
+    expect(state.airborneHeight).toBe(0);
+    expect(state.verticalVelocity).toBe(0);
+    expect(state.y).toBeCloseTo(getTerrainElevation(state.x, state.z), 5);
+  });
+
+  it('validates ramp footprint, alignment along heading, and minSpeedMps', () => {
+    const bulevarJump = CALI_MAP.stuntJumps![0]!;
+    // Inside footprint, aligned heading (PI), above minSpeedMps (22)
+    expect(
+      isVehicleOnStuntRamp(
+        bulevarJump.x,
+        bulevarJump.z,
+        bulevarJump.heading,
+        bulevarJump.minSpeedMps + 3,
+        bulevarJump,
+      ),
+    ).toBe(true);
+
+    // Too slow -> false
+    expect(
+      isVehicleOnStuntRamp(
+        bulevarJump.x,
+        bulevarJump.z,
+        bulevarJump.heading,
+        bulevarJump.minSpeedMps - 2,
+        bulevarJump,
+      ),
+    ).toBe(false);
+
+    // Opposite direction (heading 0 vs PI) -> false
+    expect(
+      isVehicleOnStuntRamp(
+        bulevarJump.x,
+        bulevarJump.z,
+        0,
+        bulevarJump.minSpeedMps + 8,
+        bulevarJump,
+      ),
+    ).toBe(false);
+
+    // Outside lateral width -> false
+    expect(
+      isVehicleOnStuntRamp(
+        bulevarJump.x + bulevarJump.width,
+        bulevarJump.z,
+        bulevarJump.heading,
+        bulevarJump.minSpeedMps + 8,
+        bulevarJump,
+      ),
+    ).toBe(false);
   });
 });

@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   CALI_MAP,
+  DEFAULT_GARAGE_CONFIG,
+  PAY_N_SPRAY_ZONES,
+  ROADBLOCK_ZONES,
+  STUNT_JUMPS,
   getTerrainElevation,
   isPointInRiver,
 } from '../../../src/config/caliMap';
-import { GameWorld } from '../../../src/simulation/gameWorld';
+import { GameWorld, computeTrafficLightPhase } from '../../../src/simulation/gameWorld';
 import { resolveCircleWorldCollision } from '../../../src/simulation/physics';
 import {
   createInitialPedestrians,
@@ -42,7 +46,10 @@ describe('simulation/GameWorld', () => {
     const policeCars = snap.vehicles.filter((v) => v.role === 'police');
 
     expect(playerCars).toHaveLength(1);
-    expect(playerCars[0]?.kind).toBe('banshee');
+    expect(playerCars[0]?.kind).toBe('renault4_turbo');
+    expect(playerCars[0]?.colorHex).toBe(DEFAULT_GARAGE_CONFIG.paintHex);
+    expect(playerCars[0]?.neonHex).toBe(DEFAULT_GARAGE_CONFIG.neonHex);
+    expect(playerCars[0]?.airborneHeight).toBe(0);
     expect(trafficCars).toHaveLength(CALI_MAP.trafficRoutes.length * 2);
     expect(policeCars).toHaveLength(CALI_MAP.policeSpawns.length);
   });
@@ -243,7 +250,7 @@ describe('simulation/GameWorld', () => {
   it('exposes nearbyVehicleKind, hijacks a nearby taxi, and leaves previously driven vehicles parked', () => {
     const world = new GameWorld(CALI_MAP);
     const initialSnap = world.getSnapshot();
-    expect(initialSnap.player.nearbyVehicleKind).toBe('banshee');
+    expect(initialSnap.player.nearbyVehicleKind).toBe('renault4_turbo');
 
     // Locate the first taxi and spawn player right beside it on foot
     const taxi = initialSnap.vehicles.find((v) => v.kind === 'taxi');
@@ -630,5 +637,475 @@ describe('simulation/GameWorld', () => {
     const refilledTaxi = refilledTaxiSnap.vehicles.find((v) => v.id === initialTaxi.id);
     expect(refilledTaxiSnap.player.nitro).toBe(100);
     expect(refilledTaxi!.nitro).toBe(100);
+  });
+
+  it('swaps player vehicle cleanly via applyGarageCar without resetting position and supports garage ResetWorldOptions', () => {
+    const world = new GameWorld(CALI_MAP);
+    world.reset({
+      startInVehicle: true,
+      spawn: { x: -4, z: 30, heading: Math.PI },
+      playerCarKind: 'spark_gt_turbo',
+      playerPaintHex: 0x0284c7,
+      playerNeonHex: 0xffb800,
+    });
+
+    const initialCar = world
+      .getSnapshot()
+      .vehicles.find((v) => v.id === 'player_banshee')!;
+    expect(initialCar.kind).toBe('spark_gt_turbo');
+    expect(initialCar.colorHex).toBe(0x0284c7);
+    expect(initialCar.neonHex).toBe(0xffb800);
+    expect(initialCar.halfWidth).toBeCloseTo(0.92, 4);
+    expect(initialCar.halfLength).toBeCloseTo(1.98, 4);
+
+    // Drive forward briefly, then swap car at runtime
+    for (let i = 0; i < 10; i += 1) {
+      world.step(0.05, createInput({ forward: true }));
+    }
+    const beforeSwap = world.getSnapshot();
+    const posBefore = { x: beforeSwap.player.x, z: beforeSwap.player.z };
+
+    world.applyGarageCar('willys_v8', 0x10b981, 0xff2e93);
+    const afterSwap = world.getSnapshot();
+    const swappedCar = afterSwap.vehicles.find((v) => v.id === 'player_banshee')!;
+    expect(swappedCar.kind).toBe('willys_v8');
+    expect(swappedCar.colorHex).toBe(0x10b981);
+    expect(swappedCar.neonHex).toBe(0xff2e93);
+    expect(swappedCar.halfWidth).toBeCloseTo(1.04, 4);
+    expect(swappedCar.halfLength).toBeCloseTo(2.15, 4);
+    expect(afterSwap.player.x).toBeCloseTo(posBefore.x, 5);
+    expect(afterSwap.player.z).toBeCloseTo(posBefore.z, 5);
+  });
+
+  it('launches stunt jumps with airborne arc, +35 nitro refill, telemetry, and 4s per-ramp cooldown', () => {
+    const jump = STUNT_JUMPS[0]!; // stunt_bulevar_launch at (-4, 48) heading PI
+    const world = new GameWorld(CALI_MAP);
+    world.reset({
+      startInVehicle: true,
+      spawn: { x: -4, z: 72, heading: Math.PI },
+    });
+
+    // Burn some nitro while accelerating toward the ramp so we exceed minSpeedMps (22)
+    let snap = world.getSnapshot();
+    let maxAirborneHeight = 0;
+    let maxAirborneSeconds = 0;
+    let nitroBeforeJump = 100;
+    let nitroAtLaunch = 0;
+
+    for (let i = 0; i < 60; i += 1) {
+      const prevAt = snap.lastStuntJumpAt ?? 0;
+      const prevNitro = snap.player.nitro;
+      snap = world.step(0.05, createInput({ forward: true, boost: i < 20 }));
+      const playerCar = snap.vehicles.find((v) => v.id === 'player_banshee')!;
+      maxAirborneHeight = Math.max(maxAirborneHeight, playerCar.airborneHeight ?? 0);
+      maxAirborneSeconds = Math.max(maxAirborneSeconds, snap.airborneSeconds ?? 0);
+      if ((snap.lastStuntJumpAt ?? 0) > prevAt) {
+        nitroBeforeJump = prevNitro;
+        nitroAtLaunch = snap.player.nitro;
+      }
+    }
+
+    expect(snap.lastStuntJumpName).toBe(jump.name);
+    expect(snap.lastStuntJumpCop).toBe(jump.rewardCop);
+    expect(snap.lastStuntJumpAt).toBeGreaterThan(0);
+    expect(maxAirborneHeight).toBeGreaterThan(2.5);
+    expect(maxAirborneSeconds).toBeGreaterThan(0.5);
+    expect(nitroAtLaunch).toBeGreaterThanOrEqual(Math.min(100, nitroBeforeJump + 30));
+
+    // After landing, airborneHeight clamps cleanly back to 0
+    for (let i = 0; i < 30; i += 1) {
+      snap = world.step(0.05, createInput({ forward: true }));
+    }
+    const landedCar = snap.vehicles.find((v) => v.id === 'player_banshee')!;
+    expect(landedCar.airborneHeight).toBe(0);
+    expect(landedCar.y).toBeCloseTo(getTerrainElevation(landedCar.x, landedCar.z), 4);
+
+    // Cooldown test: re-crossing the SAME ramp inside 4s must NOT re-trigger,
+    // and crossing again after >= 4s MUST re-trigger cleanly
+    const cooldownMap: CaliMapConfig = {
+      ...CALI_MAP,
+      buildingColliders: [],
+      landmarks: [],
+      trafficRoutes: [],
+      policeSpawns: [],
+      stuntJumps: [
+        {
+          id: 'stunt_cooldown_probe',
+          name: 'Salto Prueba Cooldown',
+          x: -4,
+          z: 0,
+          heading: Math.PI,
+          length: 220,
+          width: 10,
+          minSpeedMps: 20,
+          launchVy: 8.5,
+          rewardCop: 35_000,
+        },
+      ],
+    };
+    const cooldownWorld = new GameWorld(cooldownMap);
+    cooldownWorld.reset({
+      startInVehicle: true,
+      spawn: { x: -4, z: 100, heading: Math.PI },
+    });
+
+    let cdSnap = cooldownWorld.getSnapshot();
+    for (let i = 0; i < 40; i += 1) {
+      cdSnap = cooldownWorld.step(0.05, createInput({ forward: true, boost: true }));
+      if ((cdSnap.lastStuntJumpAt ?? 0) > 0) {
+        break;
+      }
+    }
+    const firstTriggerAt = cdSnap.lastStuntJumpAt!;
+    expect(firstTriggerAt).toBeGreaterThan(0);
+
+    // Stay above minSpeedMps inside the ramp for 2.5s (lands at ~0.9s, still < 4s cooldown -> no re-trigger)
+    for (let i = 0; i < 50; i += 1) {
+      cdSnap = cooldownWorld.step(0.05, createInput({ forward: true }));
+    }
+    expect(cdSnap.timeSeconds - firstTriggerAt).toBeLessThan(4);
+    expect(cdSnap.lastStuntJumpAt).toBe(firstTriggerAt);
+
+    // Continue past 4s cooldown while still on the ramp above minSpeedMps -> re-triggers!
+    for (let i = 0; i < 40; i += 1) {
+      cdSnap = cooldownWorld.step(0.05, createInput({ forward: true }));
+      if ((cdSnap.lastStuntJumpAt ?? 0) > firstTriggerAt) {
+        break;
+      }
+    }
+    expect(cdSnap.lastStuntJumpAt).toBeGreaterThanOrEqual(firstTriggerAt + 4);
+  });
+
+  it('clears wantedStars, refills nitro, repaints car, and enforces 6s cooldown at Pay n Spray zones', () => {
+    const shop = PAY_N_SPRAY_ZONES[0]!; // Taller San Antonio (-78, 18)
+    const world = new GameWorld(CALI_MAP);
+    world.reset({
+      startInVehicle: true,
+      spawn: { x: shop.x - 10, z: shop.z, heading: Math.PI / 2 },
+      wantedStars: 3,
+      playerPaintHex: 0xe63946,
+    });
+
+    // Drain nitro slightly while driving into the Pay 'n' Spray zone
+    let snap = world.getSnapshot();
+    for (let i = 0; i < 20; i += 1) {
+      snap = world.step(0.05, createInput({ forward: true, boost: true }));
+      if (snap.lastPayNSprayName !== null) {
+        break;
+      }
+    }
+
+    const carAfterSpray = snap.vehicles.find((v) => v.id === 'player_banshee')!;
+    expect(snap.wantedStars).toBe(0);
+    expect(snap.bustProgress).toBe(0);
+    expect(snap.policeEvadeProgress).toBe(0);
+    expect(snap.vehicles.filter((v) => v.sirenActive)).toHaveLength(0);
+    expect(snap.player.nitro).toBe(100);
+    expect(carAfterSpray.colorHex).not.toBe(0xe63946);
+    expect(snap.lastPayNSprayName).toBe(shop.name);
+    expect(snap.lastPayNSprayAt).toBeGreaterThan(0);
+
+    // Cooldown check: stop inside the shop, raise wantedStars inside 6s -> must NOT respray yet
+    const firstSprayAt = snap.lastPayNSprayAt!;
+    const colorAfterFirst = carAfterSpray.colorHex;
+    // Brake cleanly inside the workshop zone
+    for (let i = 0; i < 12; i += 1) {
+      snap = world.step(0.05, createInput({ handbrake: true }));
+    }
+    world.setWantedStars(2);
+    snap = world.step(0.05, createInput({ handbrake: true }));
+    expect(snap.wantedStars).toBe(2);
+    expect(snap.lastPayNSprayAt).toBe(firstSprayAt);
+    expect(snap.vehicles.find((v) => v.id === 'player_banshee')!.colorHex).toBe(
+      colorAfterFirst,
+    );
+
+    // Wait out the remaining 6s cooldown at 0 stars, then trigger again inside the shop
+    world.setWantedStars(0);
+    for (let i = 0; i < 120; i += 1) {
+      snap = world.step(0.05, createInput());
+    }
+    world.setWantedStars(2);
+    snap = world.step(0.05, createInput());
+    expect(snap.wantedStars).toBe(0);
+    expect(snap.lastPayNSprayAt).toBeGreaterThan(firstSprayAt);
+    expect(snap.vehicles.find((v) => v.id === 'player_banshee')!.colorHex).not.toBe(
+      colorAfterFirst,
+    );
+
+    // Requested at 0 stars via horn inside the shop after another 6s cooldown
+    const secondSprayAt = snap.lastPayNSprayAt!;
+    const colorAfterSecond = snap.vehicles.find((v) => v.id === 'player_banshee')!.colorHex;
+    for (let i = 0; i < 125; i += 1) {
+      snap = world.step(0.05, createInput());
+    }
+    snap = world.step(0.05, createInput({ hornPressed: true }));
+    expect(snap.lastPayNSprayAt).toBeGreaterThan(secondSprayAt);
+    expect(snap.vehicles.find((v) => v.id === 'player_banshee')!.colorHex).not.toBe(
+      colorAfterSecond,
+    );
+  });
+
+  it('builds driftComboMultiplier up to 5x, banks cashout after 1.4s clean recovery, and cancels on hard crash', () => {
+    const openMap: CaliMapConfig = {
+      ...CALI_MAP,
+      buildingColliders: [],
+      landmarks: [],
+      trafficRoutes: [],
+      policeSpawns: [],
+      stuntJumps: [],
+      payNSprayZones: [],
+      roadblockZones: [],
+    };
+    const world = new GameWorld(openMap);
+    world.reset({
+      startInVehicle: true,
+      spawn: { x: -4, z: 40, heading: Math.PI },
+    });
+
+    // Accelerate to high speed (> 28 km/h)
+    for (let i = 0; i < 35; i += 1) {
+      world.step(0.05, createInput({ forward: true, boost: true }));
+    }
+
+    // Sustain continuous drift to escalate combo multiplier all the way to 5x & build pending bank
+    let maxMultiplier = 1;
+    let peakPending = 0;
+    let snap = world.getSnapshot();
+    for (let i = 0; i < 95; i += 1) {
+      snap = world.step(
+        0.05,
+        createInput({ forward: true, left: true, handbrake: true, boost: true }),
+      );
+      maxMultiplier = Math.max(maxMultiplier, snap.driftComboMultiplier ?? 1);
+      peakPending = Math.max(peakPending, snap.driftBankPendingCop ?? 0);
+    }
+
+    expect(maxMultiplier).toBe(5);
+    expect(peakPending).toBeGreaterThan(0);
+    expect(snap.lastDriftCashoutCop).toBe(0);
+
+    // Clean non-drifting recovery for > 1.4s banks into lastDriftCashoutCop
+    for (let i = 0; i < 32; i += 1) {
+      snap = world.step(0.05, createInput({ forward: true }));
+    }
+    expect(snap.driftBankPendingCop).toBe(0);
+    expect(snap.driftComboMultiplier).toBe(1);
+    expect(snap.lastDriftCashoutCop).toBeGreaterThanOrEqual(peakPending);
+
+    // Crash cancellation: build a new pending drift, then collide hard with Río Cali / building
+    const crashWorld = new GameWorld(CALI_MAP);
+    crashWorld.reset({
+      startInVehicle: true,
+      spawn: { x: -4, z: 120, heading: Math.PI },
+    });
+    for (let i = 0; i < 20; i += 1) {
+      crashWorld.step(0.05, createInput({ forward: true }));
+    }
+    let driftSnap = crashWorld.getSnapshot();
+    for (let i = 0; i < 10; i += 1) {
+      driftSnap = crashWorld.step(
+        0.05,
+        createInput({ forward: true, right: true, handbrake: true }),
+      );
+    }
+    expect(driftSnap.driftBankPendingCop).toBeGreaterThan(0);
+
+    // Accelerate straight East into Río Cali bank to trigger collisionImpact > 0.35
+    let crashed = false;
+    for (let i = 0; i < 80; i += 1) {
+      driftSnap = crashWorld.step(0.05, createInput({ forward: true, boost: true }));
+      if (driftSnap.collisionImpact > 0.35) {
+        crashed = true;
+        break;
+      }
+    }
+    expect(crashed).toBe(true);
+    expect(driftSnap.driftBankPendingCop).toBe(0);
+    expect(driftSnap.driftComboMultiplier).toBe(1);
+    expect(driftSnap.lastDriftCashoutCop).toBe(0);
+  });
+
+  it('activates 3-star Retén Policial roadblocks: Willys/boost smashes through while slower cars slow sharply', () => {
+    const roadblock = ROADBLOCK_ZONES[0]!; // Puente La Ermita (38, -24)
+    const world = new GameWorld(CALI_MAP);
+    world.reset({
+      startInVehicle: true,
+      spawn: { x: 24, z: roadblock.z, heading: Math.PI / 2 },
+      wantedStars: 2,
+    });
+    expect(world.getSnapshot().roadblockActive).toBe(false);
+
+    // Case 1: Slow non-Willys car (< 26 m/s, no boost) at 3 stars -> sharp slowdown (0.42x) & impact 0.65
+    world.setWantedStars(3);
+    expect(world.getSnapshot().roadblockActive).toBe(true);
+    let slowSnap = world.getSnapshot();
+    let hitSlow = false;
+    let speedBeforeSlowHit = 0;
+    let speedAfterSlowHit = 0;
+    for (let i = 0; i < 40; i += 1) {
+      const prevSpeed = slowSnap.player.speedMps;
+      // Keep speed moderate (~16-20 m/s) by feathering throttle
+      slowSnap = world.step(
+        0.05,
+        createInput({ forward: prevSpeed < 17 }),
+      );
+      if (slowSnap.collisionImpact >= 0.6) {
+        hitSlow = true;
+        speedBeforeSlowHit = prevSpeed;
+        speedAfterSlowHit = slowSnap.player.speedMps;
+        break;
+      }
+    }
+    expect(hitSlow).toBe(true);
+    expect(slowSnap.collisionImpact).toBeCloseTo(0.65, 2);
+    expect(speedAfterSlowHit).toBeLessThan(speedBeforeSlowHit * 0.55);
+
+    // Case 2: Willys V8 at 3 stars -> smashes right through (0.78x speed dip, impact 0.45)
+    world.reset({
+      startInVehicle: true,
+      spawn: { x: 24, z: roadblock.z, heading: Math.PI / 2 },
+      wantedStars: 3,
+      playerCarKind: 'willys_v8',
+    });
+    let smashSnap = world.getSnapshot();
+    let hitSmash = false;
+    let speedBeforeSmash = 0;
+    let speedAfterSmash = 0;
+    for (let i = 0; i < 40; i += 1) {
+      const prevSpeed = smashSnap.player.speedMps;
+      smashSnap = world.step(
+        0.05,
+        createInput({ forward: prevSpeed < 18 }),
+      );
+      if (smashSnap.collisionImpact >= 0.4) {
+        hitSmash = true;
+        speedBeforeSmash = prevSpeed;
+        speedAfterSmash = smashSnap.player.speedMps;
+        break;
+      }
+    }
+    expect(hitSmash).toBe(true);
+    expect(smashSnap.collisionImpact).toBeCloseTo(0.45, 2);
+    expect(speedAfterSmash).toBeGreaterThan(speedBeforeSmash * 0.68);
+    expect(speedAfterSmash).toBeLessThan(speedBeforeSmash * 0.9);
+  });
+
+  it('triggers hornActive and scares pedestrians within 18m on [H] hornPressed', () => {
+    const world = new GameWorld(CALI_MAP);
+    const initialPeds = world.getSnapshot().pedestrians ?? [];
+    const targetPed = initialPeds[0]!;
+    const farPed = initialPeds.find(
+      (ped) => Math.hypot(ped.x - targetPed.x, ped.z - targetPed.z) > 60,
+    )!;
+
+    world.reset({
+      startInVehicle: true,
+      spawn: { x: targetPed.x - 6, z: targetPed.z, heading: Math.PI / 2 },
+    });
+
+    const hornSnap = world.step(0.05, createInput({ hornPressed: true }));
+    expect(hornSnap.hornActive).toBe(true);
+
+    const scaredPed = hornSnap.pedestrians!.find((p) => p.id === targetPed.id)!;
+    const calmPed = hornSnap.pedestrians!.find((p) => p.id === farPed.id)!;
+    expect(scaredPed.fleeing).toBe(true);
+    expect(calmPed.fleeing).toBe(false);
+
+    // Pedestrians stay fleeing for >= 3.5s after releasing horn
+    let afterSnap = hornSnap;
+    for (let i = 0; i < 50; i += 1) {
+      afterSnap = world.step(0.05, createInput({ hornPressed: false }));
+    }
+    expect(afterSnap.hornActive).toBe(false);
+    const stillFleeingPed = afterSnap.pedestrians!.find((p) => p.id === targetPed.id)!;
+    expect(stillFleeingPed.fleeing).toBe(true);
+  });
+
+  it('cycles trafficLightPhase deterministically over a 20s period', () => {
+    expect(computeTrafficLightPhase(0)).toBe('ns_green');
+    expect(computeTrafficLightPhase(7.9)).toBe('ns_green');
+    expect(computeTrafficLightPhase(8.0)).toBe('ns_yellow');
+    expect(computeTrafficLightPhase(9.9)).toBe('ns_yellow');
+    expect(computeTrafficLightPhase(10.0)).toBe('ew_green');
+    expect(computeTrafficLightPhase(17.9)).toBe('ew_green');
+    expect(computeTrafficLightPhase(18.0)).toBe('ew_yellow');
+    expect(computeTrafficLightPhase(19.9)).toBe('ew_yellow');
+    expect(computeTrafficLightPhase(20.0)).toBe('ns_green');
+
+    const world = new GameWorld(CALI_MAP);
+    expect(world.getSnapshot().trafficLightPhase).toBe('ns_green');
+
+    // Step 8.5s -> ns_yellow
+    let snap = world.getSnapshot();
+    for (let i = 0; i < 85; i += 1) {
+      snap = world.step(0.1, createInput());
+    }
+    expect(snap.trafficLightPhase).toBe('ns_yellow');
+
+    // Step +2.5s (11s total) -> ew_green
+    for (let i = 0; i < 25; i += 1) {
+      snap = world.step(0.1, createInput());
+    }
+    expect(snap.trafficLightPhase).toBe('ew_green');
+
+    // Step +7.5s (18.5s total) -> ew_yellow
+    for (let i = 0; i < 75; i += 1) {
+      snap = world.step(0.1, createInput());
+    }
+    expect(snap.trafficLightPhase).toBe('ew_yellow');
+
+    // Step +2.5s (21s total) -> loops back to ns_green
+    for (let i = 0; i < 25; i += 1) {
+      snap = world.step(0.1, createInput());
+    }
+    expect(snap.trafficLightPhase).toBe('ns_green');
+  });
+
+  it('spawns 2 rival street racers when enableRivals is true, drives them along Mission 3 checkpoints, and tracks racePosition', () => {
+    const world = new GameWorld(CALI_MAP);
+    expect(world.getSnapshot().racePosition).toBeNull();
+    expect(world.getSnapshot().raceTotalRacers).toBe(0);
+
+    const m3Start = CALI_MAP.missionStarts.mission_3_pique_bulevar;
+    world.reset({
+      spawn: m3Start.playerSpawn,
+      carSpawn: m3Start.carSpawn,
+      startInVehicle: true,
+      enableRivals: true,
+    });
+
+    const startSnap = world.getSnapshot();
+    const rivals = startSnap.vehicles.filter((v) => v.role === 'racer');
+    expect(rivals).toHaveLength(2);
+    const sparkRival = rivals.find((v) => v.id === 'rival_spark_gt')!;
+    const willysRival = rivals.find((v) => v.id === 'rival_willys_v8')!;
+    expect(sparkRival.kind).toBe('spark_gt_turbo');
+    expect(sparkRival.x).toBe(-7);
+    expect(sparkRival.z).toBe(57);
+    expect(willysRival.kind).toBe('willys_v8');
+    expect(willysRival.x).toBe(-1);
+    expect(willysRival.z).toBe(55);
+    expect(startSnap.raceTotalRacers).toBe(3);
+    expect(startSnap.racePosition).toBe(3);
+
+    // Advance race: rivals sprint north to CP1 (-4, -24) and turn east across Puente La Ermita without river hits
+    let racedSnap = startSnap;
+    for (let i = 0; i < 160; i += 1) {
+      racedSnap = world.step(0.05, createInput());
+      for (const rival of racedSnap.vehicles.filter((v) => v.role === 'racer')) {
+        expect(isPointInRiver(rival.x, rival.z)).toBe(false);
+      }
+    }
+    const movedSpark = racedSnap.vehicles.find((v) => v.id === 'rival_spark_gt')!;
+    const movedWillys = racedSnap.vehicles.find((v) => v.id === 'rival_willys_v8')!;
+    expect(movedSpark.x).toBeGreaterThan(30);
+    expect(movedWillys.x).toBeGreaterThan(20);
+    expect(movedSpark.speedMps).toBeGreaterThan(15);
+
+    // Explicit setPlayerRaceProgress updates player ahead of rivals into 1st place
+    world.setPlayerRaceProgress(3);
+    expect(world.getSnapshot().racePosition).toBe(1);
+    expect(world.getSnapshot().raceTotalRacers).toBe(3);
   });
 });
