@@ -11,6 +11,7 @@ const VIEWPORTS = [
   { name: 'mobile', width: 375, height: 812, file: 'title-375.png' },
   { name: 'tablet', width: 768, height: 1024, file: 'title-768.png' },
   { name: 'desktop', width: 1280, height: 720, file: 'title-1280.png' },
+  { name: 'laptop1440', width: 1440, height: 900, file: 'title-1440.png' },
   { name: 'widescreen', width: 1920, height: 1080, file: 'title-1920.png' },
 ];
 
@@ -125,8 +126,12 @@ function attachErrorCollectors(page) {
     pageErrors.push(err.message);
   });
   page.on('console', (msg) => {
-    if (msg.type() === 'error') {
-      consoleErrors.push(msg.text());
+    const text = msg.text();
+    if (
+      msg.type() === 'error' ||
+      /THREE\.WebGLProgram|Shader Error|GL_INVALID|SMAAPass/i.test(text)
+    ) {
+      consoleErrors.push(text);
     }
   });
   page.on('response', (res) => {
@@ -269,10 +274,13 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     }
 
     const loadedPaths = [...errors.asset200s];
-    expect(loadedPaths.some((p) => p.startsWith('/models/'))).toBe(true);
+    expect(loadedPaths).toContain('/models/valeria.glb');
+    expect(loadedPaths).toContain('/models/ferrari.glb');
+    expect(loadedPaths).toContain('/models/character.glb');
     expect(loadedPaths.some((p) => p.startsWith('/hdri/'))).toBe(true);
     expect(loadedPaths.some((p) => p.startsWith('/draco/'))).toBe(true);
     expect(loadedPaths.some((p) => p.startsWith('/textures/'))).toBe(true);
+    expect(loadedPaths.length).toBeGreaterThanOrEqual(35);
     expect(errors.pageErrors).toEqual([]);
     expect(errors.consoleErrors).toEqual([]);
     expect(errors.badResponses).toEqual([]);
@@ -321,6 +329,29 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     await expect(page.getByTestId('hud-distance')).toHaveText(/\d+\s*m/);
     await expect(page.getByTestId('hud-banner')).toBeVisible();
     await expect(page.getByTestId('btn-time-toggle')).toContainText('Atardecer');
+    await expect(page.getByTestId('btn-voices')).toBeVisible();
+    await expect(page.getByTestId('btn-voices')).toContainText('[V] Voces: ON');
+    await expect(page.getByTestId('btn-voices')).toHaveAttribute('aria-pressed', 'true');
+
+    // Responsive HUD overflow check across 375, 768, 1440, 1280 including [V] Voces pill
+    for (const hudVp of [
+      { width: 375, height: 812 },
+      { width: 768, height: 1024 },
+      { width: 1440, height: 900 },
+      { width: 1280, height: 720 },
+    ]) {
+      await page.setViewportSize(hudVp);
+      await waitForNextFrames(page, 2);
+      const hudOverflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        innerWidth: window.innerWidth,
+      }));
+      expect(
+        hudOverflow.scrollWidth,
+        `HUD horizontal overflow at ${hudVp.width}x${hudVp.height}`,
+      ).toBeLessThanOrEqual(hudOverflow.innerWidth);
+      await expect(page.getByTestId('btn-voices')).toBeVisible();
+    }
 
     // Walk/sprint forward (KeyW + ShiftLeft) on foot to grab the golden Vinilo briefcase at Torre de Cali
     await page.keyboard.down('KeyW');
@@ -404,6 +435,17 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
       { timeout: 90_000 },
     );
     await page.keyboard.up('ShiftLeft');
+    await page.keyboard.up('KeyW');
+
+    // Brief drift (KeyW + Space + KeyD) to exercise SkidMarkPool + ParticleSystem + SMAAPass + CinematicGradePass
+    await page.keyboard.down('KeyW');
+    await page.keyboard.down('Space');
+    await page.keyboard.down('KeyD');
+    await page.waitForFunction(() => window.__GTA_CALI__?.world.player.isDrifting === true, null, {
+      timeout: 30_000,
+    });
+    await page.keyboard.up('KeyD');
+    await page.keyboard.up('Space');
     await page.keyboard.up('KeyW');
 
     // Switch radio station with KeyR
@@ -570,16 +612,40 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     await waitForNextFrames(page, 3);
     await page.screenshot({ path: resolve(EVIDENCE_DIR, 'gameplay-freeroam-1280.png') });
 
-    // Reload and verify localStorage audio preference persisted
+    // Toggle [V] Voces OFF via KeyV, verify DOM + snapshot, reload and verify localStorage persistence, then toggle back ON
+    await page.keyboard.press('KeyV');
+    await page.waitForFunction(() => window.__GTA_CALI__?.audio.voicesEnabled === false);
+    await expect(page.getByTestId('btn-voices')).toContainText('[V] Voces: OFF');
+    await expect(page.getByTestId('btn-voices')).toHaveAttribute('aria-pressed', 'false');
+
+    // Reload and verify localStorage audio + voicesEnabled preference persisted
     await page.reload({ waitUntil: 'networkidle' });
-    await page.waitForFunction(() => window.__GTA_CALI__?.audio.station === 'sucursal_synth');
+    await page.waitForFunction(
+      () =>
+        window.__GTA_CALI__?.mode === 'title' &&
+        window.__GTA_CALI__?.assetsLoaded === true &&
+        window.__GTA_CALI__?.audio.station === 'sucursal_synth' &&
+        window.__GTA_CALI__?.audio.voicesEnabled === false,
+      null,
+      { timeout: 45_000 },
+    );
+    await page.getByTestId('btn-free-roam').click();
+    await page.waitForFunction(() => window.__GTA_CALI__?.mode === 'playing');
+    await expect(page.getByTestId('btn-voices')).toContainText('[V] Voces: OFF');
+    await expect(page.getByTestId('btn-voices')).toHaveAttribute('aria-pressed', 'false');
+
+    await page.getByTestId('btn-voices').click();
+    await page.waitForFunction(() => window.__GTA_CALI__?.audio.voicesEnabled === true);
+    await expect(page.getByTestId('btn-voices')).toContainText('[V] Voces: ON');
+    await expect(page.getByTestId('btn-voices')).toHaveAttribute('aria-pressed', 'true');
+
     run.dataCheck(
       'persisted-after-reload',
-      'preferredStation=sucursal_synth persisted in localStorage after reload',
+      'preferredStation=sucursal_synth and voicesEnabled=false persisted in localStorage after reload, then toggled cleanly back to ON',
     );
     run.dataCheck(
       'source-on-screen',
-      `C-03 local assets loaded (${errors.asset200s.size} files across /models, /hdri, /draco, /textures) with assetsLoaded=true`,
+      `C-07 local assets loaded (${errors.asset200s.size} files including /models/valeria.glb) with assetsLoaded=true`,
     );
 
     await run.save('run-gta-cali.json');
