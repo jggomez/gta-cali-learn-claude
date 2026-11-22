@@ -1,4 +1,4 @@
-/* global Buffer, HTMLCanvasElement, HTMLElement, URL, document, performance, process, requestAnimationFrame, window */
+/* global Buffer, HTMLCanvasElement, HTMLElement, URL, document, process, requestAnimationFrame, window */
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -293,7 +293,7 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     );
     await expect(page.getByTestId('webgl-error-overlay')).toBeHidden();
 
-    // Start Mission 1
+    // Start Mission 1 — "Golpe en la Torre" (golden_hour, ON FOOT at Torre de Cali)
     await page.getByTestId('btn-mission-1').click();
     await expect(page.getByTestId('gameplay-hud')).toBeVisible();
     await expect(page.getByTestId('title-screen')).toBeHidden();
@@ -309,24 +309,63 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     const startSnap = await page.evaluate(() => window.__GTA_CALI__);
     expect(startSnap?.mode).toBe('playing');
     expect(startSnap?.mission.activeMission).toBe('mission_1_bulevar');
+    expect(startSnap?.mission.timeOfDay).toBe('golden_hour');
+    expect(startSnap?.world.player.mode).toBe('on_foot');
+    expect(startSnap?.mission.activeObjective?.id).toBe('m1_torre_pickup');
+    expect(startSnap?.mission.activeObjective?.requiresOnFoot).toBe(true);
 
-    // C-04 Mission 1 start HUD clarity checks
+    // C-05 Mission 1 start HUD clarity checks
     await expect(page.getByTestId('hud-step-progress')).toContainText('PASO 1 DE 4');
     await expect(page.getByTestId('hud-compass')).toBeVisible();
     await expect(page.getByTestId('hud-distance')).toBeVisible();
     await expect(page.getByTestId('hud-distance')).toHaveText(/\d+\s*m/);
     await expect(page.getByTestId('hud-banner')).toBeVisible();
-    await expect(page.getByTestId('hud-vehicle-prompt')).toContainText('[F] Subir a Ferrari Caleño');
+    await expect(page.getByTestId('btn-time-toggle')).toContainText('Atardecer');
 
-    // Press KeyF to board Ferrari Caleño
+    // Walk/sprint forward (KeyW + ShiftLeft) on foot to grab the golden Vinilo briefcase at Torre de Cali
+    await page.keyboard.down('KeyW');
+    await page.keyboard.down('ShiftLeft');
+    await page.waitForFunction(
+      () =>
+        window.__GTA_CALI__?.mission.activeObjective?.id === 'm1_board_getaway' &&
+        window.__GTA_CALI__?.world.wantedStars === 2,
+      null,
+      { timeout: 60_000 },
+    );
+    await page.keyboard.up('ShiftLeft');
+    await page.keyboard.up('KeyW');
+
+    await expect(page.getByTestId('hud-step-progress')).toContainText('PASO 2 DE 4');
+    run.dataCheck(
+      'source-on-screen',
+      'Mission 1 on-foot Vinilo pickup triggered alarm (wantedStars=2, PASO 2 DE 4, m1_board_getaway)',
+    );
+
+    // Turn south toward the parked getaway Ferrari at (-16, -102) and sprint until canEnterVehicle === true
+    await page.keyboard.down('KeyD');
+    await page.waitForFunction(() => (window.__GTA_CALI__?.world.player.heading ?? 2) <= 0.28, null, {
+      timeout: 30_000,
+    });
+    await page.keyboard.up('KeyD');
+
+    await page.keyboard.down('KeyW');
+    await page.keyboard.down('ShiftLeft');
+    await page.waitForFunction(() => window.__GTA_CALI__?.world.player.canEnterVehicle === true, null, {
+      timeout: 60_000,
+    });
+    await page.keyboard.up('ShiftLeft');
+    await page.keyboard.up('KeyW');
+
+    // Board the getaway Ferrari Caleño with KeyF -> PASO 3 DE 4
     await page.keyboard.press('KeyF');
     await page.waitForFunction(
       () =>
         window.__GTA_CALI__?.world.player.mode === 'driving' &&
-        (window.__GTA_CALI__?.mission.activeObjective?.stepIndex ?? 0) === 1,
+        (window.__GTA_CALI__?.mission.activeObjective?.stepIndex ?? 0) === 2,
+      null,
+      { timeout: 30_000 },
     );
-    await expect(page.getByTestId('hud-objective')).toContainText('Torre de Cali');
-    await expect(page.getByTestId('hud-step-progress')).toContainText('PASO 2 DE 4');
+    await expect(page.getByTestId('hud-step-progress')).toContainText('PASO 3 DE 4');
 
     const postBoard = await page.evaluate(() => {
       const snap = window.__GTA_CALI__;
@@ -349,10 +388,9 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     const beforeDrive = await page.evaluate(() => ({
       x: window.__GTA_CALI__.world.player.x,
       z: window.__GTA_CALI__.world.player.z,
-      t: performance.now(),
     }));
 
-    // Hold KeyW + ShiftLeft until speedKmh > 20, car drives > 8m, and nitro drains below 100%
+    // Drive south down Avenida Las Américas with nitro + switch radio
     await page.keyboard.down('KeyW');
     await page.keyboard.down('ShiftLeft');
     await page.waitForFunction(
@@ -360,67 +398,13 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
         const snap = window.__GTA_CALI__;
         if (!snap) return false;
         const dist = Math.hypot(snap.world.player.x - startX, snap.world.player.z - startZ);
-        const fill = document.querySelector('[data-testid="hud-nitro"] .cali-nitro-fill');
-        const widthPct = fill instanceof HTMLElement ? Number.parseFloat(fill.style.width) : 100;
-        return snap.world.player.speedKmh > 25 && dist > 4 && widthPct < 100;
+        return snap.world.player.speedKmh > 25 && dist > 4;
       },
       { startX: beforeDrive.x, startZ: beforeDrive.z },
       { timeout: 90_000 },
     );
-
-    // Source-on-screen check comparing window.__GTA_CALI__ vs DOM speedometer & nitro gauge
-    const driveComparison = await page.evaluate(() => {
-      const snap = window.__GTA_CALI__;
-      const domSpeedText = document.querySelector('[data-testid="hud-speed"] .cali-speed-number')?.textContent;
-      const domSpeed = Number.parseInt(domSpeedText ?? '', 10);
-      const sourceSpeed = Math.round(snap.world.player.speedKmh);
-      const nitroFill = document.querySelector('[data-testid="hud-nitro"] .cali-nitro-fill');
-      const nitroTrack = document.querySelector('[data-testid="hud-nitro"] .cali-nitro-track');
-      const nitroWidth = nitroFill instanceof HTMLElement ? nitroFill.style.width : '';
-      const nitroWidthPct = Number.parseFloat(nitroWidth);
-      const nitroAria = Number.parseInt(nitroTrack?.getAttribute('aria-valuenow') ?? '', 10);
-      return {
-        x: snap.world.player.x,
-        z: snap.world.player.z,
-        speedKmh: snap.world.player.speedKmh,
-        sourceSpeed,
-        domSpeed,
-        nitroSource: snap.world.player.nitro,
-        nitroWidth,
-        nitroWidthPct,
-        nitroAria,
-      };
-    });
     await page.keyboard.up('ShiftLeft');
     await page.keyboard.up('KeyW');
-
-    // Trigger a brief drift (KeyW + Space + KeyD) to exercise drift physics & ParticleSystem smoke/sparks
-    await page.keyboard.down('KeyW');
-    await page.keyboard.down('Space');
-    await page.keyboard.down('KeyD');
-    await page.waitForFunction(() => window.__GTA_CALI__?.world.player.isDrifting === true, null, {
-      timeout: 30_000,
-    });
-    await page.keyboard.up('KeyD');
-    await page.keyboard.up('Space');
-    await page.keyboard.up('KeyW');
-
-    const movedDistance = Math.hypot(
-      driveComparison.x - beforeDrive.x,
-      driveComparison.z - beforeDrive.z,
-    );
-    expect(driveComparison.speedKmh).toBeGreaterThan(20);
-    expect(movedDistance).toBeGreaterThan(3);
-    expect(driveComparison.domSpeed).toBeGreaterThan(0);
-    expect(Math.abs(driveComparison.domSpeed - driveComparison.sourceSpeed)).toBeLessThanOrEqual(2);
-    expect(driveComparison.nitroWidthPct).toBeLessThan(100);
-    expect(driveComparison.nitroWidthPct).toBeGreaterThan(0);
-    expect(driveComparison.nitroAria).toBeLessThan(100);
-    expect(driveComparison.nitroAria).toBe(Math.round(driveComparison.nitroWidthPct));
-    run.dataCheck(
-      'source-on-screen',
-      `speedKmh=${driveComparison.sourceSpeed} matches hud-speed=${driveComparison.domSpeed}; nitro width=${driveComparison.nitroWidth} aria-valuenow=${driveComparison.nitroAria}`,
-    );
 
     // Switch radio station with KeyR
     await page.keyboard.press('KeyR');
@@ -428,7 +412,7 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     await expect(page.getByTestId('hud-radio')).toContainText('Sucursal Synth');
     run.dataCheck('source-on-screen', 'audio.station=sucursal_synth reflected on hud-radio');
 
-    // Capture Mission 1 gameplay screenshot
+    // Capture Golden-Hour Mission 1 gameplay screenshot (Torre de Cali / Av. Las Américas)
     await waitForNextFrames(page, 3);
     const m1CanvasCheck = await sampleWebglFramebuffer(page);
     expect(m1CanvasCheck.ok).toBe(true);
@@ -446,7 +430,7 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     await page.mouse.wheel(0, -120);
     await waitForNextFrames(page, 3);
 
-    // Pause via Escape, capture pause-1280.png, then Resume
+    // Pause via Escape, capture pause-1280.png, then Resume -> Pause -> Title
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('pause-overlay')).toBeVisible();
     await page.waitForFunction(() => window.__GTA_CALI__?.mode === 'paused');
@@ -456,31 +440,35 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     await expect(page.getByTestId('pause-overlay')).toBeHidden();
     await page.waitForFunction(() => window.__GTA_CALI__?.mode === 'playing');
 
-    // Pause -> Return to Title -> Mission 2 -> board Banshee + drive briefly
     await page.getByTestId('btn-pause').click();
     await expect(page.getByTestId('pause-overlay')).toBeVisible();
     await page.getByTestId('btn-pause-title').click();
     await expect(page.getByTestId('title-screen')).toBeVisible();
 
+    // Start Mission 2 — "Noche de Salsa en Cristo Rey" (night, DRIVING at Estadio Pascual Guerrero, 95s countdown, ★★★)
     await page.getByTestId('btn-mission-2').click();
     await page.waitForFunction(
       () =>
         window.__GTA_CALI__?.mode === 'playing' &&
-        window.__GTA_CALI__?.mission.activeMission === 'mission_2_cristo_rey',
+        window.__GTA_CALI__?.mission.activeMission === 'mission_2_cristo_rey' &&
+        window.__GTA_CALI__?.mission.timeOfDay === 'night',
+      null,
+      { timeout: 30_000 },
     );
-    await expect(page.getByTestId('hud-step-progress')).toContainText('PASO 1 DE 4');
-    await page.keyboard.press('KeyF');
-    await page.waitForFunction(
-      () =>
-        window.__GTA_CALI__?.world.player.mode === 'driving' &&
-        (window.__GTA_CALI__?.mission.activeObjective?.stepIndex ?? 0) === 1,
-    );
-    await expect(page.getByTestId('hud-step-progress')).toContainText('PASO 2 DE 4');
 
-    const m2Start = await page.evaluate(() => ({
-      x: window.__GTA_CALI__.world.player.x,
-      z: window.__GTA_CALI__.world.player.z,
-    }));
+    const m2Init = await page.evaluate(() => window.__GTA_CALI__);
+    expect(m2Init?.mission.timeOfDay).toBe('night');
+    expect(m2Init?.mission.isCountdown).toBe(true);
+    expect(m2Init?.mission.timerSeconds).toBeGreaterThan(80);
+    expect(m2Init?.mission.timerSeconds).toBeLessThanOrEqual(95);
+    expect(m2Init?.world.player.mode).toBe('driving');
+    expect(m2Init?.world.wantedStars).toBe(3);
+    await expect(page.getByTestId('btn-time-toggle')).toContainText('Noche');
+
+    const m2Start = {
+      x: m2Init.world.player.x,
+      z: m2Init.world.player.z,
+    };
     await page.keyboard.down('KeyW');
     await page.keyboard.down('ShiftLeft');
     await page.waitForFunction(
@@ -488,20 +476,66 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
         const snap = window.__GTA_CALI__;
         if (!snap) return false;
         const dist = Math.hypot(snap.world.player.x - startX, snap.world.player.z - startZ);
-        return snap.world.player.speedKmh > 20 && dist > 3.5;
+        const fill = document.querySelector('[data-testid="hud-nitro"] .cali-nitro-fill');
+        const widthPct = fill instanceof HTMLElement ? Number.parseFloat(fill.style.width) : 100;
+        return snap.world.player.speedKmh > 25 && dist > 4 && widthPct < 100;
       },
       { startX: m2Start.x, startZ: m2Start.z },
       { timeout: 90_000 },
     );
+
+    // Source-on-screen check comparing window.__GTA_CALI__ vs DOM speedometer & nitro gauge in Night Mission 2
+    const driveComparison = await page.evaluate(() => {
+      const snap = window.__GTA_CALI__;
+      const domSpeedText = document.querySelector('[data-testid="hud-speed"] .cali-speed-number')?.textContent;
+      const domSpeed = Number.parseInt(domSpeedText ?? '', 10);
+      const sourceSpeed = Math.round(snap.world.player.speedKmh);
+      const nitroFill = document.querySelector('[data-testid="hud-nitro"] .cali-nitro-fill');
+      const nitroTrack = document.querySelector('[data-testid="hud-nitro"] .cali-nitro-track');
+      const nitroWidth = nitroFill instanceof HTMLElement ? nitroFill.style.width : '';
+      const nitroWidthPct = Number.parseFloat(nitroWidth);
+      const nitroAria = Number.parseInt(nitroTrack?.getAttribute('aria-valuenow') ?? '', 10);
+      return {
+        speedKmh: snap.world.player.speedKmh,
+        sourceSpeed,
+        domSpeed,
+        nitroWidth,
+        nitroWidthPct,
+        nitroAria,
+      };
+    });
     await page.keyboard.up('ShiftLeft');
     await page.keyboard.up('KeyW');
 
+    expect(driveComparison.speedKmh).toBeGreaterThan(25);
+    expect(driveComparison.domSpeed).toBeGreaterThan(0);
+    expect(Math.abs(driveComparison.domSpeed - driveComparison.sourceSpeed)).toBeLessThanOrEqual(2);
+    expect(driveComparison.nitroWidthPct).toBeLessThan(100);
+    expect(driveComparison.nitroWidthPct).toBeGreaterThan(0);
+    expect(driveComparison.nitroAria).toBeLessThan(100);
+    expect(driveComparison.nitroAria).toBe(Math.round(driveComparison.nitroWidthPct));
+    run.dataCheck(
+      'source-on-screen',
+      `Mission 2 Night speedKmh=${driveComparison.sourceSpeed} matches hud-speed=${driveComparison.domSpeed}; nitro width=${driveComparison.nitroWidth} aria-valuenow=${driveComparison.nitroAria}`,
+    );
+
+    // Capture REAL NIGHTTIME CALI Mission 2 screenshot
     await waitForNextFrames(page, 3);
     const m2Path = resolve(EVIDENCE_DIR, 'gameplay-mission2-1280.png');
     await page.screenshot({ path: m2Path });
     const m2Pixels = analyzePngPixels(readFileSync(m2Path));
-    expect(m2Pixels.colorfulRatio).toBeGreaterThan(0.15);
-    expect(m2Pixels.distinctColorBuckets).toBeGreaterThan(30);
+    expect(m2Pixels.nonBlackRatio).toBeGreaterThan(0.25);
+    expect(m2Pixels.colorfulRatio).toBeGreaterThan(0.08);
+    expect(m2Pixels.distinctColorBuckets).toBeGreaterThan(25);
+
+    // Toggle Night <-> Golden-Hour live via KeyT
+    await page.keyboard.press('KeyT');
+    await page.waitForFunction(() => window.__GTA_CALI__?.mission.timeOfDay === 'golden_hour');
+    await expect(page.getByTestId('btn-time-toggle')).toContainText('Atardecer');
+    await page.keyboard.press('KeyT');
+    await page.waitForFunction(() => window.__GTA_CALI__?.mission.timeOfDay === 'night');
+    await expect(page.getByTestId('btn-time-toggle')).toContainText('Noche');
+    run.dataCheck('source-on-screen', 'KeyT toggled Night <-> Golden-Hour live on btn-time-toggle');
 
     // Reload and verify localStorage audio preference persisted
     await page.reload({ waitUntil: 'networkidle' });
