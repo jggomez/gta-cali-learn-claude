@@ -679,10 +679,11 @@ body {
 }
 
 .cali-compass-arrow {
-  display: inline-block;
-  font-size: 0.95rem;
-  line-height: 1;
-  color: var(--color-warning);
+  display: block;
+  width: 14px;
+  height: 14px;
+  background: var(--color-warning);
+  clip-path: polygon(50% 6%, 94% 92%, 50% 72%, 6% 92%);
   transform-origin: center center;
   transition: transform 80ms linear;
 }
@@ -1528,7 +1529,8 @@ body {
   }
 
   .cali-compass-arrow {
-    font-size: 0.78rem;
+    width: 11px;
+    height: 11px;
   }
 
   .cali-compass-cue {

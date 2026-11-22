@@ -776,7 +776,7 @@ export class HudController {
     const compassArrowWrap = createEl('span', 'cali-compass-arrow-wrap');
     compassArrowWrap.setAttribute('aria-hidden', 'true');
     const compassArrow = createEl('span', 'cali-compass-arrow', 'hud-compass-arrow');
-    compassArrow.textContent = '▲';
+    compassArrow.textContent = '';
     compassArrowWrap.appendChild(compassArrow);
 
     const compassCopy = createEl('div', 'cali-compass-copy');

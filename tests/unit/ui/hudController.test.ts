@@ -322,7 +322,8 @@ describe('HudController', () => {
     expect(compass?.hidden).toBe(false);
     expect(distanceEl?.textContent).toBe(`142 ${LOCALE_CALI.hud.metersUnit}`);
     expect(compassCue?.textContent).toBe(LOCALE_CALI.hud.directionLeft);
-    // +bearingDeltaRad (left) rotates counter-clockwise -> negative CSS radians
+    // Font-independent CSS chevron (no Unicode glyph) + left bearing rotates counter-clockwise
+    expect(compassArrow?.textContent).toBe('');
     expect(compassArrow?.style.transform).toContain('rotate(-1.571rad)');
 
     // Turn cue mapping across all quadrants
