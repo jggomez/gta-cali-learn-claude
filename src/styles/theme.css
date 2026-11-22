@@ -42,6 +42,8 @@
 
   --glow-magenta: 0 0 18px rgba(255, 46, 147, 0.28);
   --glow-cyan: 0 0 18px rgba(0, 240, 255, 0.28);
+  --glow-warning: 0 0 14px rgba(255, 184, 0, 0.34);
+  --glow-error: 0 0 16px rgba(255, 59, 92, 0.52);
   --shadow-panel: 0 12px 32px rgba(6, 2, 18, 0.55);
   --shadow-text: 0 3px 14px rgba(10, 4, 22, 0.92);
 
@@ -879,7 +881,7 @@ body {
 .cali-hud-top-right {
   top: var(--space-md);
   right: var(--space-md);
-  max-width: min(300px, calc(50vw - 24px));
+  max-width: min(340px, calc(50vw - 24px));
   align-items: flex-end;
 }
 
@@ -1025,12 +1027,53 @@ body {
   color: var(--color-text);
 }
 
+.cali-timer[data-countdown="true"] {
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-warning);
+  color: var(--color-warning);
+  box-shadow: var(--glow-warning);
+}
+
+.cali-timer[data-urgent="true"] {
+  background: var(--color-surface-deep);
+  border-color: var(--color-error);
+  color: var(--color-error);
+  box-shadow: var(--glow-error);
+  animation: cali-timer-urgent-pulse 650ms ease-in-out infinite alternate;
+}
+
 .cali-quick-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: var(--space-xs);
   pointer-events: auto;
+}
+
+[data-testid="btn-time-toggle"] {
+  min-height: 44px;
+  background: var(--color-surface-glass);
+  color: var(--color-text);
+  border-color: var(--color-warning);
+  box-shadow: var(--glow-warning);
+  white-space: nowrap;
+}
+
+[data-testid="btn-time-toggle"][data-time="night"] {
+  background: var(--color-surface-alt);
+  color: var(--color-secondary);
+  border-color: var(--color-secondary);
+  box-shadow: var(--glow-cyan);
+}
+
+[data-testid="btn-time-toggle"]:hover:not(:disabled) {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  border-color: var(--color-primary-hover);
+  box-shadow: var(--glow-magenta);
 }
 
 /* Zone 3: Bottom-Left (2D GPS Minimap) */
@@ -1445,6 +1488,17 @@ body {
   }
 }
 
+@keyframes cali-timer-urgent-pulse {
+  from {
+    opacity: 0.78;
+    box-shadow: var(--shadow-panel);
+  }
+  to {
+    opacity: 1;
+    box-shadow: var(--glow-error);
+  }
+}
+
 /* ==========================================================================
    Responsive Breakpoints (375px – 1440px+, Zero Horizontal Overflow)
    ========================================================================== */
@@ -1690,8 +1744,10 @@ body {
 
   .cali-bust-warning,
   .cali-banner,
-  .cali-evade-bar {
+  .cali-evade-bar,
+  .cali-timer[data-urgent="true"] {
     animation: none;
+    opacity: 1;
   }
 
   .cali-compass-arrow {

@@ -27,6 +27,7 @@ export interface HudCallbacks {
   onCycleCamera(): void;
   onTogglePause(): void;
   onRetryWebgl(): void;
+  onToggleTimeOfDay?: () => void;
 }
 
 interface ListenerBinding {
@@ -179,6 +180,7 @@ export class HudController {
   private readonly evadeBarFill: HTMLElement;
   private readonly cashValue: HTMLElement;
   private readonly timerValue: HTMLElement;
+  private readonly timeToggleButton: HTMLButtonElement;
   private readonly cameraButton: HTMLButtonElement;
 
   private readonly vehiclePrompt: HTMLElement;
@@ -202,6 +204,11 @@ export class HudController {
   private readonly passedTime: HTMLElement;
   private readonly passedNewRecord: HTMLElement;
   private readonly passedNextBtn: HTMLButtonElement;
+
+  private readonly bustedTitle: HTMLElement;
+  private readonly bustedSubtitle: HTMLElement;
+  private readonly bustedRetryBtn: HTMLButtonElement;
+  private readonly bustedTitleBtn: HTMLButtonElement;
 
   private readonly victoryCash: HTMLElement;
   private readonly victoryM1Time: HTMLElement;
@@ -251,6 +258,7 @@ export class HudController {
     this.evadeBarFill = hudParts.evadeBarFill;
     this.cashValue = hudParts.cashValue;
     this.timerValue = hudParts.timerValue;
+    this.timeToggleButton = hudParts.timeToggleButton;
     this.cameraButton = hudParts.cameraButton;
     this.vehiclePrompt = hudParts.vehiclePrompt;
     this.driftBadge = hudParts.driftBadge;
@@ -278,7 +286,12 @@ export class HudController {
     this.passedNewRecord = passedParts.newRecord;
     this.passedNextBtn = passedParts.nextBtn;
 
-    this.bustedOverlay = this.buildBustedOverlay();
+    const bustedParts = this.buildBustedOverlay();
+    this.bustedOverlay = bustedParts.overlay;
+    this.bustedTitle = bustedParts.title;
+    this.bustedSubtitle = bustedParts.subtitle;
+    this.bustedRetryBtn = bustedParts.retryBtn;
+    this.bustedTitleBtn = bustedParts.titleBtn;
 
     const victoryParts = this.buildVictoryOverlay();
     this.victoryOverlay = victoryParts.overlay;
@@ -332,6 +345,8 @@ export class HudController {
       this.renderPauseOverlay(audio);
     } else if (mode === 'mission_passed') {
       this.renderMissionPassedOverlay(mission);
+    } else if (mode === 'busted') {
+      this.renderBustedOverlay(mission);
     } else if (mode === 'victory') {
       this.renderVictoryOverlay(mission);
     }
@@ -414,10 +429,17 @@ export class HudController {
     this.renderCompass(world, objective);
     this.renderBanner(mission);
 
-    // Top-right: wanted, bust/evade meters, cash, timer, camera
+    // Top-right: wanted, bust/evade meters, cash, timer, time-of-day, camera
     this.renderPoliceStatus(world, mission);
     setText(this.cashValue, formatCop(mission.cashCop));
     setText(this.timerValue, formatTimer(mission.timerSeconds));
+    const isCountdown = Boolean(mission.isCountdown);
+    this.timerValue.dataset.countdown = isCountdown ? 'true' : 'false';
+    this.timerValue.dataset.urgent = isCountdown && mission.timerSeconds <= 20 ? 'true' : 'false';
+
+    const timeOfDay = mission.timeOfDay ?? 'golden_hour';
+    this.timeToggleButton.dataset.time = timeOfDay;
+    setText(this.timeToggleButton, `[T] ${LOCALE_CALI.timeOfDayLabels[timeOfDay]}`);
     setText(this.cameraButton, LOCALE_CALI.cameraLabels[cameraMode]);
 
     // Bottom-center: vehicle-specific [F] prompt, drift badge, dialogue
@@ -585,6 +607,16 @@ export class HudController {
     setHidden(this.passedNextBtn, mission.activeMission !== 'mission_1_bulevar');
   }
 
+  private renderBustedOverlay(mission: MissionSnapshot): void {
+    const isTimeUp = mission.failureReason === 'time_up';
+    const copy = isTimeUp ? LOCALE_CALI.overlays.timeUp : LOCALE_CALI.overlays.busted;
+    this.bustedOverlay.dataset.reason = isTimeUp ? 'time_up' : 'busted';
+    setText(this.bustedTitle, copy.title);
+    setText(this.bustedSubtitle, copy.subtitle);
+    setText(this.bustedRetryBtn, copy.retry);
+    setText(this.bustedTitleBtn, copy.backToTitle);
+  }
+
   private renderVictoryOverlay(mission: MissionSnapshot): void {
     setText(this.victoryCash, formatCop(mission.cashCop));
     setText(
@@ -715,6 +747,7 @@ export class HudController {
     evadeBarFill: HTMLElement;
     cashValue: HTMLElement;
     timerValue: HTMLElement;
+    timeToggleButton: HTMLButtonElement;
     cameraButton: HTMLButtonElement;
     minimapCanvas: HTMLCanvasElement;
     vehiclePrompt: HTMLElement;
@@ -849,6 +882,17 @@ export class HudController {
     statusPanel.append(wantedContainer, bustWarning, evadeBar, telemetryRow);
 
     const quickActions = createEl('div', 'cali-quick-actions');
+    const timeToggleButton = createEl(
+      'button',
+      'cali-btn cali-btn--ghost cali-btn--compact',
+      'btn-time-toggle',
+    );
+    timeToggleButton.type = 'button';
+    timeToggleButton.dataset.time = 'golden_hour';
+    timeToggleButton.textContent = `[T] ${LOCALE_CALI.timeOfDayLabels.golden_hour}`;
+    timeToggleButton.setAttribute('aria-label', LOCALE_CALI.hud.timeToggleHint);
+    this.onClick(timeToggleButton, () => this.callbacks.onToggleTimeOfDay?.());
+
     const cameraButton = createEl('button', 'cali-btn cali-btn--ghost cali-btn--compact', 'btn-camera');
     cameraButton.type = 'button';
     cameraButton.textContent = LOCALE_CALI.cameraLabels.chase;
@@ -858,7 +902,7 @@ export class HudController {
     pauseButton.type = 'button';
     pauseButton.textContent = LOCALE_CALI.hud.pauseHint;
     this.onClick(pauseButton, () => this.callbacks.onTogglePause());
-    quickActions.append(cameraButton, pauseButton);
+    quickActions.append(timeToggleButton, cameraButton, pauseButton);
 
     topRight.append(statusPanel, quickActions);
 
@@ -967,6 +1011,7 @@ export class HudController {
       evadeBarFill,
       cashValue,
       timerValue,
+      timeToggleButton,
       cameraButton,
       minimapCanvas,
       vehiclePrompt,
@@ -1092,7 +1137,13 @@ export class HudController {
     return { overlay, reward, time, newRecord, nextBtn };
   }
 
-  private buildBustedOverlay(): HTMLElement {
+  private buildBustedOverlay(): {
+    overlay: HTMLElement;
+    title: HTMLElement;
+    subtitle: HTMLElement;
+    retryBtn: HTMLButtonElement;
+    titleBtn: HTMLButtonElement;
+  } {
     const copy = LOCALE_CALI.overlays.busted;
     const overlay = createEl('div', 'cali-overlay cali-overlay--modal', 'busted-overlay');
     overlay.setAttribute('role', 'dialog');
@@ -1122,7 +1173,7 @@ export class HudController {
     actions.append(retryBtn, titleBtn);
     modal.append(title, subtitle, actions);
     overlay.appendChild(modal);
-    return overlay;
+    return { overlay, title, subtitle, retryBtn, titleBtn };
   }
 
   private buildVictoryOverlay(): {

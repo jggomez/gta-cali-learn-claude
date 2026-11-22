@@ -202,67 +202,87 @@ describe('StorageAdapter', () => {
 });
 
 describe('MissionDirector', () => {
-  it('runs complete Mission 1 progression with wanted stars, reward, dialogue, and best time persistence', () => {
+  it('runs redesigned Mission 1 on-foot Torre heist through getaway car, La Ermita, and San Antonio hideout', () => {
     const backing = new MemoryStorage();
     const storage = new StorageAdapter(backing);
     const director = new MissionDirector(CALI_MAP, storage);
 
     expect(director.getSnapshot().mode).toBe('title');
+    expect(director.getSnapshot().timeOfDay).toBe('golden_hour');
+    expect(director.getSnapshot().isCountdown).toBe(false);
+    expect(director.getSnapshot().failureReason).toBeNull();
 
-    // Start Mission 1
+    // Start Mission 1 (golden_hour, Step 0 on-foot Torre pickup)
     let snap = director.startMission('mission_1_bulevar');
     expect(snap.mode).toBe('playing');
+    expect(snap.timeOfDay).toBe('golden_hour');
+    expect(snap.isCountdown).toBe(false);
+    expect(snap.failureReason).toBeNull();
     expect(snap.missionTitle).toBe(LOCALE_CALI.missions.mission_1_bulevar.title);
-    expect(snap.activeObjective?.kind).toBe('enter_vehicle');
-    expect(snap.activeObjective?.propKind).toBe('none');
-    expect(snap.dialogue?.speaker).toBe('valeria');
-    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m1Intro.text);
-    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m1Start.title);
-    expect(snap.banner?.subtitle).toBe(LOCALE_CALI.banners.m1Start.subtitle);
-    expect(snap.banner?.accent).toBe('cyan');
-    expect(snap.banner?.remainingSeconds).toBeCloseTo(3.6, 5);
+    expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission1Pickup.id);
+    expect(snap.activeObjective?.kind).toBe('reach_point');
+    expect(snap.activeObjective?.requiresOnFoot).toBe(true);
+    expect(snap.activeObjective?.propKind).toBe('vinyl_briefcase');
+    expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.mission1.heistOnFootLabel);
+    expect(snap.activeObjective?.detail).toBe(LOCALE_CALI.objectives.mission1.heistOnFootDetail);
+    expect(snap.activeObjective?.stepIndex).toBe(0);
+    expect(snap.activeObjective?.totalSteps).toBe(4);
     expect(snap.targetWantedStars).toBe(0);
 
-    // Step 0 -> Step 1: enter Banshee
-    snap = director.update(makeWorld({ mode: 'driving', x: -82, z: 36, heading: Math.PI / 2 }), 2);
-    expect(snap.activeObjective?.kind).toBe('reach_point');
+    // Driving through Torre pickup while in car MUST NOT trigger requiresOnFoot Step 0
+    const pickup = CALI_MAP.missionWaypoints.mission1Pickup;
+    snap = director.update(makeWorld({ mode: 'driving', x: pickup.x, z: pickup.z }), 2);
     expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission1Pickup.id);
+    expect(snap.activeObjective?.stepIndex).toBe(0);
+    expect(snap.targetWantedStars).toBe(0);
+
+    // Step 0 -> Step 1: arrive at Torre pickup ON FOOT -> triggers ★★ + alarm banner + board getaway car
+    snap = director.update(makeWorld({ mode: 'on_foot', x: pickup.x, z: pickup.z }), 3);
+    expect(snap.targetWantedStars).toBe(2);
+    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m1HeistAlarm.title);
+    expect(snap.banner?.accent).toBe('police');
+    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m1Alarm.text);
+    expect(snap.activeObjective?.id).toBe('m1_board_getaway');
+    expect(snap.activeObjective?.kind).toBe('enter_vehicle');
+    expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.mission1.boardGetawayLabel);
+    expect(snap.activeObjective?.detail).toBe(LOCALE_CALI.objectives.mission1.boardGetawayDetail);
     expect(snap.activeObjective?.stepIndex).toBe(1);
     expect(snap.activeObjective?.totalSteps).toBe(4);
-    expect(snap.activeObjective?.propKind).toBe('vinyl_briefcase');
     expect((snap.activeObjective?.gpsRoute?.length ?? 0)).toBeGreaterThanOrEqual(2);
-    expect(snap.activeObjective?.distanceMeters).toBeGreaterThan(0);
+    expect(snap.activeObjective?.distanceMeters).toBeGreaterThanOrEqual(0);
     expect(Number.isFinite(snap.activeObjective?.bearingDeltaRad)).toBe(true);
 
-    // Step 1 -> Step 2: reach Torre de Cali pickup (triggers 2 wanted stars + banner)
-    const pickup = CALI_MAP.missionWaypoints.mission1Pickup;
-    snap = director.update(makeWorld({ mode: 'driving', x: pickup.x, z: pickup.z }), 10);
+    // Step 1 -> Step 2: board getaway car -> Puente La Ermita / Iglesia La Ermita
+    snap = director.update(makeWorld({ mode: 'driving', x: -16, z: -102, heading: 0 }), 5);
     expect(snap.targetWantedStars).toBe(2);
-    expect(snap.dialogue?.speaker).toBe('mateo');
-    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m1Pickup.text);
-    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m1Pickup.title);
-    expect(snap.banner?.accent).toBe('police');
-    expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission1Escape.id);
+    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m1Boarded.title);
+    expect(snap.banner?.accent).toBe('cyan');
+    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m1EscapeCar.text);
+    expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission1Finish.id);
+    expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.mission1.crossBridgeLabel);
+    expect(snap.activeObjective?.detail).toBe(LOCALE_CALI.objectives.mission1.crossBridgeDetail);
     expect(snap.activeObjective?.stepIndex).toBe(2);
-    expect(snap.activeObjective?.propKind).toBe('none');
+    expect(snap.activeObjective?.totalSteps).toBe(4);
     expect((snap.activeObjective?.gpsRoute?.length ?? 0)).toBeGreaterThanOrEqual(2);
 
-    // Step 2 -> Step 3: reach Bulevar del Río
-    const escape = CALI_MAP.missionWaypoints.mission1Escape;
-    snap = director.update(makeWorld({ mode: 'driving', x: escape.x, z: escape.z }), 8);
+    // Step 2 -> Step 3: reach Iglesia La Ermita -> escape to Barrio San Antonio hideout
+    const finish = CALI_MAP.missionWaypoints.mission1Finish;
+    snap = director.update(makeWorld({ mode: 'driving', x: finish.x, z: finish.z }), 10);
     expect(snap.targetWantedStars).toBe(2);
-    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m1Bulevar.text);
-    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m1Bulevar.title);
+    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m1Bridge.title);
     expect(snap.banner?.accent).toBe('gold');
+    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m1Bulevar.text);
+    expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission1Hideout.id);
     expect(snap.activeObjective?.kind).toBe('escape_police');
-    expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission1Finish.id);
+    expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.mission1.hideoutLabel);
+    expect(snap.activeObjective?.detail).toBe(LOCALE_CALI.objectives.mission1.hideoutDetail);
     expect(snap.activeObjective?.stepIndex).toBe(3);
-    expect(snap.activeObjective?.propKind).toBe('none');
+    expect(snap.activeObjective?.totalSteps).toBe(4);
     expect(snap.activeObjective?.distanceMeters).toBeGreaterThan(0);
 
-    // Step 3 -> Mission Passed: reach Iglesia La Ermita
-    const finish = CALI_MAP.missionWaypoints.mission1Finish;
-    snap = director.update(makeWorld({ mode: 'driving', x: finish.x, z: finish.z }), 12);
+    // Step 3 -> Mission Passed: reach Barrio San Antonio hideout
+    const hideout = CALI_MAP.missionWaypoints.mission1Hideout;
+    snap = director.update(makeWorld({ mode: 'driving', x: hideout.x, z: hideout.z }), 12);
     expect(snap.mode).toBe('mission_passed');
     expect(snap.targetWantedStars).toBe(0);
     expect(snap.activeObjective).toBeNull();
@@ -282,52 +302,80 @@ describe('MissionDirector', () => {
     expect(reloadedDirector.getRecords().totalCashCop).toBe(250_000);
   });
 
-  it('runs complete Mission 2 4-step progression through ramp guidance to Grand Victory epilogue with 3 wanted stars', () => {
+  it('runs redesigned Mission 2 nighttime 95s countdown with +10s speed ring bonuses across all 4 steps to Grand Victory', () => {
     const director = new MissionDirector(CALI_MAP, new StorageAdapter(new MemoryStorage()));
 
     let snap = director.startMission('mission_2_cristo_rey');
     expect(snap.mode).toBe('playing');
-    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m2Intro.text);
-    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m2Start.title);
-    expect(snap.banner?.accent).toBe('gold');
-    expect(snap.activeObjective?.kind).toBe('enter_vehicle');
-    expect(snap.activeObjective?.totalSteps).toBe(4);
-    expect(snap.activeObjective?.propKind).toBe('none');
-
-    // Step 0 -> Step 1: Enter vehicle -> Estadio Pascual Guerrero
-    snap = director.update(makeWorld({ mode: 'driving', x: -82, z: 36 }), 3);
-    expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission2Stage.id);
-    expect(snap.activeObjective?.stepIndex).toBe(1);
+    expect(snap.timeOfDay).toBe('night');
+    expect(snap.isCountdown).toBe(true);
+    expect(snap.timerSeconds).toBe(95);
+    expect(snap.failureReason).toBeNull();
+    expect(snap.targetWantedStars).toBe(3);
+    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m2Launch.text);
+    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m2Launch.title);
+    expect(snap.banner?.accent).toBe('police');
+    expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission2RingBridge.id);
+    expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.mission2.ringBridgeLabel);
+    expect(snap.activeObjective?.detail).toBe(LOCALE_CALI.objectives.mission2.ringBridgeDetail);
+    expect(snap.activeObjective?.stepIndex).toBe(0);
     expect(snap.activeObjective?.totalSteps).toBe(4);
     expect(snap.activeObjective?.propKind).toBe('mateo_speakers');
-    expect((snap.activeObjective?.gpsRoute?.length ?? 0)).toBeGreaterThanOrEqual(2);
-    expect(snap.activeObjective?.distanceMeters).toBeGreaterThan(0);
-    expect(Number.isFinite(snap.activeObjective?.bearingDeltaRad)).toBe(true);
-    expect(snap.targetWantedStars).toBe(0);
 
-    // Step 1 -> Step 2: Reach Estadio -> 3 wanted stars -> Av. Circunvalar ramp entry
-    const stage = CALI_MAP.missionWaypoints.mission2Stage;
-    snap = director.update(makeWorld({ mode: 'driving', x: stage.x, z: stage.z }), 14);
+    // Countdown decrements smoothly on each update
+    snap = director.update(makeWorld({ mode: 'driving', x: 120, z: 77, wantedStars: 3 }), 10);
+    expect(snap.timerSeconds).toBe(85);
+    expect(snap.elapsedSeconds).toBe(10);
     expect(snap.targetWantedStars).toBe(3);
-    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m2Stage.text);
-    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m2Stage.title);
-    expect(snap.banner?.accent).toBe('police');
+
+    // Step 0 -> Step 1: Reach Puente Bulevar Sur speed ring (+10s bonus -> 85 - 5 + 10 = 90)
+    const ringBridge = CALI_MAP.missionWaypoints.mission2RingBridge;
+    snap = director.update(
+      makeWorld({ mode: 'driving', x: ringBridge.x, z: ringBridge.z, wantedStars: 3 }),
+      5,
+    );
+    expect(snap.timerSeconds).toBe(90);
+    expect(snap.targetWantedStars).toBe(3);
+    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m2RingBonus.title);
+    expect(snap.banner?.accent).toBe('emerald');
+    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m2Ring1.text);
+    expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission2RingBulevar.id);
+    expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.mission2.ringBulevarLabel);
+    expect(snap.activeObjective?.detail).toBe(LOCALE_CALI.objectives.mission2.ringBulevarDetail);
+    expect(snap.activeObjective?.stepIndex).toBe(1);
+    expect(snap.activeObjective?.totalSteps).toBe(4);
+
+    // Step 1 -> Step 2: Reach Bulevar speed ring (+10s bonus -> 90 - 10 + 10 = 90)
+    const ringBulevar = CALI_MAP.missionWaypoints.mission2RingBulevar;
+    snap = director.update(
+      makeWorld({ mode: 'driving', x: ringBulevar.x, z: ringBulevar.z, wantedStars: 3 }),
+      10,
+    );
+    expect(snap.timerSeconds).toBe(90);
+    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m2RingBonus.title);
+    expect(snap.banner?.accent).toBe('emerald');
+    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m2Ring2.text);
     expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission2RampEntry.id);
+    expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.mission2.rampLabel);
+    expect(snap.activeObjective?.detail).toBe(LOCALE_CALI.objectives.mission2.rampDetail);
     expect(snap.activeObjective?.stepIndex).toBe(2);
     expect(snap.activeObjective?.totalSteps).toBe(4);
-    expect(snap.activeObjective?.propKind).toBe('none');
-    expect((snap.activeObjective?.gpsRoute?.length ?? 0)).toBeGreaterThanOrEqual(2);
-    expect(snap.activeObjective?.distanceMeters).toBeGreaterThan(0);
 
-    // Step 2 -> Step 3: Reach Ramp Entry -> Cristo Rey summit stage
+    // Step 2 -> Step 3: Enter Cristo Rey ramp (+10s bonus -> 90 - 10 + 10 = 90)
     const ramp = CALI_MAP.missionWaypoints.mission2RampEntry;
-    snap = director.update(makeWorld({ mode: 'driving', x: ramp.x, z: ramp.z }), 10);
+    snap = director.update(
+      makeWorld({ mode: 'driving', x: ramp.x, z: ramp.z, wantedStars: 3 }),
+      10,
+    );
+    expect(snap.timerSeconds).toBe(90);
     expect(snap.targetWantedStars).toBe(3);
     expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m2Ramp.text);
     expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m2Ramp.title);
     expect(snap.banner?.accent).toBe('gold');
     expect(snap.activeObjective?.kind).toBe('escape_police');
     expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission2Summit.id);
+    expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.mission2.summitLabel);
+    expect(snap.activeObjective?.detail).toBe(LOCALE_CALI.objectives.mission2.summitDetail);
     expect(snap.activeObjective?.stepIndex).toBe(3);
     expect(snap.activeObjective?.totalSteps).toBe(4);
     expect(snap.activeObjective?.propKind).toBe('summit_stage');
@@ -335,16 +383,53 @@ describe('MissionDirector', () => {
 
     // Step 3 -> Grand Victory: Reach Cristo Rey summit
     const summit = CALI_MAP.missionWaypoints.mission2Summit;
-    snap = director.update(makeWorld({ mode: 'driving', x: summit.x, z: summit.z }), 10);
+    snap = director.update(
+      makeWorld({ mode: 'driving', x: summit.x, z: summit.z, wantedStars: 3 }),
+      12,
+    );
     expect(snap.mode).toBe('victory');
     expect(snap.targetWantedStars).toBe(0);
     expect(snap.banner).toBeNull();
     expect(snap.rewardCop).toBe(LOCALE_CALI.missions.mission_2_cristo_rey.rewardCop);
     expect(snap.cashCop).toBe(500_000);
     expect(snap.completedMissions).toContain('mission_2_cristo_rey');
-    expect(snap.bestTimes.mission_2_cristo_rey).toBe(37);
+    expect(snap.bestTimes.mission_2_cristo_rey).toBe(47);
     expect(snap.isNewRecord).toBe(true);
     expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m2Passed.text);
+  });
+
+  it('fails Mission 2 with mode busted and failureReason time_up when the 95s countdown expires', () => {
+    const director = new MissionDirector(CALI_MAP, new StorageAdapter(new MemoryStorage()));
+    director.startMission('mission_2_cristo_rey');
+
+    let snap = director.update(makeWorld({ mode: 'driving', x: 120, z: 77, wantedStars: 3 }), 75);
+    expect(snap.mode).toBe('playing');
+    expect(snap.timerSeconds).toBe(20);
+    expect(snap.failureReason).toBeNull();
+
+    snap = director.update(makeWorld({ mode: 'driving', x: 120, z: 77, wantedStars: 3 }), 20);
+    expect(snap.mode).toBe('busted');
+    expect(snap.failureReason).toBe('time_up');
+    expect(snap.timerSeconds).toBe(0);
+    expect(snap.targetWantedStars).toBe(0);
+  });
+
+  it('toggles timeOfDay between golden_hour and night with localized cyan banners', () => {
+    const director = new MissionDirector(CALI_MAP, new StorageAdapter(new MemoryStorage()));
+    director.startMission('free_roam');
+    expect(director.getSnapshot().timeOfDay).toBe('golden_hour');
+
+    let snap = director.toggleTimeOfDay();
+    expect(snap.timeOfDay).toBe('night');
+    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.timeChanged.night.title);
+    expect(snap.banner?.subtitle).toBe(LOCALE_CALI.banners.timeChanged.night.subtitle);
+    expect(snap.banner?.accent).toBe('cyan');
+
+    snap = director.toggleTimeOfDay();
+    expect(snap.timeOfDay).toBe('golden_hour');
+    expect(snap.banner?.title).toBe(LOCALE_CALI.banners.timeChanged.day.title);
+    expect(snap.banner?.subtitle).toBe(LOCALE_CALI.banners.timeChanged.day.subtitle);
+    expect(snap.banner?.accent).toBe('cyan');
   });
 
   it('ticks checkpoint banners down to expiry and integrates dynamic police stars across Free Roam and Story', () => {
@@ -387,12 +472,13 @@ describe('MissionDirector', () => {
     expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.freeRoamEscaped.text);
   });
 
-  it('transitions to busted mode when world reports isBusted during story missions', () => {
+  it('transitions to busted mode with failureReason busted when world reports isBusted during story missions', () => {
     const director = new MissionDirector(CALI_MAP, new StorageAdapter(new MemoryStorage()));
     director.startMission('mission_1_bulevar');
 
     const snap = director.update(makeWorld({ mode: 'driving', wantedStars: 2, isBusted: true }), 1);
     expect(snap.mode).toBe('busted');
+    expect(snap.failureReason).toBe('busted');
     expect(snap.targetWantedStars).toBe(0);
   });
 
@@ -454,36 +540,36 @@ describe('MissionDirector', () => {
   it('tracks new record improvements on mission replay and warns on river hazard', () => {
     const director = new MissionDirector(CALI_MAP, new StorageAdapter(new MemoryStorage()));
     const pickup = CALI_MAP.missionWaypoints.mission1Pickup;
-    const escape = CALI_MAP.missionWaypoints.mission1Escape;
     const finish = CALI_MAP.missionWaypoints.mission1Finish;
+    const hideout = CALI_MAP.missionWaypoints.mission1Hideout;
 
     // First run: 40s
     director.startMission('mission_1_bulevar');
     const riverSnap = director.update(makeWorld({ mode: 'on_foot', inRiverHazard: true }), 1);
     expect(riverSnap.dialogue?.text).toBe(LOCALE_CALI.dialogues.riverWarning.text);
 
-    director.update(makeWorld({ mode: 'driving', x: -82, z: 36 }), 9);
-    director.update(makeWorld({ mode: 'driving', x: pickup.x, z: pickup.z }), 10);
-    director.update(makeWorld({ mode: 'driving', x: escape.x, z: escape.z }), 10);
-    let snap = director.update(makeWorld({ mode: 'driving', x: finish.x, z: finish.z }), 10);
+    director.update(makeWorld({ mode: 'on_foot', x: pickup.x, z: pickup.z }), 9);
+    director.update(makeWorld({ mode: 'driving', x: -16, z: -102 }), 10);
+    director.update(makeWorld({ mode: 'driving', x: finish.x, z: finish.z }), 10);
+    let snap = director.update(makeWorld({ mode: 'driving', x: hideout.x, z: hideout.z }), 10);
     expect(snap.isNewRecord).toBe(true);
     expect(snap.bestTimes.mission_1_bulevar).toBe(40);
 
     // Second run slower: 60s -> not a new record
     director.startMission('mission_1_bulevar');
-    director.update(makeWorld({ mode: 'driving', x: -82, z: 36 }), 15);
-    director.update(makeWorld({ mode: 'driving', x: pickup.x, z: pickup.z }), 15);
-    director.update(makeWorld({ mode: 'driving', x: escape.x, z: escape.z }), 15);
-    snap = director.update(makeWorld({ mode: 'driving', x: finish.x, z: finish.z }), 15);
+    director.update(makeWorld({ mode: 'on_foot', x: pickup.x, z: pickup.z }), 15);
+    director.update(makeWorld({ mode: 'driving', x: -16, z: -102 }), 15);
+    director.update(makeWorld({ mode: 'driving', x: finish.x, z: finish.z }), 15);
+    snap = director.update(makeWorld({ mode: 'driving', x: hideout.x, z: hideout.z }), 15);
     expect(snap.isNewRecord).toBe(false);
     expect(snap.bestTimes.mission_1_bulevar).toBe(40);
 
     // Third run faster: 20s -> beats record
     director.startMission('mission_1_bulevar');
-    director.update(makeWorld({ mode: 'driving', x: -82, z: 36 }), 5);
-    director.update(makeWorld({ mode: 'driving', x: pickup.x, z: pickup.z }), 5);
-    director.update(makeWorld({ mode: 'driving', x: escape.x, z: escape.z }), 5);
-    snap = director.update(makeWorld({ mode: 'driving', x: finish.x, z: finish.z }), 5);
+    director.update(makeWorld({ mode: 'on_foot', x: pickup.x, z: pickup.z }), 5);
+    director.update(makeWorld({ mode: 'driving', x: -16, z: -102 }), 5);
+    director.update(makeWorld({ mode: 'driving', x: finish.x, z: finish.z }), 5);
+    snap = director.update(makeWorld({ mode: 'driving', x: hideout.x, z: hideout.z }), 5);
     expect(snap.isNewRecord).toBe(true);
     expect(snap.bestTimes.mission_1_bulevar).toBe(20);
   });

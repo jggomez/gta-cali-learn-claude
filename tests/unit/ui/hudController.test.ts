@@ -27,6 +27,7 @@ class FakeDomElement {
   public readonly style: Record<string, string> = {};
   public readonly children: FakeDomElement[] = [];
   private readonly attributes = new Map<string, string>();
+  private readonly listeners = new Map<string, EventListener[]>();
   private parent: FakeDomElement | null = null;
 
   public constructor(tagName: string) {
@@ -64,12 +65,28 @@ class FakeDomElement {
     this.parent = null;
   }
 
-  public addEventListener(_type: string, _listener: EventListener): void {
-    // No-op in headless unit tests
+  public addEventListener(type: string, listener: EventListener): void {
+    const existing = this.listeners.get(type) ?? [];
+    existing.push(listener);
+    this.listeners.set(type, existing);
   }
 
-  public removeEventListener(_type: string, _listener: EventListener): void {
-    // No-op in headless unit tests
+  public removeEventListener(type: string, listener: EventListener): void {
+    const existing = this.listeners.get(type);
+    if (!existing) {
+      return;
+    }
+    const idx = existing.indexOf(listener);
+    if (idx >= 0) {
+      existing.splice(idx, 1);
+    }
+  }
+
+  public click(): void {
+    const clickListeners = this.listeners.get('click') ?? [];
+    for (const listener of clickListeners) {
+      listener({} as Event);
+    }
   }
 
   public getContext(_kind: string): null {
@@ -448,6 +465,123 @@ describe('HudController', () => {
       LOCALE_CALI.hud.hijackNamedVehicle(LOCALE_CALI.vehicleNames.chiva),
     );
     expect(evadeEl?.hidden).toBe(true);
+
+    hud.dispose();
+  });
+
+  it('renders day/night toggle button, invokes onToggleTimeOfDay, and updates label dynamically', () => {
+    const onToggleTimeOfDay = vi.fn();
+    const callbacks: HudCallbacks = {
+      ...createCallbacks(),
+      onToggleTimeOfDay,
+    };
+    const hud = new HudController(root as unknown as HTMLElement, callbacks, CALI_MAP);
+    const timeBtn = root.findFirst((el) => el.dataset.testid === 'btn-time-toggle');
+    expect(timeBtn).not.toBeNull();
+
+    hud.render(
+      createWorldSnapshot(100),
+      { ...createMissionSnapshot(), timeOfDay: 'golden_hour' },
+      DEFAULT_AUDIO,
+      'chase',
+    );
+    expect(timeBtn?.textContent).toBe(`[T] ${LOCALE_CALI.timeOfDayLabels.golden_hour}`);
+    expect(timeBtn?.dataset.time).toBe('golden_hour');
+
+    hud.render(
+      createWorldSnapshot(100),
+      { ...createMissionSnapshot(), timeOfDay: 'night' },
+      DEFAULT_AUDIO,
+      'chase',
+    );
+    expect(timeBtn?.textContent).toBe(`[T] ${LOCALE_CALI.timeOfDayLabels.night}`);
+    expect(timeBtn?.dataset.time).toBe('night');
+
+    timeBtn?.click();
+    expect(onToggleTimeOfDay).toHaveBeenCalledTimes(1);
+
+    hud.dispose();
+  });
+
+  it('sets countdown and urgent dataset attributes on the timer and shows timeUp vs busted failure copy', () => {
+    const hud = new HudController(root as unknown as HTMLElement, createCallbacks(), CALI_MAP);
+    const timerEl = root.findFirst((el) => el.dataset.testid === 'hud-timer');
+    const bustedOverlay = root.findFirst((el) => el.dataset.testid === 'busted-overlay');
+    const retryBtn = root.findFirst((el) => el.dataset.testid === 'btn-busted-retry');
+    expect(timerEl).not.toBeNull();
+    expect(bustedOverlay).not.toBeNull();
+    expect(retryBtn).not.toBeNull();
+
+    // Non-countdown mission
+    hud.render(
+      createWorldSnapshot(100),
+      { ...createMissionSnapshot(), isCountdown: false, timerSeconds: 12 },
+      DEFAULT_AUDIO,
+      'chase',
+    );
+    expect(timerEl?.dataset.countdown).toBe('false');
+    expect(timerEl?.dataset.urgent).toBe('false');
+
+    // Countdown with > 20s remaining -> not urgent
+    hud.render(
+      createWorldSnapshot(100),
+      { ...createMissionSnapshot(), isCountdown: true, timerSeconds: 45 },
+      DEFAULT_AUDIO,
+      'chase',
+    );
+    expect(timerEl?.dataset.countdown).toBe('true');
+    expect(timerEl?.dataset.urgent).toBe('false');
+
+    // Countdown with <= 20s remaining -> urgent
+    hud.render(
+      createWorldSnapshot(100),
+      { ...createMissionSnapshot(), isCountdown: true, timerSeconds: 18 },
+      DEFAULT_AUDIO,
+      'chase',
+    );
+    expect(timerEl?.dataset.countdown).toBe('true');
+    expect(timerEl?.dataset.urgent).toBe('true');
+
+    // Time-up failure modal displays ¡Se acabó el tiempo!
+    hud.render(
+      createWorldSnapshot(100),
+      {
+        ...createMissionSnapshot(),
+        mode: 'busted',
+        isCountdown: true,
+        timerSeconds: 0,
+        failureReason: 'time_up',
+      },
+      DEFAULT_AUDIO,
+      'chase',
+    );
+    expect(bustedOverlay?.hidden).toBe(false);
+    expect(
+      bustedOverlay?.findFirst((el) => el.textContent === LOCALE_CALI.overlays.timeUp.title),
+    ).not.toBeNull();
+    expect(
+      bustedOverlay?.findFirst((el) => el.textContent === LOCALE_CALI.overlays.timeUp.subtitle),
+    ).not.toBeNull();
+    expect(retryBtn?.textContent).toBe(LOCALE_CALI.overlays.timeUp.retry);
+
+    // Police busted failure modal displays ¡Te agarró la tomba!
+    hud.render(
+      createWorldSnapshot(100),
+      {
+        ...createMissionSnapshot(),
+        mode: 'busted',
+        failureReason: 'busted',
+      },
+      DEFAULT_AUDIO,
+      'chase',
+    );
+    expect(
+      bustedOverlay?.findFirst((el) => el.textContent === LOCALE_CALI.overlays.busted.title),
+    ).not.toBeNull();
+    expect(
+      bustedOverlay?.findFirst((el) => el.textContent === LOCALE_CALI.overlays.busted.subtitle),
+    ).not.toBeNull();
+    expect(retryBtn?.textContent).toBe(LOCALE_CALI.overlays.busted.retry);
 
     hud.dispose();
   });

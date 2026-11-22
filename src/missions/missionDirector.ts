@@ -16,6 +16,7 @@ import type {
   CheckpointBanner,
   DialogueSpeaker,
   DialogueToast,
+  FailureReason,
   GameMode,
   LandmarkId,
   MissionId,
@@ -26,6 +27,7 @@ import type {
   ObjectiveSnapshot,
   RadioStationId,
   StorageRecords,
+  TimeOfDay,
   Vec2,
   WantedLevel,
   WorldSnapshot,
@@ -61,6 +63,8 @@ const COMPLETE_DIALOGUE_SECONDS = 8.5;
 const LANDMARK_DIALOGUE_SECONDS = 5;
 const RIVER_WARNING_COOLDOWN_SECONDS = 8;
 const BANNER_DURATION_SECONDS = 3.6;
+const MISSION2_COUNTDOWN_SECONDS = 95;
+const MISSION2_RING_BONUS_SECONDS = 10;
 
 const BEACON_CYAN = 0x00f0ff;
 const BEACON_MAGENTA = 0xff2e93;
@@ -305,11 +309,25 @@ export class MissionDirector {
   private lastCompletedTimeSeconds: number | null = null;
   private isNewRecord = false;
   private riverWarningCooldown = 0;
+  private timeOfDay: TimeOfDay = 'golden_hour';
+  private isCountdown = false;
+  private countdownRemaining = 0;
+  private failureReason: FailureReason | null = null;
 
   public constructor(map: CaliMapConfig = CALI_MAP, storage?: StorageAdapter) {
     this.map = map;
     this.storage = storage ?? new StorageAdapter();
     this.records = this.storage.loadRecords();
+  }
+
+  public toggleTimeOfDay(): Readonly<MissionSnapshot> {
+    this.timeOfDay = this.timeOfDay === 'golden_hour' ? 'night' : 'golden_hour';
+    const bannerCopy =
+      this.timeOfDay === 'golden_hour'
+        ? LOCALE_CALI.banners.timeChanged.day
+        : LOCALE_CALI.banners.timeChanged.night;
+    this.setBanner(`time_${this.timeOfDay}`, bannerCopy, 'cyan');
+    return this.getSnapshot();
   }
 
   public startMission(missionId: MissionId): Readonly<MissionSnapshot> {
@@ -325,26 +343,43 @@ export class MissionDirector {
     this.lastCompletedTimeSeconds = null;
     this.isNewRecord = false;
     this.riverWarningCooldown = 0;
+    this.isCountdown = false;
+    this.countdownRemaining = 0;
+    this.failureReason = null;
+    this.timeOfDay = this.map.missionStarts[missionId].defaultTimeOfDay;
 
     if (missionId === 'mission_1_bulevar') {
+      const copy = LOCALE_CALI.objectives.mission1;
       this.setDialogue('m1Intro', LOCALE_CALI.dialogues.m1Intro, INTRO_DIALOGUE_SECONDS);
       this.setBanner('m1Start', LOCALE_CALI.banners.m1Start, 'cyan');
-      this.activeObjective = this.createEnterVehicleObjective(
-        'm1_enter_vehicle',
-        LOCALE_CALI.objectives.mission1.enterVehicleLabel,
-        LOCALE_CALI.objectives.mission1.enterVehicleDetail,
+      this.activeObjective = this.createWaypointObjective(
+        this.map.missionWaypoints.mission1Pickup,
+        'reach_point',
+        copy.heistOnFootLabel,
+        copy.heistOnFootDetail,
+        0,
         4,
-        { x: this.map.playerCarSpawn.x, z: this.map.playerCarSpawn.z },
+        BEACON_GOLD,
+        'vinyl_briefcase',
+        true,
       );
     } else if (missionId === 'mission_2_cristo_rey') {
-      this.setDialogue('m2Intro', LOCALE_CALI.dialogues.m2Intro, INTRO_DIALOGUE_SECONDS);
-      this.setBanner('m2Start', LOCALE_CALI.banners.m2Start, 'gold');
-      this.activeObjective = this.createEnterVehicleObjective(
-        'm2_enter_vehicle',
-        LOCALE_CALI.objectives.mission2.enterVehicleLabel,
-        LOCALE_CALI.objectives.mission2.enterVehicleDetail,
+      const copy = LOCALE_CALI.objectives.mission2;
+      this.isCountdown = true;
+      this.countdownRemaining = MISSION2_COUNTDOWN_SECONDS;
+      this.missionFloorStars = this.map.missionStarts.mission_2_cristo_rey.initialWantedStars;
+      this.targetWantedStars = this.missionFloorStars;
+      this.setDialogue('m2Launch', LOCALE_CALI.dialogues.m2Launch, INTRO_DIALOGUE_SECONDS);
+      this.setBanner('m2Launch', LOCALE_CALI.banners.m2Launch, 'police');
+      this.activeObjective = this.createWaypointObjective(
+        this.map.missionWaypoints.mission2RingBridge,
+        'reach_point',
+        copy.ringBridgeLabel,
+        copy.ringBridgeDetail,
+        0,
         4,
-        { x: this.map.playerCarSpawn.x, z: this.map.playerCarSpawn.z },
+        BEACON_CYAN,
+        'mateo_speakers',
       );
     } else {
       this.setDialogue('freeRoamIntro', LOCALE_CALI.dialogues.freeRoamIntro, INTRO_DIALOGUE_SECONDS);
@@ -374,6 +409,10 @@ export class MissionDirector {
     this.rewardCop = 0;
     this.lastCompletedTimeSeconds = null;
     this.isNewRecord = false;
+    this.isCountdown = false;
+    this.countdownRemaining = 0;
+    this.failureReason = null;
+    this.timeOfDay = 'golden_hour';
     return this.getSnapshot();
   }
 
@@ -400,11 +439,16 @@ export class MissionDirector {
     this.checkRiverWarning(world, safeDt);
 
     if (this.activeMission !== 'free_roam' && world.isBusted) {
-      this.mode = 'busted';
-      this.missionFloorStars = 0;
-      this.targetWantedStars = 0;
-      this.banner = null;
+      this.failMission('busted');
       return this.getSnapshot();
+    }
+
+    if (this.isCountdown) {
+      this.countdownRemaining = Math.max(0, this.countdownRemaining - safeDt);
+      if (this.countdownRemaining <= 0) {
+        this.failMission('time_up');
+        return this.getSnapshot();
+      }
     }
 
     if (this.activeMission === 'mission_1_bulevar') {
@@ -455,10 +499,13 @@ export class MissionDirector {
       viralTicker,
       rewardCop: this.rewardCop,
       cashCop: this.records.totalCashCop,
-      timerSeconds: this.elapsedSeconds,
+      timerSeconds: this.isCountdown ? this.countdownRemaining : this.elapsedSeconds,
       elapsedSeconds: this.elapsedSeconds,
       lastCompletedTimeSeconds: this.lastCompletedTimeSeconds,
       isNewRecord: this.isNewRecord,
+      timeOfDay: this.timeOfDay,
+      isCountdown: this.isCountdown,
+      failureReason: this.failureReason,
     };
   }
 
@@ -466,39 +513,55 @@ export class MissionDirector {
     return cloneRecords(this.records);
   }
 
+  private failMission(reason: FailureReason): void {
+    this.mode = 'busted';
+    this.failureReason = reason;
+    this.missionFloorStars = 0;
+    this.targetWantedStars = 0;
+    this.banner = null;
+  }
+
   private updateMission1(world: WorldSnapshot): void {
     const waypoints = this.map.missionWaypoints;
     const copy = LOCALE_CALI.objectives.mission1;
 
     if (this.stepIndex === 0) {
-      this.syncEnterVehicleTarget(world);
-      if (world.player.mode === 'driving') {
+      if (world.player.mode === 'on_foot' && this.isInsideWaypoint(world, waypoints.mission1Pickup)) {
         this.stepIndex = 1;
-        this.activeObjective = this.createWaypointObjective(
-          waypoints.mission1Pickup,
-          'reach_point',
-          copy.pickupLabel,
-          copy.pickupDetail,
+        this.missionFloorStars = 2;
+        this.setDialogue('m1Alarm', LOCALE_CALI.dialogues.m1Alarm, CHECKPOINT_DIALOGUE_SECONDS);
+        this.setBanner('m1HeistAlarm', LOCALE_CALI.banners.m1HeistAlarm, 'police');
+        const playerCar = world.vehicles.find((vehicle) => vehicle.role === 'player');
+        const getawayTarget = playerCar
+          ? { x: playerCar.x, z: playerCar.z }
+          : {
+              x: this.map.missionStarts.mission_1_bulevar.carSpawn.x,
+              z: this.map.missionStarts.mission_1_bulevar.carSpawn.z,
+            };
+        this.activeObjective = this.createEnterVehicleObjective(
+          'm1_board_getaway',
+          copy.boardGetawayLabel,
+          copy.boardGetawayDetail,
           1,
           4,
-          BEACON_MAGENTA,
-          'vinyl_briefcase',
+          getawayTarget,
+          'torre_de_cali',
         );
       }
       return;
     }
 
     if (this.stepIndex === 1) {
-      if (this.isInsideWaypoint(world, waypoints.mission1Pickup)) {
+      this.syncEnterVehicleTarget(world);
+      if (world.player.mode === 'driving') {
         this.stepIndex = 2;
-        this.missionFloorStars = 2;
-        this.setDialogue('m1Pickup', LOCALE_CALI.dialogues.m1Pickup, CHECKPOINT_DIALOGUE_SECONDS);
-        this.setBanner('m1Pickup', LOCALE_CALI.banners.m1Pickup, 'police');
+        this.setDialogue('m1EscapeCar', LOCALE_CALI.dialogues.m1EscapeCar, CHECKPOINT_DIALOGUE_SECONDS);
+        this.setBanner('m1Boarded', LOCALE_CALI.banners.m1Boarded, 'cyan');
         this.activeObjective = this.createWaypointObjective(
-          waypoints.mission1Escape,
+          waypoints.mission1Finish,
           'reach_point',
-          copy.bulevarLabel,
-          copy.bulevarDetail,
+          copy.crossBridgeLabel,
+          copy.crossBridgeDetail,
           2,
           4,
           BEACON_GOLD,
@@ -509,15 +572,15 @@ export class MissionDirector {
     }
 
     if (this.stepIndex === 2) {
-      if (this.isInsideWaypoint(world, waypoints.mission1Escape)) {
+      if (this.isInsideWaypoint(world, waypoints.mission1Finish)) {
         this.stepIndex = 3;
         this.setDialogue('m1Bulevar', LOCALE_CALI.dialogues.m1Bulevar, CHECKPOINT_DIALOGUE_SECONDS);
-        this.setBanner('m1Bulevar', LOCALE_CALI.banners.m1Bulevar, 'gold');
+        this.setBanner('m1Bridge', LOCALE_CALI.banners.m1Bridge, 'gold');
         this.activeObjective = this.createWaypointObjective(
-          waypoints.mission1Finish,
+          waypoints.mission1Hideout,
           'escape_police',
-          copy.escapeLabel,
-          copy.escapeDetail,
+          copy.hideoutLabel,
+          copy.hideoutDetail,
           3,
           4,
           BEACON_EMERALD,
@@ -527,7 +590,7 @@ export class MissionDirector {
       return;
     }
 
-    if (this.stepIndex === 3 && this.isInsideWaypoint(world, waypoints.mission1Finish)) {
+    if (this.stepIndex === 3 && this.isInsideWaypoint(world, waypoints.mission1Hideout)) {
       this.completeStoryMission(
         'mission_1_bulevar',
         'mission_passed',
@@ -542,29 +605,31 @@ export class MissionDirector {
     const copy = LOCALE_CALI.objectives.mission2;
 
     if (this.stepIndex === 0) {
-      this.syncEnterVehicleTarget(world);
-      if (world.player.mode === 'driving') {
+      if (this.isInsideWaypoint(world, waypoints.mission2RingBridge)) {
         this.stepIndex = 1;
+        this.countdownRemaining += MISSION2_RING_BONUS_SECONDS;
+        this.setDialogue('m2Ring1', LOCALE_CALI.dialogues.m2Ring1, CHECKPOINT_DIALOGUE_SECONDS);
+        this.setBanner('m2RingBonus', LOCALE_CALI.banners.m2RingBonus, 'emerald');
         this.activeObjective = this.createWaypointObjective(
-          waypoints.mission2Stage,
+          waypoints.mission2RingBulevar,
           'reach_point',
-          copy.stageLabel,
-          copy.stageDetail,
+          copy.ringBulevarLabel,
+          copy.ringBulevarDetail,
           1,
           4,
           BEACON_MAGENTA,
-          'mateo_speakers',
+          'none',
         );
       }
       return;
     }
 
     if (this.stepIndex === 1) {
-      if (this.isInsideWaypoint(world, waypoints.mission2Stage)) {
+      if (this.isInsideWaypoint(world, waypoints.mission2RingBulevar)) {
         this.stepIndex = 2;
-        this.missionFloorStars = 3;
-        this.setDialogue('m2Stage', LOCALE_CALI.dialogues.m2Stage, CHECKPOINT_DIALOGUE_SECONDS);
-        this.setBanner('m2Stage', LOCALE_CALI.banners.m2Stage, 'police');
+        this.countdownRemaining += MISSION2_RING_BONUS_SECONDS;
+        this.setDialogue('m2Ring2', LOCALE_CALI.dialogues.m2Ring2, CHECKPOINT_DIALOGUE_SECONDS);
+        this.setBanner('m2RingBonus', LOCALE_CALI.banners.m2RingBonus, 'emerald');
         this.activeObjective = this.createWaypointObjective(
           waypoints.mission2RampEntry,
           'reach_point',
@@ -582,6 +647,7 @@ export class MissionDirector {
     if (this.stepIndex === 2) {
       if (this.isInsideWaypoint(world, waypoints.mission2RampEntry)) {
         this.stepIndex = 3;
+        this.countdownRemaining += MISSION2_RING_BONUS_SECONDS;
         this.setDialogue('m2Ramp', LOCALE_CALI.dialogues.m2Ramp, CHECKPOINT_DIALOGUE_SECONDS);
         this.setBanner('m2Ramp', LOCALE_CALI.banners.m2Ramp, 'gold');
         this.activeObjective = this.createWaypointObjective(
@@ -832,8 +898,10 @@ export class MissionDirector {
     id: string,
     label: string,
     detail: string,
+    stepIndex: number,
     totalSteps: number,
     target: Vec2,
+    landmarkId: LandmarkId,
   ): ObjectiveSnapshot {
     return {
       id,
@@ -842,11 +910,12 @@ export class MissionDirector {
       detail,
       target,
       radius: 6,
-      landmarkId: 'san_antonio',
-      stepIndex: 0,
+      landmarkId,
+      stepIndex,
       totalSteps,
       beaconColorHex: BEACON_CYAN,
       propKind: 'none',
+      requiresOnFoot: false,
     };
   }
 
@@ -859,6 +928,7 @@ export class MissionDirector {
     totalSteps: number,
     beaconColorHex: number,
     propKind: ObjectivePropKind,
+    requiresOnFoot = false,
   ): ObjectiveSnapshot {
     return {
       id: waypoint.id,
@@ -872,6 +942,7 @@ export class MissionDirector {
       totalSteps,
       beaconColorHex,
       propKind,
+      requiresOnFoot,
     };
   }
 
