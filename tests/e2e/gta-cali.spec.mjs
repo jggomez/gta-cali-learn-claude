@@ -252,7 +252,13 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
       ).toBeLessThanOrEqual(overflow.innerWidth);
 
       if (vp.width <= 375) {
-        for (const id of ['btn-mission-1', 'btn-mission-2', 'btn-free-roam']) {
+        for (const id of [
+          'btn-title-garage',
+          'btn-mission-1',
+          'btn-mission-2',
+          'btn-mission-3',
+          'btn-free-roam',
+        ]) {
           const box = await page.getByTestId(id).boundingBox();
           expect(box).not.toBeNull();
           expect(box.height).toBeGreaterThanOrEqual(44);
@@ -274,19 +280,20 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     }
 
     const loadedPaths = [...errors.asset200s];
+    expect(loadedPaths).toContain('/models/caleno.glb');
     expect(loadedPaths).toContain('/models/valeria.glb');
     expect(loadedPaths).toContain('/models/ferrari.glb');
     expect(loadedPaths).toContain('/models/character.glb');
     expect(loadedPaths.some((p) => p.startsWith('/hdri/'))).toBe(true);
     expect(loadedPaths.some((p) => p.startsWith('/draco/'))).toBe(true);
     expect(loadedPaths.some((p) => p.startsWith('/textures/'))).toBe(true);
-    expect(loadedPaths.length).toBeGreaterThanOrEqual(35);
+    expect(loadedPaths.length).toBeGreaterThanOrEqual(36);
     expect(errors.pageErrors).toEqual([]);
     expect(errors.consoleErrors).toEqual([]);
     expect(errors.badResponses).toEqual([]);
   });
 
-  test('Flow 2: Live Gameplay Journey — Mission 1 drive, radio switch, pause/resume, Mission 2, & manifest', async ({
+  test('Flow 2: Live Gameplay Journey — Garaje, Mission 1, Pause, Mission 2, Mission 3 Pique, Free Roam, & persistence', async ({
     page,
   }) => {
     const errors = attachErrorCollectors(page);
@@ -300,6 +307,49 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
       { timeout: 45_000 },
     );
     await expect(page.getByTestId('webgl-error-overlay')).toBeHidden();
+
+    // Garaje Caleño [G] interactive flow & localStorage persistence
+    await page.getByTestId('btn-title-garage').click();
+    await expect(page.getByTestId('garage-panel')).toBeVisible();
+    await waitForNextFrames(page, 2);
+    await page.screenshot({ path: resolve(EVIDENCE_DIR, 'garage-1280.png') });
+
+    await page.getByTestId('garage-car-willys_v8').click();
+    await page.getByTestId('garage-avatar-mateo').click();
+    await page.getByTestId('garage-outfit-escarlata').click();
+    await page.getByTestId('btn-garage-close').click();
+    await expect(page.getByTestId('garage-panel')).toBeHidden();
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForFunction(
+      () =>
+        window.__GTA_CALI__?.mode === 'title' &&
+        window.__GTA_CALI__?.assetsLoaded === true &&
+        window.__GTA_CALI__?.garage.carKind === 'willys_v8' &&
+        window.__GTA_CALI__?.garage.avatar === 'mateo' &&
+        window.__GTA_CALI__?.garage.outfit === 'escarlata',
+      null,
+      { timeout: 45_000 },
+    );
+    run.dataCheck(
+      'persisted-after-reload',
+      'Garaje Caleño selection (willys_v8, mateo, escarlata) persisted in localStorage across reload',
+    );
+
+    // Switch to Renault 4 GT Turbo + Valeria + Urbano Cali for Mission 1 & Mission 2
+    await page.getByTestId('btn-title-garage').click();
+    await expect(page.getByTestId('garage-panel')).toBeVisible();
+    await page.getByTestId('garage-car-renault4_turbo').click();
+    await page.getByTestId('garage-avatar-valeria').click();
+    await page.getByTestId('garage-outfit-urbano_cali').click();
+    await page.getByTestId('btn-garage-close').click();
+    await expect(page.getByTestId('garage-panel')).toBeHidden();
+    await page.waitForFunction(
+      () =>
+        window.__GTA_CALI__?.garage.carKind === 'renault4_turbo' &&
+        window.__GTA_CALI__?.garage.avatar === 'valeria' &&
+        window.__GTA_CALI__?.garage.outfit === 'urbano_cali',
+    );
 
     // Start Mission 1 — "Golpe en la Torre" (golden_hour, ON FOOT at Torre de Cali)
     await page.getByTestId('btn-mission-1').click();
@@ -329,11 +379,12 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     await expect(page.getByTestId('hud-distance')).toHaveText(/\d+\s*m/);
     await expect(page.getByTestId('hud-banner')).toBeVisible();
     await expect(page.getByTestId('btn-time-toggle')).toContainText('Atardecer');
+    await expect(page.getByTestId('btn-garage')).toBeVisible();
     await expect(page.getByTestId('btn-voices')).toBeVisible();
     await expect(page.getByTestId('btn-voices')).toContainText('[V] Voces: ON');
     await expect(page.getByTestId('btn-voices')).toHaveAttribute('aria-pressed', 'true');
 
-    // Responsive HUD overflow check across 375, 768, 1440, 1280 including [V] Voces pill
+    // Responsive HUD overflow check across 375, 768, 1440, 1280 including [G] Garaje & [V] Voces pills
     for (const hudVp of [
       { width: 375, height: 812 },
       { width: 768, height: 1024 },
@@ -350,6 +401,7 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
         hudOverflow.scrollWidth,
         `HUD horizontal overflow at ${hudVp.width}x${hudVp.height}`,
       ).toBeLessThanOrEqual(hudOverflow.innerWidth);
+      await expect(page.getByTestId('btn-garage')).toBeVisible();
       await expect(page.getByTestId('btn-voices')).toBeVisible();
     }
 
@@ -387,7 +439,7 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     await page.keyboard.up('ShiftLeft');
     await page.keyboard.up('KeyW');
 
-    // Board the getaway Ferrari Caleño with KeyF -> PASO 3 DE 4
+    // Board the getaway Renault 4 GT Turbo with KeyF -> PASO 3 DE 4
     await page.keyboard.press('KeyF');
     await page.waitForFunction(
       () =>
@@ -400,20 +452,28 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
 
     const postBoard = await page.evaluate(() => {
       const snap = window.__GTA_CALI__;
+      const activeVehicle = snap?.world.vehicles.find(
+        (v) => v.id === snap?.world.player.vehicleId,
+      );
+      const hasPolice = snap?.world.vehicles.some((v) => v.kind === 'police') ?? false;
       return {
+        vehicleKind: activeVehicle?.kind ?? null,
+        hasPolice,
         gpsLen: snap?.mission.activeObjective?.gpsRoute?.length ?? 0,
         distanceMeters: snap?.mission.activeObjective?.distanceMeters ?? 0,
         pedCount: snap?.world.pedestrians?.length ?? 0,
         domDistance: document.querySelector('[data-testid="hud-distance"]')?.textContent ?? '',
       };
     });
+    expect(postBoard.vehicleKind).toBe('renault4_turbo');
+    expect(postBoard.hasPolice).toBe(true);
     expect(postBoard.gpsLen).toBeGreaterThanOrEqual(2);
     expect(postBoard.distanceMeters).toBeGreaterThan(0);
     expect(postBoard.pedCount).toBeGreaterThan(0);
     expect(postBoard.domDistance).toMatch(/\d+\s*m/);
     run.dataCheck(
       'source-on-screen',
-      `gpsRoute=${postBoard.gpsLen} pts, distanceMeters=${postBoard.distanceMeters}m (${postBoard.domDistance}), pedestrians=${postBoard.pedCount}`,
+      `vehicleKind=${postBoard.vehicleKind}, hasPolice=${postBoard.hasPolice}, gpsRoute=${postBoard.gpsLen} pts, distanceMeters=${postBoard.distanceMeters}m (${postBoard.domDistance}), pedestrians=${postBoard.pedCount}`,
     );
 
     const beforeDrive = await page.evaluate(() => ({
@@ -579,17 +639,72 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     await expect(page.getByTestId('btn-time-toggle')).toContainText('Noche');
     run.dataCheck('source-on-screen', 'KeyT toggled Night <-> Golden-Hour live on btn-time-toggle');
 
-    // Return to Title -> launch Free Roam and verify fresh PASO 1 DE 6 tour at La Ermita
+    // Return to Title -> launch Mission 3 ("Pique Callejero en el Bulevar")
     await page.getByTestId('btn-pause').click();
     await expect(page.getByTestId('pause-overlay')).toBeVisible();
     await page.getByTestId('btn-pause-title').click();
     await expect(page.getByTestId('title-screen')).toBeVisible();
+
+    await page.getByTestId('btn-mission-3').click();
+    await page.waitForFunction(
+      () =>
+        window.__GTA_CALI__?.mode === 'playing' &&
+        window.__GTA_CALI__?.mission.activeMission === 'mission_3_pique_bulevar' &&
+        window.__GTA_CALI__?.world.raceTotalRacers === 3,
+      null,
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId('hud-race-pos')).toBeVisible();
+    await expect(page.getByTestId('hud-race-pos')).toHaveText(/^POS [1-3]\/3$/);
+
+    // Trigger [H] Horn & accelerate in street race
+    await page.keyboard.down('KeyH');
+    await page.waitForFunction(() => window.__GTA_CALI__?.world.hornActive === true, null, {
+      timeout: 15_000,
+    });
+    await page.keyboard.up('KeyH');
+
+    await page.keyboard.down('KeyW');
+    await page.keyboard.down('ShiftLeft');
+    await page.waitForFunction(
+      () => (window.__GTA_CALI__?.world.player.speedKmh ?? 0) > 25,
+      null,
+      { timeout: 60_000 },
+    );
+    await page.keyboard.up('ShiftLeft');
+    await page.keyboard.up('KeyW');
+
+    await waitForNextFrames(page, 3);
+    const m3Path = resolve(EVIDENCE_DIR, 'gameplay-mission3-1280.png');
+    await page.screenshot({ path: m3Path });
+    const m3Pixels = analyzePngPixels(readFileSync(m3Path));
+    expect(m3Pixels.nonBlackRatio).toBeGreaterThan(0.4);
+    expect(m3Pixels.distinctColorBuckets).toBeGreaterThan(25);
+    run.dataCheck(
+      'source-on-screen',
+      'Mission 3 Pique Callejero launched with raceTotalRacers=3, hud-race-pos visible, KeyH hornActive=true',
+    );
+
+    // Return to Title -> switch Garaje to Mateo (caleno.glb) + Camiseta Escarlata -> launch Free Roam
+    await page.getByTestId('btn-pause').click();
+    await expect(page.getByTestId('pause-overlay')).toBeVisible();
+    await page.getByTestId('btn-pause-title').click();
+    await expect(page.getByTestId('title-screen')).toBeVisible();
+
+    await page.getByTestId('btn-title-garage').click();
+    await expect(page.getByTestId('garage-panel')).toBeVisible();
+    await page.getByTestId('garage-avatar-mateo').click();
+    await page.getByTestId('garage-outfit-escarlata').click();
+    await page.getByTestId('btn-garage-close').click();
+    await expect(page.getByTestId('garage-panel')).toBeHidden();
 
     await page.getByTestId('btn-free-roam').click();
     await page.waitForFunction(
       () =>
         window.__GTA_CALI__?.mode === 'playing' &&
         window.__GTA_CALI__?.mission.activeMission === 'free_roam' &&
+        window.__GTA_CALI__?.garage.avatar === 'mateo' &&
+        window.__GTA_CALI__?.garage.outfit === 'escarlata' &&
         (window.__GTA_CALI__?.world.pedestrians?.length ?? 0) === 18,
       null,
       { timeout: 30_000 },
@@ -600,14 +715,18 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
       stepIndex: window.__GTA_CALI__?.mission.activeObjective?.stepIndex,
       totalSteps: window.__GTA_CALI__?.mission.activeObjective?.totalSteps,
       pedestrians: window.__GTA_CALI__?.world.pedestrians?.length ?? 0,
+      avatar: window.__GTA_CALI__?.garage.avatar,
+      outfit: window.__GTA_CALI__?.garage.outfit,
     }));
     expect(freeRoamSnap.landmarkId).toBe('la_ermita');
     expect(freeRoamSnap.stepIndex).toBe(0);
     expect(freeRoamSnap.totalSteps).toBe(6);
     expect(freeRoamSnap.pedestrians).toBe(18);
+    expect(freeRoamSnap.avatar).toBe('mateo');
+    expect(freeRoamSnap.outfit).toBe('escarlata');
     run.dataCheck(
       'source-on-screen',
-      `Free Roam started at PASO 1 DE 6 (${freeRoamSnap.landmarkId}), pedestrians=${freeRoamSnap.pedestrians}`,
+      `Free Roam started at PASO 1 DE 6 (${freeRoamSnap.landmarkId}), avatar=${freeRoamSnap.avatar} (${freeRoamSnap.outfit}), pedestrians=${freeRoamSnap.pedestrians}`,
     );
     await waitForNextFrames(page, 3);
     await page.screenshot({ path: resolve(EVIDENCE_DIR, 'gameplay-freeroam-1280.png') });
@@ -618,14 +737,16 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     await expect(page.getByTestId('btn-voices')).toContainText('[V] Voces: OFF');
     await expect(page.getByTestId('btn-voices')).toHaveAttribute('aria-pressed', 'false');
 
-    // Reload and verify localStorage audio + voicesEnabled preference persisted
+    // Reload and verify localStorage audio + voicesEnabled + garage preference persisted
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForFunction(
       () =>
         window.__GTA_CALI__?.mode === 'title' &&
         window.__GTA_CALI__?.assetsLoaded === true &&
         window.__GTA_CALI__?.audio.station === 'sucursal_synth' &&
-        window.__GTA_CALI__?.audio.voicesEnabled === false,
+        window.__GTA_CALI__?.audio.voicesEnabled === false &&
+        window.__GTA_CALI__?.garage.avatar === 'mateo' &&
+        window.__GTA_CALI__?.garage.outfit === 'escarlata',
       null,
       { timeout: 45_000 },
     );
@@ -641,11 +762,11 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
 
     run.dataCheck(
       'persisted-after-reload',
-      'preferredStation=sucursal_synth and voicesEnabled=false persisted in localStorage after reload, then toggled cleanly back to ON',
+      'preferredStation=sucursal_synth, voicesEnabled=false, and garage=(mateo, escarlata) persisted in localStorage after reload',
     );
     run.dataCheck(
       'source-on-screen',
-      `C-07 local assets loaded (${errors.asset200s.size} files including /models/valeria.glb) with assetsLoaded=true`,
+      `C-08 local assets loaded (${errors.asset200s.size} files including /models/caleno.glb & /models/valeria.glb) with assetsLoaded=true`,
     );
 
     await run.save('run-gta-cali.json');
