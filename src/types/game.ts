@@ -164,6 +164,12 @@ export interface InputState {
   readonly hornPressed?: boolean;
 }
 
+export interface CameraLookInput {
+  readonly yawDelta: number;
+  readonly pitchDelta: number;
+  readonly zoomDelta: number;
+}
+
 export interface VehicleSnapshot {
   readonly id: string;
   readonly kind: VehicleKind;
@@ -284,4 +290,5 @@ export interface GameDebugSnapshot {
   readonly mission: MissionSnapshot;
   readonly audio: AudioState;
   readonly fps: number;
+  readonly assetsLoaded?: boolean;
 }

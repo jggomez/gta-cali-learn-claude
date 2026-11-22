@@ -35,21 +35,54 @@ function createMemoryStorage(): StorageLike & { readonly store: Map<string, stri
 
 class SyntheticInputTarget implements InputTargetLike {
   private readonly handlers = new Map<string, Set<EventListener>>();
+  public readonly lastOptions = new Map<string, boolean | AddEventListenerOptions | undefined>();
+  public pointerLockResult: Promise<void> | (() => never) | void = undefined;
+  public pointerLockCalls = 0;
 
-  public addEventListener(type: string, listener: EventListener): void {
+  public addEventListener(
+    type: string,
+    listener: EventListener,
+    options?: boolean | AddEventListenerOptions,
+  ): void {
     let set = this.handlers.get(type);
     if (!set) {
       set = new Set();
       this.handlers.set(type, set);
     }
     set.add(listener);
+    this.lastOptions.set(type, options);
   }
 
   public removeEventListener(type: string, listener: EventListener): void {
     this.handlers.get(type)?.delete(listener);
   }
 
-  public emit(type: string, event: Partial<KeyboardEvent> & { prevented?: boolean } = {}): boolean {
+  public listenerCount(type?: string): number {
+    if (type !== undefined) {
+      return this.handlers.get(type)?.size ?? 0;
+    }
+    let total = 0;
+    for (const set of this.handlers.values()) {
+      total += set.size;
+    }
+    return total;
+  }
+
+  public requestPointerLock(): Promise<void> | void {
+    this.pointerLockCalls += 1;
+    const result = this.pointerLockResult;
+    if (typeof result === 'function') {
+      return result();
+    }
+    return result;
+  }
+
+  public emit(
+    type: string,
+    event: Partial<KeyboardEvent> &
+      Partial<PointerEvent> &
+      Partial<WheelEvent> & { prevented?: boolean } = {},
+  ): boolean {
     let prevented = false;
     const syntheticEvent = {
       code: '',
@@ -460,5 +493,126 @@ describe('GTA VI: Cali headless game loop integration', () => {
     expect(afterBlur.interactPressed).toBe(false);
 
     inputManager.dispose();
+  });
+
+  it('accumulates camera yaw/pitch on canvas left/right drag, consumes and resets, and ignores hover without press', () => {
+    const windowTarget = new SyntheticInputTarget();
+    const canvasTarget = new SyntheticInputTarget();
+    const inputManager = new InputManager({}, windowTarget, canvasTarget);
+
+    // Moving without pressing a button must not accumulate camera look
+    canvasTarget.emit('pointermove', { clientX: 200, clientY: 120, movementX: 50, movementY: 20 });
+    expect(inputManager.consumeCameraLook()).toEqual({ yawDelta: 0, pitchDelta: 0, zoomDelta: 0 });
+
+    // Left-button drag accumulates yaw and pitch deltas across multiple moves
+    canvasTarget.emit('pointerdown', { button: 0, pointerId: 1, clientX: 100, clientY: 100 });
+    canvasTarget.emit('pointermove', { pointerId: 1, clientX: 160, clientY: 130 });
+    canvasTarget.emit('pointermove', { pointerId: 1, clientX: 200, clientY: 150 });
+    canvasTarget.emit('pointerup', { pointerId: 1, button: 0 });
+
+    const leftDrag = inputManager.consumeCameraLook();
+    expect(leftDrag.yawDelta).toBeLessThan(0);
+    expect(leftDrag.pitchDelta).toBeGreaterThan(0);
+    expect(leftDrag.zoomDelta).toBe(0);
+
+    // Consuming resets accumulated deltas to zero
+    expect(inputManager.consumeCameraLook()).toEqual({ yawDelta: 0, pitchDelta: 0, zoomDelta: 0 });
+
+    // Moving after pointerup must not accumulate
+    canvasTarget.emit('pointermove', { pointerId: 1, clientX: 300, clientY: 250 });
+    expect(inputManager.consumeCameraLook()).toEqual({ yawDelta: 0, pitchDelta: 0, zoomDelta: 0 });
+
+    // Right-button drag also orbits camera and pointercancel stops drag cleanly
+    canvasTarget.emit('pointerdown', { button: 2, pointerId: 2, clientX: 200, clientY: 200 });
+    canvasTarget.emit('pointermove', { pointerId: 2, clientX: 140, clientY: 170 });
+    canvasTarget.emit('pointercancel', { pointerId: 2 });
+    canvasTarget.emit('pointermove', { pointerId: 2, clientX: 50, clientY: 50 });
+
+    const rightDrag = inputManager.consumeCameraLook();
+    expect(rightDrag.yawDelta).toBeGreaterThan(0);
+    expect(rightDrag.pitchDelta).toBeLessThan(0);
+
+    // Middle-button press is ignored
+    canvasTarget.emit('pointerdown', { button: 1, pointerId: 3, clientX: 100, clientY: 100 });
+    canvasTarget.emit('pointermove', { pointerId: 3, clientX: 180, clientY: 180 });
+    canvasTarget.emit('pointerup', { pointerId: 3, button: 1 });
+    expect(inputManager.consumeCameraLook()).toEqual({ yawDelta: 0, pitchDelta: 0, zoomDelta: 0 });
+
+    inputManager.dispose();
+  });
+
+  it('accumulates clamped wheel zoom with passive: false, supports pointer lock, resets on blur, and prevents leaks after dispose', () => {
+    const windowTarget = new SyntheticInputTarget();
+    const canvasTarget = new SyntheticInputTarget();
+    const inputManager = new InputManager({}, windowTarget, canvasTarget);
+
+    // Wheel listener is registered with { passive: false } and prevents default scroll
+    expect(canvasTarget.lastOptions.get('wheel')).toEqual({ passive: false });
+    expect(canvasTarget.emit('wheel', { deltaY: 100, deltaMode: 0 })).toBe(true);
+    expect(canvasTarget.emit('wheel', { deltaY: 100, deltaMode: 0 })).toBe(true);
+
+    const zoomOut = inputManager.consumeCameraLook();
+    expect(zoomOut.zoomDelta).toBeGreaterThan(0);
+    expect(zoomOut.yawDelta).toBe(0);
+    expect(zoomOut.pitchDelta).toBe(0);
+    expect(inputManager.consumeCameraLook()).toEqual({ yawDelta: 0, pitchDelta: 0, zoomDelta: 0 });
+
+    // Extreme wheel spikes are sensibly clamped
+    canvasTarget.emit('wheel', { deltaY: -50_000, deltaMode: 0 });
+    const clampedZoomIn = inputManager.consumeCameraLook();
+    expect(clampedZoomIn.zoomDelta).toBeLessThan(0);
+    expect(Math.abs(clampedZoomIn.zoomDelta)).toBeLessThanOrEqual(4);
+
+    // Double-click requests pointer lock and catches rejected promises or throws gracefully
+    canvasTarget.pointerLockResult = Promise.reject(new Error('Pointer lock blocked'));
+    expect(() => canvasTarget.emit('dblclick')).not.toThrow();
+    canvasTarget.pointerLockResult = () => {
+      throw new Error('Pointer lock unavailable');
+    };
+    expect(() => canvasTarget.emit('dblclick')).not.toThrow();
+    expect(canvasTarget.pointerLockCalls).toBe(2);
+
+    // When document.pointerLockElement matches canvas, movementX/Y orbit without dragging
+    const prevDocument = globalThis.document;
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: { pointerLockElement: canvasTarget },
+    });
+    try {
+      canvasTarget.emit('pointermove', { movementX: 80, movementY: -40 });
+      const lockedLook = inputManager.consumeCameraLook();
+      expect(lockedLook.yawDelta).toBeLessThan(0);
+      expect(lockedLook.pitchDelta).toBeLessThan(0);
+    } finally {
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        value: prevDocument,
+      });
+    }
+
+    // Blur cancels active drag and clears pending deltas
+    canvasTarget.emit('pointerdown', { button: 0, pointerId: 5, clientX: 50, clientY: 50 });
+    canvasTarget.emit('pointermove', { pointerId: 5, clientX: 110, clientY: 90 });
+    canvasTarget.emit('wheel', { deltaY: 120, deltaMode: 0 });
+    windowTarget.emit('blur');
+    expect(inputManager.consumeCameraLook()).toEqual({ yawDelta: 0, pitchDelta: 0, zoomDelta: 0 });
+
+    // Moving after blur without a new pointerdown must not accumulate
+    canvasTarget.emit('pointermove', { pointerId: 5, clientX: 200, clientY: 180 });
+    expect(inputManager.consumeCameraLook()).toEqual({ yawDelta: 0, pitchDelta: 0, zoomDelta: 0 });
+
+    // Dispose detaches all listeners on both targets and prevents further accumulation
+    inputManager.dispose();
+    expect(windowTarget.listenerCount()).toBe(0);
+    expect(canvasTarget.listenerCount()).toBe(0);
+
+    canvasTarget.emit('pointerdown', { button: 0, pointerId: 6, clientX: 0, clientY: 0 });
+    canvasTarget.emit('pointermove', { pointerId: 6, clientX: 100, clientY: 100 });
+    canvasTarget.emit('wheel', { deltaY: 200, deltaMode: 0 });
+    expect(inputManager.consumeCameraLook()).toEqual({ yawDelta: 0, pitchDelta: 0, zoomDelta: 0 });
+    // Backward-compatible construction without canvas returns zeroed CameraLookInput
+    const keyboardOnly = new InputManager({}, windowTarget);
+    expect(keyboardOnly.consumeCameraLook()).toEqual({ yawDelta: 0, pitchDelta: 0, zoomDelta: 0 });
+    keyboardOnly.dispose();
   });
 });

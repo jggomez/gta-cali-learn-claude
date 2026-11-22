@@ -58,6 +58,33 @@ function blurFocusedElementInside(container: HTMLElement): void {
   }
 }
 
+interface WorldRendererAssetsTelemetry {
+  dispose(): void;
+  readonly isAssetsLoaded?: () => boolean;
+  readonly areAssetsLoaded?: () => boolean;
+  readonly getAssetsLoaded?: () => boolean;
+  readonly assetsLoaded?: boolean;
+}
+
+function readAssetsLoaded(renderer: WorldRendererAssetsTelemetry | null): boolean | undefined {
+  if (!renderer) {
+    return undefined;
+  }
+  if (typeof renderer.isAssetsLoaded === 'function') {
+    return renderer.isAssetsLoaded();
+  }
+  if (typeof renderer.areAssetsLoaded === 'function') {
+    return renderer.areAssetsLoaded();
+  }
+  if (typeof renderer.getAssetsLoaded === 'function') {
+    return renderer.getAssetsLoaded();
+  }
+  if (typeof renderer.assetsLoaded === 'boolean') {
+    return renderer.assetsLoaded;
+  }
+  return undefined;
+}
+
 export class GameApp {
   private readonly canvas: HTMLCanvasElement;
   private readonly hudRoot: HTMLElement;
@@ -115,16 +142,20 @@ export class GameApp {
       this.map,
     );
 
-    this.inputManager = new InputManager({
-      onCycleRadio: () => this.cycleRadio(),
-      onCycleCamera: () => this.cycleCamera(),
-      onToggleMute: () => this.toggleMute(),
-      onTogglePause: () => this.togglePause(),
-      onAnyUserGesture: () => {
-        this.audioEngine.unlock();
+    this.inputManager = new InputManager(
+      {
+        onCycleRadio: () => this.cycleRadio(),
+        onCycleCamera: () => this.cycleCamera(),
+        onToggleMute: () => this.toggleMute(),
+        onTogglePause: () => this.togglePause(),
+        onAnyUserGesture: () => {
+          this.audioEngine.unlock();
+        },
+        isPlaying: () => this.missionDirector.getSnapshot().mode === 'playing',
       },
-      isPlaying: () => this.missionDirector.getSnapshot().mode === 'playing',
-    });
+      window,
+      this.canvas,
+    );
 
     this.handleResizeListener = () => {
       this.resizeRenderer();
@@ -174,6 +205,7 @@ export class GameApp {
   public getDebugSnapshot(): GameDebugSnapshot {
     const worldSnap = this.world.getSnapshot();
     const missionSnap = this.missionDirector.getSnapshot();
+    const assetsLoaded = readAssetsLoaded(this.worldRenderer);
     return {
       mode: missionSnap.mode,
       cameraMode: this.resolveActiveCameraMode(missionSnap),
@@ -181,6 +213,7 @@ export class GameApp {
       mission: missionSnap,
       audio: this.audioEngine.getState(),
       fps: Math.round(this.smoothedFps),
+      ...(assetsLoaded !== undefined ? { assetsLoaded } : {}),
     };
   }
 
@@ -339,6 +372,12 @@ export class GameApp {
     const prevObjectiveId = prevMission.activeObjective?.id ?? null;
 
     const input = this.inputManager.consumeInputState();
+    const cameraLook = this.inputManager.consumeCameraLook();
+    this.worldRenderer?.applyCameraLook(
+      cameraLook.yawDelta,
+      cameraLook.pitchDelta,
+      cameraLook.zoomDelta,
+    );
     let worldSnap = this.world.step(dt, input);
     const missionSnap = this.missionDirector.update(worldSnap, dt);
 
