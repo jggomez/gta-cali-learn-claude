@@ -396,7 +396,7 @@ describe('shouldUseFerrariModel & shouldRebuildVehicleMesh', () => {
 });
 
 describe('resolveHeadlightHeight', () => {
-  it('returns calibrated headlight mount heights for all 8 Cali vehicle kinds', () => {
+  it('returns calibrated headlight mount heights for every Cali vehicle kind', () => {
     const expectedHeights: Readonly<Record<VehicleKind, number>> = {
       renault4_turbo: 0.68,
       spark_gt_turbo: 0.62,
@@ -406,6 +406,15 @@ describe('resolveHeadlightHeight', () => {
       banshee: 0.58,
       mio_bus: 0.98,
       chiva: 1.04,
+      mazda_323_coupe: 0.8,
+      renault_18_gtx: 0.7,
+      chevrolet_sprint_turbo: 0.62,
+      chevrolet_monza: 0.64,
+      nissan_sentra_b13: 0.66,
+      chevette_turbo: 0.62,
+      renault_twingo: 0.69,
+      yamaha_rx115: 0.8603,
+      yamaha_dt125: 1.0428,
     };
 
     for (const [kind, height] of Object.entries(expectedHeights) as [
