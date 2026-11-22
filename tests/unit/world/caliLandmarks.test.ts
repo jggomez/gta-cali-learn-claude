@@ -1251,4 +1251,70 @@ describe('starlit night lighting, sculpted Ferrari liveries, curved buses/chivas
     disposeObjectTree(mio);
     disposeObjectTree(chiva);
   });
+
+  it('clones createRiggedCharacterMesh with distinct tintHex and heightMeters without mutating the template scene', () => {
+    const asset = createMockCharacterAsset();
+    const templateMesh = asset.scene.getObjectByName('vanguard_Mesh') as THREE.Mesh;
+    const templateMat = templateMesh.material as THREE.MeshStandardMaterial;
+    const originalColorHex = templateMat.color.getHex();
+
+    const pedA = createRiggedCharacterMesh(asset, {
+      tintHex: 0xff2e93,
+      heightMeters: 1.74,
+    });
+    const pedB = createRiggedCharacterMesh(asset, {
+      tintHex: 0x00f0ff,
+      heightMeters: 1.85,
+    });
+
+    // Template scene material and original color must remain strictly untouched
+    expect(templateMesh.material).toBe(templateMat);
+    expect(templateMat.color.getHex()).toBe(originalColorHex);
+
+    const meshA = pedA.group.getObjectByName('vanguard_Mesh') as THREE.Mesh;
+    const meshB = pedB.group.getObjectByName('vanguard_Mesh') as THREE.Mesh;
+    const matA = meshA.material as THREE.MeshStandardMaterial;
+    const matB = meshB.material as THREE.MeshStandardMaterial;
+
+    expect(matA).not.toBe(templateMat);
+    expect(matB).not.toBe(templateMat);
+    expect(matA).not.toBe(matB);
+
+    const expectedColorA = new THREE.Color(originalColorHex).lerp(
+      new THREE.Color(0xff2e93),
+      0.35,
+    );
+    const expectedColorB = new THREE.Color(originalColorHex).lerp(
+      new THREE.Color(0x00f0ff),
+      0.35,
+    );
+    expect(matA.color.getHex()).toBe(expectedColorA.getHex());
+    expect(matB.color.getHex()).toBe(expectedColorB.getHex());
+    expect(matA.color.getHex()).not.toBe(matB.color.getHex());
+
+    // Custom heights normalized and grounded at y = 0
+    const boxA = new THREE.Box3().setFromObject(meshA);
+    const boxB = new THREE.Box3().setFromObject(meshB);
+    expect(boxA.min.y).toBeCloseTo(0, 2);
+    expect(boxA.max.y - boxA.min.y).toBeCloseTo(1.74, 2);
+    expect(boxB.min.y).toBeCloseTo(0, 2);
+    expect(boxB.max.y - boxB.min.y).toBeCloseTo(1.85, 2);
+
+    // Independent mixers & locomotion actions
+    expect(pedA.mixer).not.toBe(pedB.mixer);
+    expect(pedA.actions.idle).toBeDefined();
+    expect(pedA.actions.walk).toBeDefined();
+    expect(pedA.actions.run).toBeDefined();
+    expect(pedB.actions.idle).toBeDefined();
+    expect(pedB.actions.walk).toBeDefined();
+    expect(pedB.actions.run).toBeDefined();
+
+    pedA.mixer.stopAllAction();
+    pedA.mixer.uncacheRoot(pedA.mixer.getRoot());
+    pedB.mixer.stopAllAction();
+    pedB.mixer.uncacheRoot(pedB.mixer.getRoot());
+    disposeObjectTree(pedA.group);
+    disposeObjectTree(pedB.group);
+    disposeObjectTree(asset.scene);
+  });
 });

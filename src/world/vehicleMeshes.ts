@@ -31,6 +31,11 @@ export interface RiggedCharacterRig {
   readonly actions: RiggedCharacterActions;
 }
 
+export interface RiggedCharacterOptions {
+  readonly tintHex?: number;
+  readonly heightMeters?: number;
+}
+
 const FERRARI_TARGET_LENGTH_METERS = 4.55;
 const CHARACTER_TARGET_HEIGHT_METERS = 1.78;
 
@@ -2653,12 +2658,13 @@ function findAnimationClip(
 }
 
 /**
- * Builds the rigged, animated third-person character from the loaded GLB asset, rotated +180°
- * around Y to walk facing +Z, normalized to 1.78m height resting at y = 0, with Idle/Walk/Run
- * AnimationActions bound to an AnimationMixer.
+ * Builds an independent rigged, animated 3D human from the loaded GLB asset via SkeletonUtils.clone,
+ * rotated +180° around Y to walk facing +Z, normalized to target height resting at y = 0, with
+ * cloned independent materials (optional subtle 35% clothing/accent tint) and Idle/Walk/Run actions.
  */
 export function createRiggedCharacterMesh(
   characterAsset: LoadedCharacterAsset,
+  options?: RiggedCharacterOptions,
 ): RiggedCharacterRig {
   const group = new THREE.Group();
   group.name = 'player_rigged_character';
@@ -2670,6 +2676,34 @@ export function createRiggedCharacterMesh(
   innerGroup.add(clonedScene);
   group.add(innerGroup);
 
+  const tintColor =
+    options?.tintHex !== undefined && Number.isFinite(options.tintHex)
+      ? new THREE.Color(options.tintHex)
+      : null;
+  const targetHeight =
+    options?.heightMeters !== undefined &&
+    Number.isFinite(options.heightMeters) &&
+    options.heightMeters > 0.5
+      ? options.heightMeters
+      : CHARACTER_TARGET_HEIGHT_METERS;
+
+  const clonedMaterials = new Map<THREE.Material, THREE.Material>();
+  const cloneCharacterMaterial = (mat: THREE.Material): THREE.Material => {
+    const existing = clonedMaterials.get(mat);
+    if (existing) {
+      return existing;
+    }
+    const copy = mat.clone();
+    if (copy instanceof THREE.MeshStandardMaterial) {
+      copy.envMapIntensity = Math.max(copy.envMapIntensity, 0.9);
+      if (tintColor) {
+        copy.color.lerp(tintColor, 0.35);
+      }
+    }
+    clonedMaterials.set(mat, copy);
+    return copy;
+  };
+
   innerGroup.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) {
       return;
@@ -2678,11 +2712,10 @@ export function createRiggedCharacterMesh(
     node.receiveShadow = true;
     node.frustumCulled = false;
 
-    const mats = Array.isArray(node.material) ? node.material : [node.material];
-    for (const mat of mats) {
-      if (mat instanceof THREE.MeshStandardMaterial) {
-        mat.envMapIntensity = Math.max(mat.envMapIntensity, 0.9);
-      }
+    if (Array.isArray(node.material)) {
+      node.material = node.material.map(cloneCharacterMaterial);
+    } else if (node.material instanceof THREE.Material) {
+      node.material = cloneCharacterMaterial(node.material);
     }
   });
 
@@ -2691,7 +2724,7 @@ export function createRiggedCharacterMesh(
   if (!rawBox.isEmpty()) {
     const rawSize = rawBox.getSize(new THREE.Vector3());
     if (rawSize.y > 0.01) {
-      const scaleFactor = CHARACTER_TARGET_HEIGHT_METERS / rawSize.y;
+      const scaleFactor = targetHeight / rawSize.y;
       innerGroup.scale.setScalar(scaleFactor);
     }
     innerGroup.updateMatrixWorld(true);

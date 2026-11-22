@@ -20,7 +20,11 @@ import type {
   VehicleSnapshot,
   WorldSnapshot,
 } from '../types/game';
-import { loadWorldAssets, type LoadedWorldAssets } from './assetLoader';
+import {
+  loadWorldAssets,
+  type LoadedCharacterAsset,
+  type LoadedWorldAssets,
+} from './assetLoader';
 import {
   applyPhotographicAssets,
   buildCaliWorld,
@@ -71,6 +75,10 @@ const COLLISION_SPARK_THRESHOLD = 0.14;
 const COLLISION_SPARK_COOLDOWN_SECONDS = 0.09;
 const CHARACTER_RUN_SPEED_THRESHOLD_MPS = 5.2;
 const CHARACTER_CROSSFADE_SECONDS = 0.22;
+const PEDESTRIAN_CULL_DISTANCE_METERS = 95;
+const PEDESTRIAN_CULL_DISTANCE_SQ =
+  PEDESTRIAN_CULL_DISTANCE_METERS * PEDESTRIAN_CULL_DISTANCE_METERS;
+const PEDESTRIAN_CROSSFADE_SECONDS = 0.2;
 const FLOATING_ARROW_BASE_Y = 8.0;
 const GPS_CHEVRON_DISTANCES = [10, 22, 34, 46, 58] as const;
 const GPS_CHEVRON_ELEVATION_OFFSET = 0.35;
@@ -126,12 +134,16 @@ export function sampleGpsRoutePose(
   return null;
 }
 
-function hashPedestrianPhase(id: string): number {
+function hashPedestrianSeed(id: string): number {
   let sum = 0;
   for (let i = 0; i < id.length; i += 1) {
     sum += id.charCodeAt(i) * (i + 1);
   }
-  return (sum % 628) / 100;
+  return Math.abs(sum);
+}
+
+function hashPedestrianPhase(id: string): number {
+  return (hashPedestrianSeed(id) % 628) / 100;
 }
 
 function isFerrariLiveryKind(kind: VehicleKind): kind is FerrariLiveryKind {
@@ -157,6 +169,53 @@ interface PooledVehicleEntry {
   readonly kind: VehicleKind;
   readonly usesFerrariModel: boolean;
   readonly mesh: THREE.Group;
+}
+
+interface PooledPedestrianEntry {
+  readonly group: THREE.Group;
+  readonly mixer: THREE.AnimationMixer | null;
+  readonly actions: RiggedCharacterActions;
+  activeActionName: CharacterLocomotionState | null;
+  readonly isRigged: boolean;
+  readonly shirtColorHex: number;
+  readonly phaseOffsetSeconds: number;
+}
+
+function disposeAnimationMixer(mixer: THREE.AnimationMixer | null): void {
+  if (!mixer) {
+    return;
+  }
+  mixer.stopAllAction();
+  mixer.uncacheRoot(mixer.getRoot());
+}
+
+/**
+ * Disposes a single rigged character clone safely while the shared GLB template stays active:
+ * disposes its unique contact shadow tree and cloned materials without disposing shared GLB
+ * BufferGeometries or Textures still referenced by other active characters.
+ */
+function disposeRiggedCharacterGroup(root: THREE.Group): void {
+  const clonedMaterials = new Set<THREE.Material>();
+
+  root.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    if (node.name === 'contact_shadow') {
+      disposeObjectTree(node);
+      return;
+    }
+    const mats = Array.isArray(node.material) ? node.material : [node.material];
+    for (const mat of mats) {
+      if (mat) {
+        clonedMaterials.add(mat);
+      }
+    }
+  });
+
+  for (const mat of clonedMaterials) {
+    mat.dispose();
+  }
 }
 
 const MATERIAL_TEXTURE_KEYS = [
@@ -280,12 +339,15 @@ export class WorldRenderer {
   private hdriEnvTexture: THREE.Texture | null = null;
   private loadedAssets: LoadedWorldAssets | null = null;
   private ferrariTemplate: THREE.Group | null = null;
+  private characterAsset: LoadedCharacterAsset | null = null;
   private readonly postProcessing: PostProcessingRig | null;
   private readonly waterMesh: THREE.Mesh;
   private playerMesh: THREE.Group;
   private characterMixer: THREE.AnimationMixer | null = null;
   private characterActions: RiggedCharacterActions = {};
   private activeCharacterState: CharacterLocomotionState = 'idle';
+  private mateoMixer: THREE.AnimationMixer | null = null;
+  private mateoIsRigged = false;
   private readonly objectiveBeacon: THREE.Group;
   private readonly missionProps: Record<MissionPropKey, THREE.Group>;
   private readonly gpsChevrons: readonly THREE.Group[];
@@ -293,7 +355,7 @@ export class WorldRenderer {
   private readonly headlightSpot: THREE.SpotLight;
   private readonly headlightTarget: THREE.Object3D;
   private readonly vehiclePool = new Map<string, PooledVehicleEntry>();
-  private readonly pedestrianPool = new Map<string, THREE.Group>();
+  private readonly pedestrianPool = new Map<string, PooledPedestrianEntry>();
   private readonly prevSpeeds = new Map<string, number>();
   private readonly cameraOrbit: CameraOrbitState = createCameraOrbitState();
   private readonly landmarkCount: number;
@@ -514,7 +576,7 @@ export class WorldRenderer {
     this.animateWater(safeDt, animTime);
     this.syncPlayer(world, safeDt);
     this.syncVehicles(world.vehicles, safeDt);
-    this.syncPedestrians(world.pedestrians);
+    this.syncPedestrians(world.pedestrians, world.player.x, world.player.z, safeDt);
     this.syncPlayerHeadlight(world);
     this.syncCollisionSparks(world);
     this.particles.update(safeDt);
@@ -576,12 +638,17 @@ export class WorldRenderer {
     }
     this.disposed = true;
 
-    if (this.characterMixer) {
-      this.characterMixer.stopAllAction();
-      this.characterMixer.uncacheRoot(this.characterMixer.getRoot());
-      this.characterMixer = null;
-    }
+    disposeAnimationMixer(this.characterMixer);
+    this.characterMixer = null;
     this.characterActions = {};
+
+    disposeAnimationMixer(this.mateoMixer);
+    this.mateoMixer = null;
+    this.mateoIsRigged = false;
+
+    for (const entry of this.pedestrianPool.values()) {
+      disposeAnimationMixer(entry.mixer);
+    }
 
     this.scene.remove(this.particles.group);
     this.particles.dispose();
@@ -598,6 +665,7 @@ export class WorldRenderer {
     this.loadedAssets?.dispose();
     this.loadedAssets = null;
     this.ferrariTemplate = null;
+    this.characterAsset = null;
 
     disposeObjectTree(this.scene);
     this.vehiclePool.clear();
@@ -632,7 +700,10 @@ export class WorldRenderer {
       }
 
       if (assets.character) {
+        this.characterAsset = assets.character;
         this.upgradePlayerToRiggedCharacter(assets.character);
+        this.upgradePooledPedestriansToRigged(assets.character);
+        this.upgradeMateoToRiggedCharacter(assets.character);
       }
     } catch {
       // Fall back cleanly to procedural assets while signaling load completion
@@ -715,7 +786,7 @@ export class WorldRenderer {
   }
 
   private upgradePlayerToRiggedCharacter(
-    characterAsset: NonNullable<LoadedWorldAssets['character']>,
+    characterAsset: LoadedCharacterAsset,
   ): void {
     const rig = createRiggedCharacterMesh(characterAsset);
     rig.group.position.copy(this.playerMesh.position);
@@ -726,16 +797,104 @@ export class WorldRenderer {
     this.scene.remove(previousMesh);
     disposeObjectTree(previousMesh);
 
-    if (this.characterMixer) {
-      this.characterMixer.stopAllAction();
-      this.characterMixer.uncacheRoot(this.characterMixer.getRoot());
-    }
+    disposeAnimationMixer(this.characterMixer);
 
     this.playerMesh = rig.group;
     this.characterMixer = rig.mixer;
     this.characterActions = rig.actions;
     this.activeCharacterState = 'idle';
     this.scene.add(this.playerMesh);
+  }
+
+  private createRiggedPedestrianEntry(
+    pedId: string,
+    shirtColorHex: number,
+    characterAsset: LoadedCharacterAsset,
+  ): PooledPedestrianEntry {
+    const seed = hashPedestrianSeed(pedId);
+    const heightMeters = 1.72 + (seed % 14) * 0.01;
+    const phaseOffsetSeconds = (seed % 100) * 0.025;
+
+    const rig = createRiggedCharacterMesh(characterAsset, {
+      tintHex: shirtColorHex,
+      heightMeters,
+    });
+    rig.group.name = 'cali_pedestrian_rigged';
+    if (!this.reducedMotion) {
+      rig.mixer.update(phaseOffsetSeconds);
+    }
+
+    return {
+      group: rig.group,
+      mixer: rig.mixer,
+      actions: rig.actions,
+      activeActionName: 'idle',
+      isRigged: true,
+      shirtColorHex,
+      phaseOffsetSeconds,
+    };
+  }
+
+  private disposePedestrianEntry(entry: PooledPedestrianEntry): void {
+    disposeAnimationMixer(entry.mixer);
+    this.scene.remove(entry.group);
+    if (entry.isRigged) {
+      disposeRiggedCharacterGroup(entry.group);
+    } else {
+      disposeObjectTree(entry.group);
+    }
+  }
+
+  private upgradePooledPedestriansToRigged(
+    characterAsset: LoadedCharacterAsset,
+  ): void {
+    for (const [id, entry] of this.pedestrianPool.entries()) {
+      if (entry.isRigged) {
+        continue;
+      }
+      const riggedEntry = this.createRiggedPedestrianEntry(
+        id,
+        entry.shirtColorHex,
+        characterAsset,
+      );
+      riggedEntry.group.position.copy(entry.group.position);
+      riggedEntry.group.rotation.copy(entry.group.rotation);
+      riggedEntry.group.visible = entry.group.visible;
+
+      this.disposePedestrianEntry(entry);
+      this.scene.add(riggedEntry.group);
+      this.pedestrianPool.set(id, riggedEntry);
+    }
+  }
+
+  private upgradeMateoToRiggedCharacter(
+    characterAsset: LoadedCharacterAsset,
+  ): void {
+    const mateoSpeakers = this.missionProps.mateo_speakers;
+    const previousMateo = mateoSpeakers.getObjectByName('npc_mateo');
+
+    const rig = createRiggedCharacterMesh(characterAsset, {
+      tintHex: 0xffb800,
+    });
+    rig.group.name = 'npc_mateo';
+    if (previousMateo) {
+      rig.group.position.copy(previousMateo.position);
+      rig.group.rotation.copy(previousMateo.rotation);
+      mateoSpeakers.remove(previousMateo);
+      if (this.mateoIsRigged && previousMateo instanceof THREE.Group) {
+        disposeRiggedCharacterGroup(previousMateo);
+      } else {
+        disposeObjectTree(previousMateo);
+      }
+    } else {
+      rig.group.position.set(-1.15, 0, 0.25);
+    }
+
+    disposeAnimationMixer(this.mateoMixer);
+    mateoSpeakers.userData.wavingArm = undefined;
+    mateoSpeakers.add(rig.group);
+    this.mateoMixer = rig.mixer;
+    this.mateoIsRigged = true;
   }
 
   private animateWater(dt: number, animTime: number): void {
@@ -1097,33 +1256,100 @@ export class WorldRenderer {
 
   private syncPedestrians(
     pedestrians: readonly PedestrianSnapshot[] | undefined,
+    focusX: number,
+    focusZ: number,
+    dt: number,
   ): void {
     const list = pedestrians ?? [];
     const activeIds = new Set<string>();
 
     for (const ped of list) {
       activeIds.add(ped.id);
-      let mesh = this.pedestrianPool.get(ped.id);
-      if (!mesh) {
-        mesh = createPedestrianMesh(ped.shirtColorHex, ped.pantsColorHex);
-        this.scene.add(mesh);
-        this.pedestrianPool.set(ped.id, mesh);
+      let entry = this.pedestrianPool.get(ped.id);
+      if (!entry) {
+        entry = this.characterAsset
+          ? this.createRiggedPedestrianEntry(
+              ped.id,
+              ped.shirtColorHex,
+              this.characterAsset,
+            )
+          : {
+              group: createPedestrianMesh(ped.shirtColorHex, ped.pantsColorHex),
+              mixer: null,
+              actions: {},
+              activeActionName: null,
+              isRigged: false,
+              shirtColorHex: ped.shirtColorHex,
+              phaseOffsetSeconds: (hashPedestrianSeed(ped.id) % 100) * 0.025,
+            };
+        this.scene.add(entry.group);
+        this.pedestrianPool.set(ped.id, entry);
       }
 
-      mesh.position.set(ped.x, ped.y, ped.z);
-      mesh.rotation.y = ped.heading;
+      entry.group.position.set(ped.x, ped.y, ped.z);
+      entry.group.rotation.y = ped.heading;
+
+      // Distance culling beyond 95m preserves 60fps & smooth SwiftShader frame budgets
+      const dx = ped.x - focusX;
+      const dz = ped.z - focusZ;
+      if (dx * dx + dz * dz > PEDESTRIAN_CULL_DISTANCE_SQ) {
+        entry.group.visible = false;
+        continue;
+      }
+      entry.group.visible = true;
 
       const absSpeed = Math.abs(ped.speedMps);
+
+      if (entry.isRigged && entry.mixer) {
+        if (!this.reducedMotion) {
+          const targetAction: CharacterLocomotionState =
+            absSpeed < 0.2 ? 'idle' : ped.fleeing ? 'run' : 'walk';
+          if (targetAction !== entry.activeActionName) {
+            const prevAction = entry.activeActionName
+              ? entry.actions[entry.activeActionName]
+              : undefined;
+            const nextAction = entry.actions[targetAction];
+            if (nextAction) {
+              const clipDuration = nextAction.getClip().duration;
+              nextAction.reset();
+              if (clipDuration > 0.05) {
+                nextAction.time = entry.phaseOffsetSeconds % clipDuration;
+              }
+              nextAction.setEffectiveTimeScale(1).setEffectiveWeight(1).play();
+              if (prevAction && prevAction !== nextAction) {
+                prevAction.crossFadeTo(
+                  nextAction,
+                  PEDESTRIAN_CROSSFADE_SECONDS,
+                  false,
+                );
+              }
+            }
+            entry.activeActionName = targetAction;
+          }
+          entry.mixer.update(dt);
+        }
+        continue;
+      }
+
       const moving = absSpeed > 0.2;
       const phase = hashPedestrianPhase(ped.id);
       const swingRate = ped.fleeing ? 14.5 : 8.5;
-      const swingAmp = !moving || this.reducedMotion ? 0 : ped.fleeing ? 0.72 : 0.48;
+      const swingAmp =
+        !moving || this.reducedMotion ? 0 : ped.fleeing ? 0.72 : 0.48;
       const swing = Math.sin(this.elapsedSeconds * swingRate + phase) * swingAmp;
 
-      const leftLeg = mesh.userData.leftLeg as THREE.Object3D | undefined;
-      const rightLeg = mesh.userData.rightLeg as THREE.Object3D | undefined;
-      const leftArm = mesh.userData.leftArm as THREE.Object3D | undefined;
-      const rightArm = mesh.userData.rightArm as THREE.Object3D | undefined;
+      const leftLeg = entry.group.userData.leftLeg as
+        | THREE.Object3D
+        | undefined;
+      const rightLeg = entry.group.userData.rightLeg as
+        | THREE.Object3D
+        | undefined;
+      const leftArm = entry.group.userData.leftArm as
+        | THREE.Object3D
+        | undefined;
+      const rightArm = entry.group.userData.rightArm as
+        | THREE.Object3D
+        | undefined;
 
       if (leftLeg) leftLeg.rotation.x = swing;
       if (rightLeg) rightLeg.rotation.x = -swing;
@@ -1135,10 +1361,9 @@ export class WorldRenderer {
       }
     }
 
-    for (const [id, mesh] of this.pedestrianPool.entries()) {
+    for (const [id, entry] of this.pedestrianPool.entries()) {
       if (!activeIds.has(id)) {
-        this.scene.remove(mesh);
-        disposeObjectTree(mesh);
+        this.disposePedestrianEntry(entry);
         this.pedestrianPool.delete(id);
       }
     }
@@ -1240,11 +1465,17 @@ export class WorldRenderer {
           }
         }
       } else if (key === 'mateo_speakers') {
-        const wavingArm = prop.userData.wavingArm as THREE.Object3D | undefined;
-        if (wavingArm) {
-          wavingArm.rotation.z = this.reducedMotion
-            ? -2.35
-            : -2.35 + Math.sin(this.elapsedSeconds * 5.2) * 0.42;
+        if (this.mateoIsRigged && this.mateoMixer) {
+          if (!this.reducedMotion) {
+            this.mateoMixer.update(dt);
+          }
+        } else {
+          const wavingArm = prop.userData.wavingArm as THREE.Object3D | undefined;
+          if (wavingArm) {
+            wavingArm.rotation.z = this.reducedMotion
+              ? -2.35
+              : -2.35 + Math.sin(this.elapsedSeconds * 5.2) * 0.42;
+          }
         }
         const wooferCones = prop.userData.wooferCones as
           | THREE.Object3D[]
