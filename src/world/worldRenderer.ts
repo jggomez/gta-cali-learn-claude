@@ -43,6 +43,7 @@ import {
 } from './caliLandmarks';
 import { ParticleSystem, SkidMarkPool } from './particles';
 import { RenderStatsRecorder } from './renderStats';
+import { batchStaticMeshes, updateDetailBatchCulling } from './staticBatcher';
 import {
   bindRenderTargetDisposal,
   createSunsetEnvironmentMap,
@@ -119,6 +120,9 @@ const CRISTO_REY_PLAYER_DANCE_DISTANCE_SQ =
 const SUMMIT_DANCER_SKIN_TONE_HEX = 0xb97c5b;
 const BOOST_GRADE_RISE_RATE = 8.5;
 const BOOST_GRADE_FALL_RATE = 4.5;
+const STATIC_BATCH_CELL_METERS = 64;
+const STATIC_DETAIL_RADIUS_METERS = 0.75;
+const DEFAULT_DETAIL_DRAW_DISTANCE_METERS = 140;
 const DAY_TONE_MAPPING_EXPOSURE = 0.94;
 const NIGHT_TONE_MAPPING_EXPOSURE = 1.12;
 const DAY_BACKGROUND_INTENSITY = 0.72;
@@ -680,6 +684,8 @@ export class WorldRenderer {
   private readonly landmarkCount: number;
   private readonly reducedMotion: boolean;
   private readonly renderStats: RenderStatsRecorder;
+  private readonly detailBatches: readonly THREE.Mesh[];
+  private detailDrawDistance = DEFAULT_DETAIL_DRAW_DISTANCE_METERS;
 
   private currentTimeOfDay: TimeOfDay = 'golden_hour';
   private currentBoostMix = 0;
@@ -773,6 +779,14 @@ export class WorldRenderer {
     this.caliWorld = builtWorld;
     this.worldGroup = builtWorld.group;
     this.waterMesh = builtWorld.waterMesh;
+    this.detailBatches = batchStaticMeshes(this.worldGroup, {
+      cellSizeMeters: STATIC_BATCH_CELL_METERS,
+      detailRadiusMeters: STATIC_DETAIL_RADIUS_METERS,
+      exclude: [
+        builtWorld.waterMesh,
+        ...(builtWorld.roadblockGroup ? [builtWorld.roadblockGroup] : []),
+      ],
+    }).detailBatches;
     this.scene.add(this.worldGroup);
 
     let count = 0;
@@ -1011,6 +1025,12 @@ export class WorldRenderer {
     if (this.skyDome.visible) {
       this.skyDome.position.set(this.camera.position.x, 0, this.camera.position.z);
     }
+    updateDetailBatchCulling(
+      this.detailBatches,
+      this.camera.position.x,
+      this.camera.position.z,
+      this.detailDrawDistance,
+    );
 
     this.renderStats.beginFrame();
     if (this.postProcessing) {
