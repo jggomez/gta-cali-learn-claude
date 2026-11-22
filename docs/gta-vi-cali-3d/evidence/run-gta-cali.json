@@ -63,20 +63,6 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/worldRenderer.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/sceneSetup.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
       "url": "http://127.0.0.1:4173/src/missions/missionDirector.ts",
       "status": 200,
       "resourceType": "script",
@@ -91,6 +77,13 @@
     },
     {
       "method": "GET",
+      "url": "http://127.0.0.1:4173/src/ui/hudController.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
       "url": "http://127.0.0.1:4173/src/simulation/gameWorld.ts",
       "status": 200,
       "resourceType": "script",
@@ -98,7 +91,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/ui/hudController.ts",
+      "url": "http://127.0.0.1:4173/src/world/sceneSetup.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -112,14 +105,14 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/caliLandmarks.ts",
+      "url": "http://127.0.0.1:4173/src/world/worldRenderer.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/vehicleMeshes.ts",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_EffectComposer__js.js?v=3ab3f5c6",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -147,7 +140,77 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three.js?v=40a6af6e",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_RenderPass__js.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_UnrealBloomPass__js.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/particles.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_OutputPass__js.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/caliLandmarks.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/pbrTextures.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-OLTXGRDG.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/vehicleMeshes.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-ATNEROMZ.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-U5H7DR74.js?v=3ab3f5c6",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -210,14 +273,14 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/simulation/gameWorld.ts",
+      "url": "http://127.0.0.1:4173/src/missions/missionDirector.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/missions/missionDirector.ts",
+      "url": "http://127.0.0.1:4173/src/simulation/gameWorld.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -231,14 +294,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three.js?v=40a6af6e",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/worldRenderer.ts",
+      "url": "http://127.0.0.1:4173/src/ui/hudController.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -252,7 +308,63 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/ui/hudController.ts",
+      "url": "http://127.0.0.1:4173/src/world/worldRenderer.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_EffectComposer__js.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_OutputPass__js.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_RenderPass__js.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_UnrealBloomPass__js.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-U5H7DR74.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-OLTXGRDG.js?v=3ab3f5c6",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-ATNEROMZ.js?v=3ab3f5c6",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -266,13 +378,6 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/simulation/trafficAi.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
       "url": "http://127.0.0.1:4173/src/simulation/physics.ts",
       "status": 200,
       "resourceType": "script",
@@ -280,7 +385,28 @@
     },
     {
       "method": "GET",
+      "url": "http://127.0.0.1:4173/src/simulation/trafficAi.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
       "url": "http://127.0.0.1:4173/src/ui/minimapRenderer.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/particles.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/pbrTextures.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -303,7 +429,7 @@
   "dataChecks": [
     {
       "kind": "source-on-screen",
-      "detail": "speedKmh=84 matches hud-speed=84; nitro width=81% aria-valuenow=81"
+      "detail": "speedKmh=89 matches hud-speed=89; nitro width=80% aria-valuenow=80"
     },
     {
       "kind": "source-on-screen",

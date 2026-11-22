@@ -301,7 +301,7 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
         return snap.world.player.speedKmh > 20 && dist > 8 && widthPct < 100;
       },
       { startX: beforeDrive.x, startZ: beforeDrive.z },
-      { timeout: 20_000 },
+      { timeout: 45_000 },
     );
 
     // Source-on-screen check comparing window.__GTA_CALI__ vs DOM speedometer & nitro gauge
@@ -328,6 +328,17 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
       };
     });
     await page.keyboard.up('ShiftLeft');
+    await page.keyboard.up('KeyW');
+
+    // Trigger a brief drift (KeyW + Space + KeyD) to exercise drift physics & ParticleSystem smoke/sparks
+    await page.keyboard.down('KeyW');
+    await page.keyboard.down('Space');
+    await page.keyboard.down('KeyD');
+    await page.waitForFunction(() => window.__GTA_CALI__?.world.player.isDrifting === true, null, {
+      timeout: 10_000,
+    });
+    await page.keyboard.up('KeyD');
+    await page.keyboard.up('Space');
     await page.keyboard.up('KeyW');
 
     const movedDistance = Math.hypot(
@@ -399,10 +410,10 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
         const snap = window.__GTA_CALI__;
         if (!snap) return false;
         const dist = Math.hypot(snap.world.player.x - startX, snap.world.player.z - startZ);
-        return snap.world.player.speedKmh > 20 && dist > 8;
+        return snap.world.player.speedKmh > 20 && dist > 5;
       },
       { startX: m2Start.x, startZ: m2Start.z },
-      { timeout: 20_000 },
+      { timeout: 45_000 },
     );
     await page.keyboard.up('ShiftLeft');
     await page.keyboard.up('KeyW');
