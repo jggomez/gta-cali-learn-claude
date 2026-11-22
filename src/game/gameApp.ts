@@ -1,5 +1,5 @@
 /**
- * Runtime composition root for GTA VI: Cali (La Sucursal del Cielo).
+ * Runtime composition root for GTA I - Cali - Colombia (La Sucursal del Cielo).
  * Coordinates GameWorld, MissionDirector, AudioEngine, WorldRenderer, HudController,
  * InputManager, fixed-clamp requestAnimationFrame loop, and readonly window.__GTA_CALI__.
  */

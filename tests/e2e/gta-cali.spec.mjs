@@ -220,7 +220,7 @@ async function sampleWebglFramebuffer(page) {
   );
 }
 
-test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
+test.describe('GTA I - Cali - Colombia — Black-Box E2E Verification', () => {
   test('Flow 1: Title screen renders 3D Cali across all 4 viewports with zero overflow & zero errors', async ({
     page,
   }) => {

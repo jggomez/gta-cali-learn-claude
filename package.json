@@ -2,7 +2,7 @@
   "name": "gta-vi-cali",
   "version": "1.0.0",
   "private": true,
-  "description": "Playable 3D low-poly web game inspired by GTA VI and set in Cali, Colombia (La Sucursal del Cielo).",
+  "description": "Playable 3D low-poly web game inspired by the GTA series and set in Cali, Colombia (La Sucursal del Cielo).",
   "type": "module",
   "scripts": {
     "dev": "vite",

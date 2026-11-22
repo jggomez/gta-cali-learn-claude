@@ -1,5 +1,5 @@
 /**
- * Application entry point for GTA VI: Cali (La Sucursal del Cielo).
+ * Application entry point for GTA I - Cali - Colombia (La Sucursal del Cielo).
  * Mounts the Vice Sunset Cali design system and starts the GameApp composition root.
  */
 

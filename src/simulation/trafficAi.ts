@@ -1,5 +1,5 @@
 /**
- * Headless Cali traffic and Police pursuit AI for GTA VI: Cali.
+ * Headless Cali traffic and Police pursuit AI for GTA I - Cali - Colombia.
  * Zero Three.js or DOM dependencies.
  */
 

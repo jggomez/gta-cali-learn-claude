@@ -1,5 +1,5 @@
 /**
- * Authentic Español Caleño player-facing copy for GTA VI: Cali (La Sucursal del Cielo).
+ * Authentic Español Caleño player-facing copy for GTA I - Cali - Colombia (La Sucursal del Cielo).
  * All UI labels, mission copy, radio labels, dialogues, and news tickers live exclusively here.
  */
 
@@ -38,7 +38,7 @@ export interface GaragePaintPreset {
 
 export const LOCALE_CALI = {
   brand: {
-    title: 'GTA VI: CALI',
+    title: 'GTA I - Cali - Colombia',
     subtitle: 'La Sucursal del Cielo',
     tagline: 'Atardecer vallecaucano, salsa brava y velocidad sin frenos.',
     cityName: 'Santiago de Cali',

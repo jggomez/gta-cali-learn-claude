@@ -1,5 +1,5 @@
 /**
- * Shared immutable domain contracts for GTA VI: Cali (La Sucursal del Cielo).
+ * Shared immutable domain contracts for GTA I - Cali - Colombia (La Sucursal del Cielo).
  * Zero external dependencies so simulation, missions, world, audio, and UI stay cleanly decoupled.
  */
 

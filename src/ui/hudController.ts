@@ -1,5 +1,5 @@
 /**
- * Accessible DOM HUD, Title Screen, Overlays, and Minimap controller for GTA VI: Cali.
+ * Accessible DOM HUD, Title Screen, Overlays, and Minimap controller for GTA I - Cali - Colombia.
  * Consumes readonly snapshots and routes all user actions through HudCallbacks.
  * All player-facing Español Caleño text is sourced strictly from LOCALE_CALI.
  */

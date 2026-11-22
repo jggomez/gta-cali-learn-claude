@@ -417,7 +417,7 @@ function driveRoute(
   return { ...latest, steps };
 }
 
-describe('GTA VI: Cali headless game loop integration', () => {
+describe('GTA I - Cali - Colombia headless game loop integration', () => {
   it('completes Mission 1 (Golpe en la Torre) on foot to pickup, getaway Ferrari, Puente La Ermita, and San Antonio hideout', () => {
     const rawStorage = createMemoryStorage();
     const storage = new StorageAdapter(rawStorage);

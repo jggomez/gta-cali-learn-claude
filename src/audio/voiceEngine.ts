@@ -1,5 +1,5 @@
 /**
- * Offline Web Speech API (es-CO) voice synthesis engine for GTA VI: Cali.
+ * Offline Web Speech API (es-CO) voice synthesis engine for GTA I - Cali - Colombia.
  * Provides character voice profiles, locale-prioritized Spanish voice selection,
  * anti-spam cooldown queuing, and safe silent no-op execution in headless environments.
  */

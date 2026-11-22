@@ -1,5 +1,5 @@
 /**
- * Pure mission state machine and localStorage persistence adapter for GTA VI: Cali.
+ * Pure mission state machine and localStorage persistence adapter for GTA I - Cali - Colombia.
  * Strictly decoupled from Three.js, DOM globals, simulation internals, world, audio, and UI.
  */
 

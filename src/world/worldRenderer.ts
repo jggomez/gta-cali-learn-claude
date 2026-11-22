@@ -1,5 +1,5 @@
 /**
- * Pure presentation WebGL renderer for GTA VI: Cali (La Sucursal del Cielo).
+ * Pure presentation WebGL renderer for GTA I - Cali - Colombia (La Sucursal del Cielo).
  * Consumes immutable WorldSnapshot and MissionSnapshot objects without mutating simulation state.
  * Wires local HDRI golden-hour PMREM reflections & sky, 1K photographic PBR city textures,
  * sculpted Colombian vehicles (Renault 4 Turbo, Spark GT, Willys V8, Policía Nacional SUV,

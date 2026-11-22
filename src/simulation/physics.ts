@@ -1,6 +1,6 @@
 /**
  * Pure headless 2D/2.5D physics, collision resolution, and driving dynamics
- * for GTA VI: Cali (La Sucursal del Cielo).
+ * for GTA I - Cali - Colombia (La Sucursal del Cielo).
  * Zero Three.js or DOM dependencies.
  */
 

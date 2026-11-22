@@ -1,6 +1,6 @@
 /**
  * Procedural Web Audio API radio sequencer, multi-harmonic vehicle engine synth,
- * distance/Doppler police siren, ambient street murmur, and sound effects engine for GTA VI: Cali.
+ * distance/Doppler police siren, ambient street murmur, and sound effects engine for GTA I - Cali - Colombia.
  * 100% offline synthesis with injectable AudioContext factory and safe headless no-op behavior.
  */
 
