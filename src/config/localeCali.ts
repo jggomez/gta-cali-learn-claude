@@ -73,7 +73,7 @@ export const LOCALE_CALI = {
       title: 'Golpe en la Torre',
       subtitle: 'Misión 01 · Centro & Río Cali',
       description:
-        'Roba a pie el vinilo maestro frente a la Torre de Cali, escapa en el Ferrari por el Puente de La Ermita y escóndete en San Antonio.',
+        'Roba a pie el vinilo maestro frente a la Torre de Cali, escapa en tu nave por el Puente de La Ermita y escóndete en San Antonio.',
       rewardCop: 250_000,
       badge: 'Misión 1',
     },
@@ -116,7 +116,7 @@ export const LOCALE_CALI = {
       heistOnFootLabel: 'Roba a pie el vinilo maestro en la Torre de Cali',
       heistOnFootDetail:
         'Acércate a pie al maletín dorado en Avenida Las Américas frente a la Torre.',
-      boardGetawayLabel: 'Súbete al Ferrari de escape',
+      boardGetawayLabel: 'Súbete a tu nave de escape',
       boardGetawayDetail:
         '¡Sonó la alarma! Corre al deportivo en la esquina y presiona [F] para escapar.',
       crossBridgeLabel: 'Cruza el Puente de La Ermita',
@@ -187,7 +187,7 @@ export const LOCALE_CALI = {
     },
     m1Alarm: {
       speaker: 'valeria' as const,
-      text: '¡Tengo el vinilo maestro, parce! Saltó la alarma de la Torre: ¡corre al Ferrari antes de que llegue la tomba!',
+      text: '¡Tengo el vinilo maestro, parce! Saltó la alarma de la Torre: ¡corre a tu nave antes de que llegue la tomba!',
     },
     m1EscapeCar: {
       speaker: 'mateo' as const,
@@ -227,7 +227,7 @@ export const LOCALE_CALI = {
     },
     m3Ambush: {
       speaker: 'mateo' as const,
-      text: '¡Pilas, ve! La tomba se metió al pique en Barrio Granada y montó retén en los puentes. ¡Písalo sin miedo!',
+      text: '¡Pilas, parce! La tomba prendió patrullas por Granada y los puentes — ¡písalo a fondo!',
     },
     m3Passed: {
       speaker: 'valeria' as const,
@@ -278,10 +278,10 @@ export const LOCALE_CALI = {
     },
     m1HeistAlarm: {
       title: '¡ALARMA EN LA TORRE!',
-      subtitle: '¡Vinilo robado! Corre al Ferrari y escapa de la tomba.',
+      subtitle: '¡Vinilo robado! Corre a tu nave y escapa de la tomba.',
     },
     m1Boarded: {
-      title: '¡FERRARI EN MARCHA!',
+      title: '¡NAVE EN MARCHA!',
       subtitle: 'Cruza el Puente de La Ermita a toda mecha.',
     },
     m1Bridge: {
@@ -477,7 +477,7 @@ export const LOCALE_CALI = {
     pedestrianAdmire: [
       '¡Qué chimba de carro, ve!',
       '¡Písalo pues, parcera!',
-      '¡Mirá ese Ferrari en Cali!',
+      '¡Mirá esa máquina en Cali!',
       '¡Qué nave tan brava, oís!',
     ] as readonly string[],
     pedestrianHorn: [

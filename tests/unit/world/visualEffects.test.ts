@@ -1601,3 +1601,126 @@ describe('ParticleSystem.emitExhaustBackfire', () => {
     expect(particles.getActiveCount()).toBe(0);
   });
 });
+
+describe('Automotive smoked cabin glass, solid roof/pillars, and defensive jersey disposal', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('equips every closed-roof Colombian car with smoked metallic glass, a capping solid clearcoat roof, and A/B/C pillars', () => {
+    const closedRoofSpecs: readonly {
+      readonly kind: VehicleKind;
+      readonly glassName: string;
+      readonly roofName: string;
+      readonly pillarsName: string;
+      readonly minPillarMeshes: number;
+    }[] = [
+      {
+        kind: 'renault4_turbo',
+        glassName: 'renault4_cabin_glass',
+        roofName: 'renault4_roof',
+        pillarsName: 'renault4_pillars',
+        minPillarMeshes: 8,
+      },
+      {
+        kind: 'spark_gt_turbo',
+        glassName: 'spark_gt_cabin_glass',
+        roofName: 'spark_gt_floating_roof',
+        pillarsName: 'spark_gt_pillars',
+        minPillarMeshes: 8,
+      },
+      {
+        kind: 'police',
+        glassName: 'police_cabin_glass',
+        roofName: 'police_roof',
+        pillarsName: 'police_pillars',
+        minPillarMeshes: 10,
+      },
+      {
+        kind: 'taxi',
+        glassName: 'taxi_cabin_glass',
+        roofName: 'taxi_roof',
+        pillarsName: 'taxi_pillars',
+        minPillarMeshes: 8,
+      },
+    ];
+
+    for (const spec of closedRoofSpecs) {
+      const vehicle = createVehicleMesh(spec.kind, 0xe63946, 0x0b7a45, 0x00f0ff);
+      vehicle.updateMatrixWorld(true);
+
+      const glassMesh = vehicle.getObjectByName(spec.glassName) as THREE.Mesh | undefined;
+      expect(glassMesh).toBeInstanceOf(THREE.Mesh);
+      const glassMat = glassMesh?.material as THREE.MeshPhysicalMaterial | undefined;
+      expect(glassMat).toBeInstanceOf(THREE.MeshPhysicalMaterial);
+      expect(glassMat?.color.getHex()).toBe(0x0b1522);
+      expect(glassMat?.transparent).toBe(true);
+      expect(glassMat?.opacity).toBeCloseTo(0.86, 3);
+      expect(glassMat?.roughness).toBeCloseTo(0.05, 3);
+      expect(glassMat?.metalness).toBeCloseTo(0.55, 3);
+      expect(glassMat?.clearcoat).toBeCloseTo(1.0, 3);
+      expect(glassMat?.envMapIntensity).toBeCloseTo(1.65, 3);
+
+      const roofMesh = vehicle.getObjectByName(spec.roofName) as THREE.Mesh | undefined;
+      expect(roofMesh).toBeInstanceOf(THREE.Mesh);
+      const roofMat = roofMesh?.material as THREE.MeshPhysicalMaterial | undefined;
+      expect(roofMat).toBeInstanceOf(THREE.MeshPhysicalMaterial);
+      expect(roofMat?.transparent).toBe(false);
+      expect(roofMat?.opacity).toBe(1);
+      expect(roofMat?.clearcoat).toBeGreaterThanOrEqual(0.95);
+
+      // Solid roof panel cap must be at least as wide as cabin glass so edges never look hollow
+      if (glassMesh && roofMesh) {
+        const glassBox = new THREE.Box3().setFromObject(glassMesh);
+        const roofBox = new THREE.Box3().setFromObject(roofMesh);
+        const glassWidth = glassBox.max.x - glassBox.min.x;
+        const roofWidth = roofBox.max.x - roofBox.min.x;
+        expect(roofWidth).toBeGreaterThanOrEqual(glassWidth + 0.04);
+      }
+
+      const pillarsGroup = vehicle.getObjectByName(spec.pillarsName);
+      expect(pillarsGroup).toBeInstanceOf(THREE.Group);
+      let solidPillarMeshes = 0;
+      pillarsGroup?.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          const mat = node.material;
+          expect(mat).toBeInstanceOf(THREE.MeshPhysicalMaterial);
+          if (mat instanceof THREE.MeshPhysicalMaterial) {
+            expect(mat.transparent).toBe(false);
+            expect(mat.clearcoat).toBeGreaterThanOrEqual(0.95);
+          }
+          solidPillarMeshes += 1;
+        }
+      });
+      expect(solidPillarMeshes).toBeGreaterThanOrEqual(spec.minPillarMeshes);
+
+      disposeObjectTree(vehicle);
+    }
+
+    // Open-top Jeep Willys must remain open-top with its roll cage (no closed roof cap)
+    const willys = createVehicleMesh('willys_v8', 0xe63946, 0x181c28, 0x00f0ff);
+    expect(willys.getObjectByName('willys_roof')).toBeUndefined();
+    disposeObjectTree(willys);
+  });
+
+  it('disposes unused jersey CanvasTexture when a partial Caleno template lacks Wolf3D_Outfit_Top', () => {
+    const mockDoc = createMockCanvasDocument();
+    vi.stubGlobal('document', mockDoc);
+
+    const disposeSpy = vi.spyOn(THREE.CanvasTexture.prototype, 'dispose');
+    const partialTemplate = createSyntheticBoneCharacter(
+      'partial_caleno_template',
+      ['Hips', 'Spine'],
+      [],
+    );
+
+    const rig = createCalenoCharacterRig(partialTemplate, null, {
+      outfit: 'escarlata',
+    });
+
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+    disposeObjectTree(rig.group);
+    disposeObjectTree(partialTemplate.scene);
+  });
+});

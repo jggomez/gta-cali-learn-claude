@@ -5,7 +5,7 @@
  * sculpted Colombian vehicles (Renault 4 Turbo, Spark GT, Willys V8, Policía Nacional SUV,
  * Taxi Zapatico, MIO Bus, Chiva) + Ferrari 458 Banshee, realistic Caleño (caleno.glb) and
  * Valeria (valeria.glb) characters with zero sci-fi soldiers, working traffic lights, 3-star
- * retén policial roadblocks & officers, exhaust backfire flames, pooled skid marks, and post-FX.
+ * police roadblocks & officers, exhaust backfire flames, pooled skid marks, and post-FX.
  */
 
 import * as THREE from 'three';

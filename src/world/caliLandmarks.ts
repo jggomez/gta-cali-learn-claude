@@ -6239,10 +6239,10 @@ function buildCholadoStandsGroup(): THREE.Group {
     metalness: 0.04,
   });
   const syrupMats: readonly THREE.MeshStandardMaterial[] = [
-    new THREE.MeshStandardMaterial({ color: 0x65d936, roughness: 0.22 }), // Lulo
-    new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.22 }), // Maracuyá
-    new THREE.MeshStandardMaterial({ color: 0xe63946, roughness: 0.22 }), // Fresa
-    new THREE.MeshStandardMaterial({ color: 0xf8f5eb, roughness: 0.28 }), // Guanábana
+    new THREE.MeshStandardMaterial({ color: 0x65d936, roughness: 0.22 }), // Lulo citrus
+    new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.22 }), // Passion fruit
+    new THREE.MeshStandardMaterial({ color: 0xe63946, roughness: 0.22 }), // Strawberry
+    new THREE.MeshStandardMaterial({ color: 0xf8f5eb, roughness: 0.28 }), // Soursop
   ];
   const stringBulbMat = tagNightEmissive(
     new THREE.MeshStandardMaterial({
@@ -6654,7 +6654,7 @@ function buildSingleRoadblock(
     rb.add(horse);
   });
 
-  // Six reflective orange-and-white traffic cones flanking and staging the retén approach
+  // Six reflective orange-and-white traffic cones flanking and staging the roadblock approach
   const conePositions: readonly [number, number][] = [
     [-span - 1.35, -1.65],
     [-span * 0.45, 1.8],
@@ -6755,7 +6755,7 @@ function buildRoadblocksGroup(map: CaliMapConfig): {
 }
 
 /**
- * Toggles the 3-star Policía Nacional retén roadblocks and alternates red/blue portable beacons
+ * Toggles the 3-star Policía Nacional roadblocks and alternates red/blue portable beacons
  * with zero per-frame heap allocations.
  */
 export function setRoadblockVisible(

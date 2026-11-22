@@ -67,12 +67,12 @@ const VALLECAUCANA_SKIN_PALETTES = [
   0x915a3c,
 ] as const;
 const CALENO_VALLECAUCANO_SKIN_TONES = [
-  0x6e4630, // Afro-Pacífico
-  0x8c5a3c, // Moreno oscuro
-  0xa86f4c, // Canela intenso
-  0xc48b66, // Canela cálido
-  0xd6a47e, // Trigueño
-  0xe4ba98, // Mestizo cálido
+  0x6e4630, // Deep Afro-Pacific brown
+  0x8c5a3c, // Deep bronze
+  0xa86f4c, // Rich cinnamon
+  0xc48b66, // Warm cinnamon
+  0xd6a47e, // Golden olive
+  0xe4ba98, // Warm tan
 ] as const;
 const CALI_CIVILIAN_OUTFITS: readonly CaliOutfitId[] = [
   'escarlata',
@@ -143,17 +143,29 @@ function createCarPaintMaterial(
 }
 
 function createTintedGlassMaterial(
-  colorHex = 0x0c111e,
+  colorHex = 0x0b1522,
   overrides?: THREE.MeshPhysicalMaterialParameters,
 ): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({
     color: colorHex,
-    metalness: 0.22,
+    metalness: 0.55,
     roughness: 0.05,
     clearcoat: 1.0,
     clearcoatRoughness: 0.04,
     envMapIntensity: 1.65,
     ...overrides,
+  });
+}
+
+function createSmokedCabinGlassMaterial(): THREE.MeshPhysicalMaterial {
+  return createTintedGlassMaterial(0x0b1522, {
+    transparent: true,
+    opacity: 0.86,
+    roughness: 0.05,
+    metalness: 0.55,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.04,
+    envMapIntensity: 1.65,
   });
 }
 
@@ -1134,6 +1146,169 @@ function attachCabinInterior(
   }
 }
 
+interface ClosedCabinPillarSpec {
+  readonly groupName: string;
+  readonly glassWidth: number;
+  readonly bottomY: number;
+  readonly topY: number;
+  readonly frontBottomZ: number;
+  readonly frontCtrlZ: number;
+  readonly frontCtrlY: number;
+  readonly frontTopZ: number;
+  readonly rearTopZ: number;
+  readonly rearCtrlZ: number;
+  readonly rearCtrlY: number;
+  readonly rearBottomZ: number;
+  readonly midPillarZs: readonly number[];
+  readonly pillarWidthX?: number;
+  readonly aThicknessZ?: number;
+  readonly midThicknessZ?: number;
+  readonly rearThicknessZ?: number;
+}
+
+/**
+ * Encloses a closed-roof vehicle greenhouse with solid opaque clearcoat body-colored A/B/C(/D)
+ * corner pillars, side roof cant rails, front/rear roof headers, and an opaque charcoal headliner
+ * so side and rear chase-camera views never appear hollow or convertible.
+ */
+function attachClosedCabinPillars(
+  parent: THREE.Group,
+  pillarMaterial: THREE.Material,
+  spec: ClosedCabinPillarSpec,
+): THREE.Group {
+  const pillarsGroup = new THREE.Group();
+  pillarsGroup.name = spec.groupName;
+
+  const pillarWidthX = spec.pillarWidthX ?? 0.14;
+  const aThick = spec.aThicknessZ ?? 0.12;
+  const midThick = spec.midThicknessZ ?? 0.14;
+  const rearThick = spec.rearThicknessZ ?? 0.24;
+  const pillarCenterX = spec.glassWidth * 0.5 - pillarWidthX * 0.2;
+
+  const aPillarGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(spec.frontBottomZ + 0.045, spec.bottomY - 0.02);
+      shape.quadraticCurveTo(
+        spec.frontCtrlZ + 0.045,
+        spec.frontCtrlY + 0.03,
+        spec.frontTopZ + 0.045,
+        spec.topY + 0.025,
+      );
+      shape.lineTo(spec.frontTopZ + 0.045 - aThick, spec.topY + 0.025);
+      shape.quadraticCurveTo(
+        spec.frontCtrlZ + 0.045 - aThick,
+        spec.frontCtrlY + 0.005,
+        spec.frontBottomZ + 0.045 - aThick,
+        spec.bottomY - 0.02,
+      );
+      shape.closePath();
+    },
+    pillarWidthX,
+    0.016,
+  );
+
+  const rearWidthX = pillarWidthX + 0.03;
+  const rearCenterX = spec.glassWidth * 0.5 - rearWidthX * 0.28;
+  const rearPillarGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(spec.rearTopZ - 0.045, spec.topY + 0.025);
+      shape.quadraticCurveTo(
+        spec.rearCtrlZ - 0.045,
+        spec.rearCtrlY + 0.04,
+        spec.rearBottomZ - 0.045,
+        spec.bottomY - 0.02,
+      );
+      shape.lineTo(spec.rearBottomZ - 0.045 + rearThick, spec.bottomY - 0.02);
+      shape.quadraticCurveTo(
+        spec.rearCtrlZ - 0.045 + rearThick,
+        spec.rearCtrlY + 0.005,
+        spec.rearTopZ - 0.045 + rearThick,
+        spec.topY + 0.025,
+      );
+      shape.closePath();
+    },
+    rearWidthX,
+    0.018,
+  );
+
+  const midHeight = Math.max(0.24, spec.topY - spec.bottomY + 0.06);
+  const midCenterY = (spec.bottomY + spec.topY) * 0.5;
+  const midPillarGeo = new THREE.BoxGeometry(pillarWidthX, midHeight, midThick);
+
+  const railLength = Math.max(0.24, spec.frontTopZ - spec.rearTopZ + 0.16);
+  const railCenterZ = (spec.frontTopZ + spec.rearTopZ) * 0.5;
+  const cantRailGeo = createRoundedPodGeometry(
+    pillarWidthX + 0.01,
+    0.095,
+    railLength,
+    0.022,
+    0.012,
+  );
+
+  for (const side of [-1, 1] as const) {
+    addMesh(pillarsGroup, aPillarGeo, pillarMaterial, {
+      x: side * pillarCenterX,
+    });
+    for (const midZ of spec.midPillarZs) {
+      addMesh(pillarsGroup, midPillarGeo, pillarMaterial, {
+        x: side * pillarCenterX,
+        y: midCenterY,
+        z: midZ,
+      });
+    }
+    addMesh(pillarsGroup, rearPillarGeo, pillarMaterial, {
+      x: side * rearCenterX,
+    });
+    addMesh(pillarsGroup, cantRailGeo, pillarMaterial, {
+      x: side * pillarCenterX,
+      y: spec.topY + 0.01,
+      z: railCenterZ,
+    });
+  }
+
+  const headerSpanX = pillarCenterX * 2 + pillarWidthX * 0.65;
+  addMesh(
+    pillarsGroup,
+    createRoundedPodGeometry(headerSpanX, 0.095, 0.12, 0.022, 0.012),
+    pillarMaterial,
+    {
+      y: spec.topY + 0.01,
+      z: spec.frontTopZ + 0.01,
+    },
+  );
+  addMesh(
+    pillarsGroup,
+    createRoundedPodGeometry(headerSpanX, 0.105, 0.15, 0.024, 0.012),
+    pillarMaterial,
+    {
+      y: spec.topY + 0.01,
+      z: spec.rearTopZ - 0.02,
+    },
+  );
+
+  parent.add(pillarsGroup);
+
+  // Matte dark opaque inner headliner slab directly under the roof cap to block upward sky bleed
+  const headlinerMat = new THREE.MeshStandardMaterial({
+    color: 0x10141c,
+    roughness: 0.92,
+    metalness: 0.05,
+  });
+  const headlinerLen = Math.max(0.24, spec.frontTopZ - spec.rearTopZ - 0.04);
+  addMesh(
+    parent,
+    new THREE.BoxGeometry(Math.max(0.4, spec.glassWidth - 0.14), 0.045, headlinerLen),
+    headlinerMat,
+    {
+      y: spec.topY - 0.045,
+      z: railCenterZ,
+      castShadow: false,
+    },
+  );
+
+  return pillarsGroup;
+}
+
 function attachDoorHandles(
   parent: THREE.Group,
   halfWidth: number,
@@ -1738,10 +1913,7 @@ function buildRenault4TurboMesh(
     roughness: 0.34,
     clearcoat: 0.65,
   });
-  const glassMat = createTintedGlassMaterial(0x0c1320, {
-    transparent: true,
-    opacity: 0.6,
-  });
+  const glassMat = createSmokedCabinGlassMaterial();
   const chromeMat = createChromeMaterial();
   const headlightMat = createXenonHeadlightMaterial();
   const drlHaloMat = new THREE.MeshStandardMaterial({
@@ -1786,28 +1958,48 @@ function buildRenault4TurboMesh(
       shape.quadraticCurveTo(-1.58, 1.48, -1.82, 0.94);
       shape.closePath();
     },
-    1.56,
-    0.045,
+    1.52,
+    0.04,
   );
   addMesh(group, cabinGlassGeo, glassMat, {
     name: 'renault4_cabin_glass',
     castShadow: false,
   });
 
-  // Painted roof cap & sculpted fastback A/B/C pillars framing the glass greenhouse
+  // Solid opaque painted clearcoat roof cap + sculpted body-colored A/B/C corner pillars
   const roofCapGeo = createCurvedSideExtrude(
     (shape) => {
-      shape.moveTo(-1.32, 1.47);
-      shape.lineTo(0.46, 1.47);
-      shape.quadraticCurveTo(0.4, 1.56, 0.26, 1.57);
-      shape.lineTo(-1.18, 1.57);
-      shape.quadraticCurveTo(-1.3, 1.56, -1.32, 1.47);
+      shape.moveTo(-1.36, 1.46);
+      shape.lineTo(0.5, 1.46);
+      shape.quadraticCurveTo(0.43, 1.58, 0.28, 1.59);
+      shape.lineTo(-1.22, 1.59);
+      shape.quadraticCurveTo(-1.36, 1.57, -1.36, 1.46);
       shape.closePath();
     },
-    1.54,
+    1.64,
     0.035,
   );
   addMesh(group, roofCapGeo, bodyMat, { name: 'renault4_roof' });
+
+  attachClosedCabinPillars(group, bodyMat, {
+    groupName: 'renault4_pillars',
+    glassWidth: 1.52,
+    bottomY: 0.94,
+    topY: 1.51,
+    frontBottomZ: 0.84,
+    frontCtrlZ: 0.66,
+    frontCtrlY: 1.34,
+    frontTopZ: 0.44,
+    rearTopZ: -1.26,
+    rearCtrlZ: -1.58,
+    rearCtrlY: 1.48,
+    rearBottomZ: -1.82,
+    midPillarZs: [-0.36],
+    pillarWidthX: 0.14,
+    aThicknessZ: 0.12,
+    midThicknessZ: 0.13,
+    rearThicknessZ: 0.24,
+  });
 
   // Sculpted street-racing flared wheel arches on all 4 corners + carbon side skirts
   const archGeo = createFlaredWheelArchGeometry(0.39, 0.13, 0.16);
@@ -2027,10 +2219,7 @@ function buildSparkGtTurboMesh(
     roughness: 0.28,
     clearcoat: 0.8,
   });
-  const glassMat = createTintedGlassMaterial(0x0b111c, {
-    transparent: true,
-    opacity: 0.6,
-  });
+  const glassMat = createSmokedCabinGlassMaterial();
   const chromeMat = createChromeMaterial();
   const headlightMat = createXenonHeadlightMaterial();
   const drlBladeMat = new THREE.MeshStandardMaterial({
@@ -2069,28 +2258,62 @@ function buildSparkGtTurboMesh(
       shape.quadraticCurveTo(-1.58, 1.4, -1.74, 0.98);
       shape.closePath();
     },
-    1.58,
-    0.045,
+    1.54,
+    0.04,
   );
   addMesh(group, cabinGeo, glassMat, {
     name: 'spark_gt_cabin_glass',
     castShadow: false,
   });
 
-  // Gloss-black floating roof wrap + shark-fin antenna + integrated hot-hatch roof wing
+  // Solid opaque painted clearcoat metal roof cap + inset gloss-black center wrap + A/B/C pillars
   const floatingRoofGeo = createCurvedSideExtrude(
     (shape) => {
-      shape.moveTo(-1.38, 1.4);
-      shape.lineTo(0.14, 1.4);
-      shape.quadraticCurveTo(0.06, 1.49, -0.1, 1.49);
-      shape.lineTo(-1.32, 1.49);
-      shape.quadraticCurveTo(-1.42, 1.47, -1.38, 1.4);
+      shape.moveTo(-1.42, 1.39);
+      shape.lineTo(0.18, 1.39);
+      shape.quadraticCurveTo(0.1, 1.5, -0.06, 1.51);
+      shape.lineTo(-1.34, 1.51);
+      shape.quadraticCurveTo(-1.45, 1.49, -1.42, 1.39);
       shape.closePath();
     },
-    1.52,
-    0.03,
+    1.66,
+    0.032,
   );
-  addMesh(group, floatingRoofGeo, glossBlackRoofMat, { name: 'spark_gt_floating_roof' });
+  addMesh(group, floatingRoofGeo, bodyMat, { name: 'spark_gt_floating_roof' });
+
+  const centerRoofWrapGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.32, 1.46);
+      shape.lineTo(0.06, 1.46);
+      shape.quadraticCurveTo(0.0, 1.525, -0.1, 1.525);
+      shape.lineTo(-1.26, 1.525);
+      shape.quadraticCurveTo(-1.34, 1.51, -1.32, 1.46);
+      shape.closePath();
+    },
+    1.16,
+    0.018,
+  );
+  addMesh(group, centerRoofWrapGeo, glossBlackRoofMat, { name: 'spark_gt_roof_wrap' });
+
+  attachClosedCabinPillars(group, bodyMat, {
+    groupName: 'spark_gt_pillars',
+    glassWidth: 1.54,
+    bottomY: 0.96,
+    topY: 1.44,
+    frontBottomZ: 0.86,
+    frontCtrlZ: 0.46,
+    frontCtrlY: 1.36,
+    frontTopZ: 0.08,
+    rearTopZ: -1.26,
+    rearCtrlZ: -1.58,
+    rearCtrlY: 1.4,
+    rearBottomZ: -1.74,
+    midPillarZs: [-0.54],
+    pillarWidthX: 0.14,
+    aThicknessZ: 0.12,
+    midThicknessZ: 0.14,
+    rearThicknessZ: 0.25,
+  });
   addMesh(group, createRoundedPodGeometry(1.56, 0.06, 0.28, 0.02, 0.012), carbonMat, {
     y: 1.47,
     z: -1.52,
@@ -2595,10 +2818,7 @@ function buildTaxiMesh(colorHex: number, accentHex: number): THREE.Group {
     metalness: 0.3,
   });
   const carbonMat = createCarbonMaterial();
-  const glassMat = createTintedGlassMaterial(0x0f1422, {
-    transparent: true,
-    opacity: 0.62,
-  });
+  const glassMat = createSmokedCabinGlassMaterial();
   const chromeMat = createChromeMaterial();
   const headlightMat = createXenonHeadlightMaterial();
   const brakeLightMat = createBrakeLightMaterial();
@@ -2621,7 +2841,7 @@ function buildTaxiMesh(colorHex: number, accentHex: number): THREE.Group {
   );
   addMesh(group, lowerHullGeo, bodyMat, { name: 'taxi_chassis' });
 
-  // Curved tall city hatchback greenhouse cabin + clearcoat roof cap
+  // Curved tall city hatchback greenhouse cabin + solid clearcoat roof cap + A/B/C pillars
   const cabinGeo = createCurvedSideExtrude(
     (shape) => {
       shape.moveTo(-1.74, 0.98);
@@ -2631,8 +2851,8 @@ function buildTaxiMesh(colorHex: number, accentHex: number): THREE.Group {
       shape.quadraticCurveTo(-1.58, 1.52, -1.74, 0.98);
       shape.closePath();
     },
-    1.58,
-    0.045,
+    1.54,
+    0.04,
   );
   addMesh(group, cabinGeo, glassMat, {
     name: 'taxi_cabin_glass',
@@ -2641,17 +2861,37 @@ function buildTaxiMesh(colorHex: number, accentHex: number): THREE.Group {
 
   const roofGeo = createCurvedSideExtrude(
     (shape) => {
-      shape.moveTo(-1.32, 1.52);
-      shape.lineTo(0.28, 1.52);
-      shape.quadraticCurveTo(0.2, 1.61, 0.04, 1.61);
-      shape.lineTo(-1.22, 1.61);
-      shape.quadraticCurveTo(-1.34, 1.59, -1.32, 1.52);
+      shape.moveTo(-1.36, 1.51);
+      shape.lineTo(0.32, 1.51);
+      shape.quadraticCurveTo(0.24, 1.62, 0.08, 1.63);
+      shape.lineTo(-1.26, 1.63);
+      shape.quadraticCurveTo(-1.38, 1.61, -1.36, 1.51);
       shape.closePath();
     },
-    1.52,
-    0.03,
+    1.66,
+    0.032,
   );
   addMesh(group, roofGeo, bodyMat, { name: 'taxi_roof' });
+
+  attachClosedCabinPillars(group, bodyMat, {
+    groupName: 'taxi_pillars',
+    glassWidth: 1.54,
+    bottomY: 0.98,
+    topY: 1.56,
+    frontBottomZ: 0.92,
+    frontCtrlZ: 0.58,
+    frontCtrlY: 1.46,
+    frontTopZ: 0.24,
+    rearTopZ: -1.26,
+    rearCtrlZ: -1.58,
+    rearCtrlY: 1.52,
+    rearBottomZ: -1.74,
+    midPillarZs: [-0.45],
+    pillarWidthX: 0.14,
+    aThicknessZ: 0.12,
+    midThicknessZ: 0.13,
+    rearThicknessZ: 0.24,
+  });
 
   // Sculpted compact fender arch flares
   const archGeo = createFlaredWheelArchGeometry(0.36, 0.095, 0.12);
@@ -3391,7 +3631,7 @@ function buildChivaMesh(colorHex: number, accentHex: number): THREE.Group {
 }
 
 /**
- * Patrulla Policía Nacional SUV Interceptor (Duster / Hilux Inspired) — realistic high-clearance
+ * Patrol Policía Nacional SUV Interceptor (Duster / Hilux Inspired) — realistic high-clearance
  * pearl-white clearcoat Colombian patrol SUV with authentic diagonal neon-green & emerald-green
  * Policía Nacional livery, crisp CanvasTexture "POLICÍA NACIONAL · 123" door & hood decals,
  * steel front bullbar, dark pursuit alloy rims, dual red/blue LED roof lightbar, and PNC · 123
@@ -3415,10 +3655,7 @@ function buildPoliceMesh(colorHex: number, accentHex: number): THREE.Group {
     clearcoatRoughness: 0.06,
     envMapIntensity: 1.55,
   });
-  const glassMat = createTintedGlassMaterial(0x0c111e, {
-    transparent: true,
-    opacity: 0.62,
-  });
+  const glassMat = createSmokedCabinGlassMaterial();
   const bumperMat = createCarbonMaterial();
   const chromeMat = createChromeMaterial();
   const headlightMat = createXenonHeadlightMaterial();
@@ -3455,7 +3692,7 @@ function buildPoliceMesh(colorHex: number, accentHex: number): THREE.Group {
   );
   addMesh(group, lowerHullGeo, bodyMat, { name: 'police_chassis' });
 
-  // Sculpted modern SUV cabin greenhouse + curved clearcoat roof cap + rear roof spoiler
+  // Sculpted modern SUV cabin greenhouse + solid clearcoat roof cap + A/B/C/D corner pillars
   const cabinGeo = createCurvedSideExtrude(
     (shape) => {
       shape.moveTo(-2.04, 1.16);
@@ -3465,8 +3702,8 @@ function buildPoliceMesh(colorHex: number, accentHex: number): THREE.Group {
       shape.quadraticCurveTo(-1.96, 1.76, -2.04, 1.16);
       shape.closePath();
     },
-    1.78,
-    0.05,
+    1.74,
+    0.045,
   );
   addMesh(group, cabinGeo, glassMat, {
     name: 'police_cabin_glass',
@@ -3475,17 +3712,37 @@ function buildPoliceMesh(colorHex: number, accentHex: number): THREE.Group {
 
   const roofGeo = createCurvedSideExtrude(
     (shape) => {
-      shape.moveTo(-1.74, 1.77);
-      shape.lineTo(0.58, 1.77);
-      shape.quadraticCurveTo(0.5, 1.86, 0.34, 1.87);
-      shape.lineTo(-1.64, 1.87);
-      shape.quadraticCurveTo(-1.78, 1.85, -1.74, 1.77);
+      shape.moveTo(-1.78, 1.75);
+      shape.lineTo(0.62, 1.75);
+      shape.quadraticCurveTo(0.54, 1.87, 0.38, 1.88);
+      shape.lineTo(-1.68, 1.88);
+      shape.quadraticCurveTo(-1.82, 1.86, -1.78, 1.75);
       shape.closePath();
     },
-    1.7,
-    0.03,
+    1.86,
+    0.032,
   );
   addMesh(group, roofGeo, bodyMat, { name: 'police_roof' });
+
+  attachClosedCabinPillars(group, bodyMat, {
+    groupName: 'police_pillars',
+    glassWidth: 1.74,
+    bottomY: 1.15,
+    topY: 1.81,
+    frontBottomZ: 1.16,
+    frontCtrlZ: 0.86,
+    frontCtrlY: 1.66,
+    frontTopZ: 0.54,
+    rearTopZ: -1.66,
+    rearCtrlZ: -1.96,
+    rearCtrlY: 1.76,
+    rearBottomZ: -2.04,
+    midPillarZs: [-0.06, -1.04],
+    pillarWidthX: 0.15,
+    aThicknessZ: 0.13,
+    midThicknessZ: 0.15,
+    rearThicknessZ: 0.25,
+  });
 
   // Muscular matte-black SUV wheel arch flares & rugged side running boards
   const archGeo = createFlaredWheelArchGeometry(0.43, 0.12, 0.16);
@@ -5030,7 +5287,7 @@ export function createCaliJerseyTexture(
     }
 
     case 'guayabera': {
-      // Crisp tropical white/ivory Caleño linen guayabera with embroidered alforza vertical pleats
+      // Crisp tropical white/ivory Caleño linen guayabera with embroidered vertical pleats
       ctx.fillStyle = '#f4f0e6';
       ctx.fillRect(0, 0, size, size);
       // Embroidered twin vertical pleat columns
@@ -5174,6 +5431,7 @@ export function createCalenoCharacterRig(
       : CHARACTER_TARGET_HEIGHT_METERS;
 
   const jerseyTexture = createCaliJerseyTexture(outfit);
+  let jerseyApplied = false;
   const jerseyFallbackColor = liftTintForReadableAlbedo(CALI_OUTFIT_ACCENT_HEX[outfit], 0.36);
   const clonedMaterials = new Map<THREE.Material, THREE.Material>();
 
@@ -5201,6 +5459,7 @@ export function createCalenoCharacterRig(
         if (jerseyTexture) {
           copy.map = jerseyTexture;
           copy.color.setHex(0xffffff);
+          jerseyApplied = true;
         } else {
           copy.color.copy(jerseyFallbackColor);
         }
@@ -5259,6 +5518,10 @@ export function createCalenoCharacterRig(
       node.material = cloneCalenoMaterial(node.name, node.material);
     }
   });
+
+  if (jerseyTexture && !jerseyApplied) {
+    jerseyTexture.dispose();
+  }
 
   // Normalize strictly by visible mesh bounds so feet rest cleanly at y = 0 facing +Z
   innerGroup.updateMatrixWorld(true);
@@ -5323,7 +5586,7 @@ export function createCalenoCharacterRig(
 
 /**
  * Builds the rigged, animated Morena Calena Valeria character from valeria.glb with calibrated
- * warm bronze-canela PBR skin & Cali outfit colorway accents, grounded strictly at y = 0 facing +Z
+ * warm bronze-cinnamon PBR skin & Cali outfit colorway accents, grounded strictly at y = 0 facing +Z
  * at 1.70m default height, binding retargeted Idle/Walk/Run clips plus native SambaDance.
  */
 export function createValeriaPlayerMesh(
