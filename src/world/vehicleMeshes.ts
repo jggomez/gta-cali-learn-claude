@@ -1,10 +1,28 @@
 /**
- * Procedural sculpted PBR 3D vehicle meshes (all 5 Cali vehicle kinds), Valeria player mesh,
- * and holographic mission objective beacon. 100% procedural and safe in Node test environments.
+ * Photorealistic real GLB vehicle/character rigs (Ferrari 458 Italia & rigged Soldier character)
+ * plus naturalistic golden-hour procedural PBR 3D fallback vehicles (all 5 Cali kinds), Valeria
+ * fallback mesh, and holographic mission objective beacon. Safe in headless Node tests.
  */
 
 import * as THREE from 'three';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { VehicleKind } from '../types/game';
+import type { LoadedCharacterAsset } from './assetLoader';
+
+export interface RiggedCharacterActions {
+  readonly idle?: THREE.AnimationAction;
+  readonly walk?: THREE.AnimationAction;
+  readonly run?: THREE.AnimationAction;
+}
+
+export interface RiggedCharacterRig {
+  readonly group: THREE.Group;
+  readonly mixer: THREE.AnimationMixer;
+  readonly actions: RiggedCharacterActions;
+}
+
+const FERRARI_TARGET_LENGTH_METERS = 4.55;
+const CHARACTER_TARGET_HEIGHT_METERS = 1.78;
 
 interface WheelSpec {
   readonly x: number;
@@ -250,7 +268,7 @@ function createHeadlightBeamTexture(): THREE.CanvasTexture | null {
 
 /**
  * Procedural soft radial alpha glow texture fading cleanly to transparent well inside the edges,
- * eliminating sharp rectangular corners on underbody neon and asphalt headlight pools.
+ * eliminating sharp rectangular corners on asphalt headlight pools.
  */
 function createSoftRadialGlowTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') {
@@ -278,6 +296,69 @@ function createSoftRadialGlowTexture(): THREE.CanvasTexture | null {
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
   return texture;
+}
+
+/**
+ * Procedural soft radial dark ambient-occlusion contact shadow texture for grounding vehicles
+ * and characters realistically onto sunlit Cali asphalt without harsh rectangle edges.
+ */
+function createContactShadowTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+  ctx.clearRect(0, 0, 256, 256);
+  const gradient = ctx.createRadialGradient(128, 128, 16, 128, 128, 118);
+  gradient.addColorStop(0.0, 'rgba(6, 8, 12, 0.92)');
+  gradient.addColorStop(0.45, 'rgba(6, 8, 12, 0.68)');
+  gradient.addColorStop(0.78, 'rgba(6, 8, 12, 0.22)');
+  gradient.addColorStop(1.0, 'rgba(6, 8, 12, 0.0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 256, 256);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+function attachContactShadow(
+  parent: THREE.Group,
+  width: number,
+  length: number,
+  opacity = 0.62,
+  y = 0.03,
+): THREE.Mesh {
+  const shadowTex = createContactShadowTexture();
+  const shadowMat = new THREE.MeshBasicMaterial({
+    color: 0x050608,
+    ...(shadowTex ? { map: shadowTex } : {}),
+    transparent: true,
+    opacity: shadowTex ? opacity : opacity * 0.42,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const shadowPlane = addMesh(
+    parent,
+    new THREE.PlaneGeometry(width, length),
+    shadowMat,
+    {
+      y,
+      rx: -Math.PI / 2,
+      name: 'contact_shadow',
+      castShadow: false,
+      receiveShadow: false,
+    },
+  );
+  shadowPlane.renderOrder = 1;
+  return shadowPlane;
 }
 
 /**
@@ -472,10 +553,10 @@ function attachHeadlightCones(
   const roadPoolTex = createSoftRadialGlowTexture();
 
   const outerBeamMat = new THREE.MeshBasicMaterial({
-    color: 0xffefc4,
+    color: 0xffecc2,
     ...(beamTex ? { map: beamTex } : {}),
     transparent: true,
-    opacity: 0.08,
+    opacity: 0.045,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.FrontSide,
@@ -484,7 +565,7 @@ function attachHeadlightCones(
     color: 0xfff7dc,
     ...(beamTex ? { map: beamTex } : {}),
     transparent: true,
-    opacity: 0.13,
+    opacity: 0.08,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.FrontSide,
@@ -493,7 +574,7 @@ function attachHeadlightCones(
     color: 0xfff0c8,
     ...(roadPoolTex ? { map: roadPoolTex } : {}),
     transparent: true,
-    opacity: 0.24,
+    opacity: 0.14,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -584,15 +665,25 @@ function buildBansheeMesh(colorHex: number, accentHex: number): THREE.Group {
   const group = new THREE.Group();
   group.name = 'vehicle_banshee';
 
-  const bodyMat = createCarPaintMaterial(colorHex);
-  const accentMat = new THREE.MeshStandardMaterial({
-    color: accentHex,
-    emissive: accentHex,
-    emissiveIntensity: 1.15,
-    roughness: 0.2,
-    metalness: 0.4,
+  const realisticBodyHex = colorHex === 0xff2e93 ? 0xb80e24 : colorHex;
+  const bodyMat = createCarPaintMaterial(realisticBodyHex, {
+    metalness: 0.65,
+    roughness: 0.16,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.06,
+    envMapIntensity: 1.3,
   });
-  const glassMat = createTintedGlassMaterial(0x0c0f22);
+  const trimHex = accentHex === 0x00f0ff ? 0x262930 : accentHex;
+  const accentMat = new THREE.MeshPhysicalMaterial({
+    color: trimHex,
+    roughness: 0.28,
+    metalness: 0.62,
+    clearcoat: 0.6,
+    clearcoatRoughness: 0.15,
+  });
+  const glassMat = createTintedGlassMaterial(0x0c1118, {
+    envMapIntensity: 1.4,
+  });
   const carbonMat = createCarbonMaterial();
   const chromeMat = createChromeMaterial();
   const headlightMat = createXenonHeadlightMaterial();
@@ -787,58 +878,25 @@ function buildBansheeMesh(colorHex: number, accentHex: number): THREE.Group {
   }
   const headlightCones = attachHeadlightCones(group, 0.72, 0.62, 2.22, 4.6, 0.95);
 
-  // Cyan neon underbody glow strip & soft asphalt spill (zero shadows)
-  const underTubeMat = new THREE.MeshBasicMaterial({
-    color: 0x00f0ff,
-  });
-  for (const side of [-1, 1] as const) {
-    addMesh(group, new THREE.BoxGeometry(0.05, 0.04, 2.6), underTubeMat, {
-      x: side * 0.98,
-      y: 0.25,
-      z: 0,
-      castShadow: false,
-      receiveShadow: false,
-    });
-  }
-  const underglowTex = createSoftRadialGlowTexture();
-  const underglow = addMesh(
-    group,
-    new THREE.PlaneGeometry(2.6, 4.9),
-    new THREE.MeshBasicMaterial({
-      color: 0x00f0ff,
-      ...(underglowTex ? { map: underglowTex } : {}),
-      transparent: true,
-      opacity: 0.55,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    }),
-    {
-      y: 0.08,
-      rx: -Math.PI / 2,
-      name: 'banshee_underglow',
-      castShadow: false,
-      receiveShadow: false,
-    },
-  );
-  underglow.renderOrder = 1;
+  // Realistic dark contact shadow beneath chassis (no cartoon neon underglow)
+  attachContactShadow(group, 2.35, 4.85, 0.62, 0.03);
 
-  // Twin chrome exhaust tips & additive cyan/amber nitro flames
+  // Twin chrome exhaust tips & subtle afterburner nitro flames
   const nitroFlames = new THREE.Group();
   nitroFlames.name = 'nitro_flames';
   nitroFlames.visible = false;
 
   const outerFlameMat = new THREE.MeshBasicMaterial({
-    color: 0x00f0ff,
+    color: 0x62b8ff,
     transparent: true,
-    opacity: 0.85,
+    opacity: 0.72,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
   const innerFlameMat = new THREE.MeshBasicMaterial({
-    color: 0xffb800,
+    color: 0xffd27a,
     transparent: true,
-    opacity: 0.95,
+    opacity: 0.9,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
@@ -989,20 +1047,22 @@ function buildTaxiMesh(colorHex: number, accentHex: number): THREE.Group {
   });
   attachSideMirrors(group, 0.94, 1.08, 0.56, bodyMat, trimMat, 0.95);
 
-  // Illuminated yellow TAXI roof sign (bloom-ready)
+  // Illuminated yellow TAXI roof sign (subtle golden-hour glow)
   const taxiSignTex = createTaxiSignTexture();
   const taxiSignMat = new THREE.MeshStandardMaterial({
-    color: 0xffe45c,
-    emissive: 0xffc800,
-    emissiveIntensity: 1.35,
+    color: 0xf0c94a,
+    emissive: 0xe6ad14,
+    emissiveIntensity: 0.72,
     ...(taxiSignTex ? { map: taxiSignTex } : {}),
-    roughness: 0.2,
+    roughness: 0.24,
   });
   addMesh(group, new THREE.BoxGeometry(0.76, 0.26, 0.34), taxiSignMat, {
     y: 1.74,
     z: -0.04,
     name: 'taxi_roof_sign',
   });
+
+  attachContactShadow(group, 2.25, 4.55, 0.58, 0.03);
 
   const rig = attachWheels(
     group,
@@ -1046,11 +1106,15 @@ function buildMioBusMesh(colorHex: number, accentHex: number): THREE.Group {
     metalness: 0.08,
   });
   const trimMat = createCarbonMaterial();
-  const cyanLedMat = new THREE.MeshStandardMaterial({
-    color: 0x5cf7ff,
-    emissive: 0x00f0ff,
-    emissiveIntensity: 1.6,
-    roughness: 0.14,
+  const liveryAccentMat = createCarPaintMaterial(0x1f82c9, {
+    metalness: 0.45,
+    roughness: 0.24,
+  });
+  const routeBoardMat = new THREE.MeshStandardMaterial({
+    color: 0xffcf6b,
+    emissive: 0xffb338,
+    emissiveIntensity: 0.95,
+    roughness: 0.2,
   });
   const acPodMat = createCarPaintMaterial(0xdde4f2, {
     metalness: 0.28,
@@ -1096,7 +1160,7 @@ function buildMioBusMesh(colorHex: number, accentHex: number): THREE.Group {
     rx: -0.14,
     castShadow: false,
   });
-  addMesh(group, new THREE.BoxGeometry(2.48, 0.1, 4.46), cyanLedMat, {
+  addMesh(group, new THREE.BoxGeometry(2.48, 0.1, 4.46), liveryAccentMat, {
     y: 1.46,
     z: 2.18,
     castShadow: false,
@@ -1145,19 +1209,21 @@ function buildMioBusMesh(colorHex: number, accentHex: number): THREE.Group {
     z: -2.75,
     castShadow: false,
   });
-  addMesh(group, new THREE.BoxGeometry(2.48, 0.1, 3.55), cyanLedMat, {
+  addMesh(group, new THREE.BoxGeometry(2.48, 0.1, 3.55), liveryAccentMat, {
     y: 1.46,
     z: -2.75,
     castShadow: false,
   });
 
-  // Illuminated front cyan LED destination route board
-  addMesh(group, new THREE.BoxGeometry(1.74, 0.28, 0.14), cyanLedMat, {
+  // Illuminated front LED destination route board
+  addMesh(group, new THREE.BoxGeometry(1.74, 0.28, 0.14), routeBoardMat, {
     y: 2.66,
     z: 4.34,
     name: 'mio_route_board',
     castShadow: false,
   });
+
+  attachContactShadow(group, 2.75, 9.45, 0.6, 0.03);
 
   // Twin aerodynamic roof AC pods
   addMesh(group, new THREE.BoxGeometry(1.66, 0.28, 1.85), acPodMat, {
@@ -1353,16 +1419,16 @@ function buildChivaMesh(colorHex: number, accentHex: number): THREE.Group {
     });
   }
 
-  // Glowing warm fiesta party string bulbs along both roof eaves (bloom-ready)
-  const bulbPalette = [0xffcf54, 0xff9e3d, 0xffe680, 0xff4fa3] as const;
+  // Warm fiesta string bulbs along both roof eaves
+  const bulbPalette = [0xffcf54, 0xff9e3d, 0xffe680, 0xe86b4a] as const;
   const bulbGeo = new THREE.SphereGeometry(0.11, 8, 8);
   for (let i = 0; i < 7; i += 1) {
     const bulbHex = bulbPalette[i % bulbPalette.length] ?? 0xffcf54;
     const bulbMat = new THREE.MeshStandardMaterial({
       color: bulbHex,
       emissive: bulbHex,
-      emissiveIntensity: 1.9,
-      roughness: 0.15,
+      emissiveIntensity: 1.05,
+      roughness: 0.18,
     });
     const zPos = 2.08 - i * 0.84;
     for (const side of [-1.26, 1.26] as const) {
@@ -1375,6 +1441,8 @@ function buildChivaMesh(colorHex: number, accentHex: number): THREE.Group {
       });
     }
   }
+
+  attachContactShadow(group, 2.75, 6.95, 0.58, 0.03);
 
   const rig = attachWheels(
     group,
@@ -1405,10 +1473,10 @@ function buildPoliceMesh(colorHex: number, accentHex: number): THREE.Group {
   const glassMat = createTintedGlassMaterial(0x101324);
   const bumperMat = createCarbonMaterial();
   const safetyStripeMat = new THREE.MeshStandardMaterial({
-    color: 0xd4ff33,
-    emissive: 0x99cc00,
-    emissiveIntensity: 0.55,
-    roughness: 0.25,
+    color: 0xc2e636,
+    emissive: 0x7da318,
+    emissiveIntensity: 0.22,
+    roughness: 0.3,
   });
 
   // Muscular white & emerald-green Policía Nacional patrol SUV silhouette
@@ -1562,6 +1630,7 @@ function buildPoliceMesh(colorHex: number, accentHex: number): THREE.Group {
   );
   const brakeLightMaterials = attachStandardLampPairs(group, 1.02, 2.31, -2.29, 0.78);
   const headlightCones = attachHeadlightCones(group, 0.7, 0.78, 2.35, 4.4, 0.9);
+  attachContactShadow(group, 2.45, 4.95, 0.62, 0.03);
 
   group.userData.redBeacon = redBeacon;
   group.userData.blueBeacon = blueBeacon;
@@ -1607,46 +1676,39 @@ export function createPlayerMesh(): THREE.Group {
     roughness: 0.62,
   });
   const jacketMat = new THREE.MeshPhysicalMaterial({
-    color: 0xff2e93,
-    emissive: 0x450828,
-    emissiveIntensity: 0.28,
-    roughness: 0.36,
-    metalness: 0.18,
-    clearcoat: 0.45,
-    clearcoatRoughness: 0.25,
+    color: 0x9e1c2e,
+    roughness: 0.42,
+    metalness: 0.12,
+    clearcoat: 0.35,
+    clearcoatRoughness: 0.3,
   });
   const cyanStripeMat = new THREE.MeshStandardMaterial({
-    color: 0x00f0ff,
-    emissive: 0x00c8d6,
-    emissiveIntensity: 0.9,
-    roughness: 0.22,
+    color: 0xd9cbb8,
+    roughness: 0.45,
   });
   const innerTopMat = new THREE.MeshStandardMaterial({
-    color: 0xf4f8ff,
-    roughness: 0.48,
+    color: 0xf0ece4,
+    roughness: 0.56,
   });
   const pantsMat = new THREE.MeshStandardMaterial({
-    color: 0x18132b,
+    color: 0x222736,
+    roughness: 0.82,
+    metalness: 0.04,
+  });
+  const sneakerMat = new THREE.MeshStandardMaterial({
+    color: 0xeae8e3,
+    roughness: 0.48,
+  });
+  const soleMat = new THREE.MeshStandardMaterial({
+    color: 0x1b1c22,
+    roughness: 0.88,
+  });
+  const hairMat = new THREE.MeshStandardMaterial({
+    color: 0x1b1412,
     roughness: 0.76,
     metalness: 0.08,
   });
-  const sneakerMat = new THREE.MeshStandardMaterial({
-    color: 0xf3f5fb,
-    roughness: 0.42,
-  });
-  const soleMat = new THREE.MeshStandardMaterial({
-    color: 0x161424,
-    roughness: 0.85,
-  });
-  const hairMat = new THREE.MeshStandardMaterial({
-    color: 0x160e20,
-    roughness: 0.72,
-    metalness: 0.12,
-  });
-  const shadesMat = createTintedGlassMaterial(0x00d9ff, {
-    emissive: 0x00f0ff,
-    emissiveIntensity: 0.65,
-  });
+  const shadesMat = createTintedGlassMaterial(0x11151d);
 
   // Legs with hip pivots, tapered slim pants, and detailed sneakers resting at y = 0
   const thighGeo = new THREE.CylinderGeometry(0.095, 0.078, 0.66, 10);
@@ -1749,11 +1811,364 @@ export function createPlayerMesh(): THREE.Group {
     rx: -0.44,
   });
 
+  attachContactShadow(group, 0.85, 0.85, 0.45, 0.025);
+
   group.userData.leftLeg = leftLegPivot;
   group.userData.rightLeg = rightLegPivot;
   group.userData.leftArm = leftArmPivot;
   group.userData.rightArm = rightArmPivot;
   return group;
+}
+
+function cloneGroupWithMaterials(template: THREE.Group): THREE.Group {
+  const cloned = template.clone(true);
+  const clonedMaterials = new Map<THREE.Material, THREE.Material>();
+  const clonedGeometries = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
+
+  const cloneMat = (mat: THREE.Material): THREE.Material => {
+    const existing = clonedMaterials.get(mat);
+    if (existing) {
+      return existing;
+    }
+    const copy = mat.clone();
+    clonedMaterials.set(mat, copy);
+    return copy;
+  };
+
+  const cloneGeo = (geo: THREE.BufferGeometry): THREE.BufferGeometry => {
+    const existing = clonedGeometries.get(geo);
+    if (existing) {
+      return existing;
+    }
+    const copy = geo.clone();
+    clonedGeometries.set(geo, copy);
+    return copy;
+  };
+
+  cloned.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    if (node.geometry instanceof THREE.BufferGeometry) {
+      node.geometry = cloneGeo(node.geometry);
+    }
+    if (Array.isArray(node.material)) {
+      node.material = node.material.map(cloneMat);
+    } else if (node.material instanceof THREE.Material) {
+      node.material = cloneMat(node.material);
+    }
+  });
+
+  return cloned;
+}
+
+function attachFerrariNitroFlames(parent: THREE.Group): THREE.Group {
+  const nitroFlames = new THREE.Group();
+  nitroFlames.name = 'nitro_flames';
+  nitroFlames.visible = false;
+
+  const outerFlameMat = new THREE.MeshBasicMaterial({
+    color: 0x62b8ff,
+    transparent: true,
+    opacity: 0.72,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const innerFlameMat = new THREE.MeshBasicMaterial({
+    color: 0xffd27a,
+    transparent: true,
+    opacity: 0.9,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+
+  for (const ex of [-0.26, 0.26] as const) {
+    addMesh(nitroFlames, new THREE.ConeGeometry(0.12, 0.95, 10), outerFlameMat, {
+      x: ex,
+      y: 0.36,
+      z: -2.74,
+      rx: -Math.PI / 2,
+      castShadow: false,
+      receiveShadow: false,
+    });
+    addMesh(nitroFlames, new THREE.ConeGeometry(0.065, 0.58, 10), innerFlameMat, {
+      x: ex,
+      y: 0.36,
+      z: -2.56,
+      rx: -Math.PI / 2,
+      castShadow: false,
+      receiveShadow: false,
+    });
+  }
+
+  parent.add(nitroFlames);
+  return nitroFlames;
+}
+
+/**
+ * Builds the player Ferrari 458 Italia from the loaded GLB template: deep-cloned with
+ * independent materials, rotated +180° around Y (nose +Z, quad-taillights -Z), normalized
+ * to 4.55m length resting at y = 0, upgraded to glossy Rosso Corsa clearcoat + smoked glass +
+ * emissive crimson brake lights, rigged with front steering pivots and spinning wheels.
+ */
+export function createFerrariPlayerMesh(ferrariTemplate: THREE.Group): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'vehicle_banshee_ferrari';
+
+  const clonedModel = cloneGroupWithMaterials(ferrariTemplate);
+  const innerGroup = new THREE.Group();
+  innerGroup.name = 'ferrari_model_root';
+  innerGroup.rotation.y = Math.PI;
+  innerGroup.add(clonedModel);
+  group.add(innerGroup);
+
+  const bodyMat = new THREE.MeshPhysicalMaterial({
+    color: 0xb80e24,
+    metalness: 0.65,
+    roughness: 0.15,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.05,
+    envMapIntensity: 1.35,
+  });
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0x0b1017,
+    metalness: 0.25,
+    roughness: 0.06,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.04,
+    transparent: true,
+    opacity: 0.78,
+    envMapIntensity: 1.45,
+  });
+  const brakeLightMat = new THREE.MeshStandardMaterial({
+    color: 0xd90b24,
+    emissive: 0xff1628,
+    emissiveIntensity: 1.35,
+    roughness: 0.14,
+    metalness: 0.2,
+  });
+  const headlightMat = new THREE.MeshStandardMaterial({
+    color: 0xfff8ea,
+    emissive: 0xffecc8,
+    emissiveIntensity: 1.6,
+    roughness: 0.1,
+    metalness: 0.15,
+  });
+
+  const replacedMaterials = new Set<THREE.Material>();
+  const activeMaterials = new Set<THREE.Material>();
+
+  const upgradeMaterial = (
+    nodeName: string,
+    mat: THREE.Material,
+  ): THREE.Material => {
+    const matName = mat.name;
+    if (nodeName === 'body' || matName === 'Body_Color') {
+      replacedMaterials.add(mat);
+      return bodyMat;
+    }
+    if (nodeName === 'glass' || matName === 'Glass_Gray') {
+      replacedMaterials.add(mat);
+      return glassMat;
+    }
+    if (nodeName === 'lights_red' || matName === 'Taillight_Glass') {
+      replacedMaterials.add(mat);
+      return brakeLightMat;
+    }
+    if (
+      nodeName === 'lights' ||
+      nodeName === 'leds' ||
+      matName === 'Projector_Glass'
+    ) {
+      replacedMaterials.add(mat);
+      return headlightMat;
+    }
+    if (mat instanceof THREE.MeshStandardMaterial) {
+      mat.envMapIntensity = Math.max(mat.envMapIntensity, 1.15);
+    }
+    return mat;
+  };
+
+  innerGroup.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    node.castShadow = true;
+    node.receiveShadow = true;
+
+    if (Array.isArray(node.material)) {
+      node.material = node.material.map((m) => upgradeMaterial(node.name, m));
+      for (const m of node.material) {
+        activeMaterials.add(m);
+      }
+    } else if (node.material instanceof THREE.Material) {
+      const upgraded = upgradeMaterial(node.name, node.material);
+      node.material = upgraded;
+      activeMaterials.add(upgraded);
+    }
+  });
+
+  for (const oldMat of replacedMaterials) {
+    if (!activeMaterials.has(oldMat)) {
+      oldMat.dispose();
+    }
+  }
+  for (const upgradedMat of [bodyMat, glassMat, brakeLightMat, headlightMat]) {
+    if (!activeMaterials.has(upgradedMat)) {
+      upgradedMat.dispose();
+    }
+  }
+
+  // Normalize length to ~4.55m and seat tires cleanly on y = 0
+  innerGroup.updateMatrixWorld(true);
+  const rawBox = new THREE.Box3().setFromObject(innerGroup);
+  if (!rawBox.isEmpty()) {
+    const rawSize = rawBox.getSize(new THREE.Vector3());
+    if (rawSize.z > 0.01) {
+      const scaleFactor = FERRARI_TARGET_LENGTH_METERS / rawSize.z;
+      innerGroup.scale.setScalar(scaleFactor);
+    }
+    innerGroup.updateMatrixWorld(true);
+    const scaledBox = new THREE.Box3().setFromObject(innerGroup);
+    const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+    innerGroup.position.set(
+      -scaledCenter.x,
+      -scaledBox.min.y,
+      -scaledCenter.z,
+    );
+  }
+
+  // Rig front steering pivots and all 4 spinning wheels
+  const wheels: THREE.Object3D[] = [];
+  const frontWheels: THREE.Object3D[] = [];
+  const wheelSpecs: readonly { readonly name: string; readonly isFront: boolean }[] = [
+    { name: 'wheel_fl', isFront: true },
+    { name: 'wheel_fr', isFront: true },
+    { name: 'wheel_rl', isFront: false },
+    { name: 'wheel_rr', isFront: false },
+  ];
+
+  for (const spec of wheelSpecs) {
+    const wheelNode = innerGroup.getObjectByName(spec.name);
+    if (!wheelNode) {
+      continue;
+    }
+    wheelNode.userData.spinSign = -1;
+    wheels.push(wheelNode);
+
+    if (spec.isFront && wheelNode.parent) {
+      const originalParent = wheelNode.parent;
+      const steerPivot = new THREE.Group();
+      steerPivot.name = `${spec.name}_steer_pivot`;
+      steerPivot.position.copy(wheelNode.position);
+      wheelNode.position.set(0, 0, 0);
+      originalParent.remove(wheelNode);
+      steerPivot.add(wheelNode);
+      originalParent.add(steerPivot);
+      frontWheels.push(steerPivot);
+    }
+  }
+
+  const headlightCones = attachHeadlightCones(group, 0.72, 0.62, 2.22, 4.8, 0.88);
+  const nitroFlames = attachFerrariNitroFlames(group);
+  attachContactShadow(group, 2.35, 4.9, 0.64, 0.03);
+
+  group.userData.wheels = wheels;
+  group.userData.frontWheels = frontWheels;
+  group.userData.brakeLightMaterials = [brakeLightMat];
+  group.userData.headlightCones = headlightCones;
+  group.userData.nitroFlames = nitroFlames;
+  return group;
+}
+
+function findAnimationClip(
+  clips: readonly THREE.AnimationClip[],
+  expectedName: string,
+): THREE.AnimationClip | undefined {
+  const exact = clips.find((clip) => clip.name === expectedName);
+  if (exact) {
+    return exact;
+  }
+  const lower = expectedName.toLowerCase();
+  return clips.find((clip) => clip.name.toLowerCase() === lower);
+}
+
+/**
+ * Builds the rigged, animated third-person character from the loaded GLB asset, rotated +180°
+ * around Y to walk facing +Z, normalized to 1.78m height resting at y = 0, with Idle/Walk/Run
+ * AnimationActions bound to an AnimationMixer.
+ */
+export function createRiggedCharacterMesh(
+  characterAsset: LoadedCharacterAsset,
+): RiggedCharacterRig {
+  const group = new THREE.Group();
+  group.name = 'player_rigged_character';
+
+  const clonedScene = SkeletonUtils.clone(characterAsset.scene);
+  const innerGroup = new THREE.Group();
+  innerGroup.name = 'character_model_root';
+  innerGroup.rotation.y = Math.PI;
+  innerGroup.add(clonedScene);
+  group.add(innerGroup);
+
+  innerGroup.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    node.castShadow = true;
+    node.receiveShadow = true;
+    node.frustumCulled = false;
+
+    const mats = Array.isArray(node.material) ? node.material : [node.material];
+    for (const mat of mats) {
+      if (mat instanceof THREE.MeshStandardMaterial) {
+        mat.envMapIntensity = Math.max(mat.envMapIntensity, 0.9);
+      }
+    }
+  });
+
+  innerGroup.updateMatrixWorld(true);
+  const rawBox = new THREE.Box3().setFromObject(innerGroup);
+  if (!rawBox.isEmpty()) {
+    const rawSize = rawBox.getSize(new THREE.Vector3());
+    if (rawSize.y > 0.01) {
+      const scaleFactor = CHARACTER_TARGET_HEIGHT_METERS / rawSize.y;
+      innerGroup.scale.setScalar(scaleFactor);
+    }
+    innerGroup.updateMatrixWorld(true);
+    const scaledBox = new THREE.Box3().setFromObject(innerGroup);
+    const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+    innerGroup.position.set(
+      -scaledCenter.x,
+      -scaledBox.min.y,
+      -scaledCenter.z,
+    );
+  }
+
+  attachContactShadow(group, 0.85, 0.85, 0.45, 0.025);
+
+  const mixer = new THREE.AnimationMixer(clonedScene);
+  const idleClip = findAnimationClip(characterAsset.animations, 'Idle');
+  const walkClip = findAnimationClip(characterAsset.animations, 'Walk');
+  const runClip = findAnimationClip(characterAsset.animations, 'Run');
+
+  const idle = idleClip ? mixer.clipAction(idleClip) : undefined;
+  const walk = walkClip ? mixer.clipAction(walkClip) : undefined;
+  const run = runClip ? mixer.clipAction(runClip) : undefined;
+
+  if (idle) {
+    idle.play();
+  }
+
+  return {
+    group,
+    mixer,
+    actions: {
+      ...(idle ? { idle } : {}),
+      ...(walk ? { walk } : {}),
+      ...(run ? { run } : {}),
+    },
+  };
 }
 
 /**

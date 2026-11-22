@@ -1,7 +1,8 @@
 /**
- * Procedural Vice-Sunset Cali sky dome (with drifting FBM sunset clouds & zenith dusk stars),
- * player-tracking 2048px shadow lighting rig, UnrealBloom post-processing, WebGL error type,
- * and dynamic GTA camera rig (speed FOV, drift banking, impact shake).
+ * Photorealistic golden-hour Cali sky dome fallback (with drifting FBM sunset clouds),
+ * player-tracking 2048px soft shadow lighting rig, subtle cinematic HDR UnrealBloom post-processing,
+ * WebGL error type, and GTA V free-orbit chase camera rig (360° mouse look, zoom, auto-recenter,
+ * speed FOV, drift banking, impact shake).
  * Zero network assets and zero mutation of simulation snapshots.
  */
 
@@ -18,15 +19,25 @@ const SUN_DIRECTION = new THREE.Vector3(-0.94, 0.16, -0.14).normalize();
 const SUN_SHADOW_OFFSET = new THREE.Vector3(-152, 76, -24);
 const SHADOW_FRUSTUM_HALF = 72;
 
-const BLOOM_THRESHOLD = 0.86;
-const BLOOM_RADIUS = 0.42;
-const BLOOM_STRENGTH_FULL = 0.5;
-const BLOOM_STRENGTH_REDUCED = 0.28;
+const BLOOM_THRESHOLD = 1.05;
+const BLOOM_RADIUS = 0.35;
+const BLOOM_STRENGTH_FULL = 0.24;
+const BLOOM_STRENGTH_REDUCED = 0.14;
 
 const CHASE_CRUISE_FOV = 58;
 const CHASE_BOOST_FOV = 72;
 const FOV_UPDATE_EPSILON = 0.05;
 const IMPACT_SHAKE_THRESHOLD = 0.15;
+
+const DEFAULT_ORBIT_ZOOM = 6.2;
+const MIN_ORBIT_ZOOM = 4.4;
+const MAX_ORBIT_ZOOM = 11.0;
+const MIN_ORBIT_PITCH = -0.12;
+const MAX_ORBIT_PITCH = 0.62;
+const ORBIT_RECENTER_IDLE_SECONDS = 1.5;
+const ORBIT_RECENTER_MIN_SPEED_MPS = 4.0;
+const ORBIT_RECENTER_DECAY_RATE = 2.6;
+const ORBIT_INPUT_EPSILON = 1e-6;
 
 const SKY_VERTEX_SHADER = `
 varying vec3 vLocalDir;
@@ -95,20 +106,20 @@ void main() {
     skyColor = mix(uUpperMidColor, uZenithColor, smoothstep(0.38, 0.78, h));
   }
 
-  // Forward Mie atmospheric sunset scatter & horizon glow
+  // Forward Mie atmospheric golden-hour scatter & warm horizon glow
   float sunDot = max(dot(dir, sunDir), 0.0);
-  float horizonBand = pow(1.0 - clamp(abs(h), 0.0, 1.0), 4.5);
-  float rayleighGlow = horizonBand * (0.14 + 0.36 * pow(sunDot, 2.0));
-  float mieGlow = pow(sunDot, 5.5) * 0.44;
-  float sunHalo = pow(sunDot, 42.0) * 0.58;
-  float sunCore = smoothstep(0.9965, 0.9988, sunDot);
+  float horizonBand = pow(1.0 - clamp(abs(h), 0.0, 1.0), 4.2);
+  float rayleighGlow = horizonBand * (0.12 + 0.34 * pow(sunDot, 2.0));
+  float mieGlow = pow(sunDot, 5.5) * 0.38;
+  float sunHalo = pow(sunDot, 38.0) * 0.56;
+  float sunCore = smoothstep(0.9968, 0.999, sunDot);
 
-  skyColor += vec3(1.0, 0.42, 0.36) * rayleighGlow;
-  skyColor += vec3(1.0, 0.37, 0.49) * mieGlow;
-  skyColor += vec3(1.0, 0.74, 0.18) * sunHalo;
-  skyColor = mix(skyColor, vec3(1.0, 0.95, 0.76), sunCore);
+  skyColor += vec3(1.0, 0.72, 0.44) * rayleighGlow;
+  skyColor += vec3(1.0, 0.68, 0.42) * mieGlow;
+  skyColor += vec3(1.0, 0.86, 0.56) * sunHalo;
+  skyColor = mix(skyColor, vec3(1.0, 0.96, 0.86), sunCore);
 
-  // Layered procedural FBM sunset clouds drifting across the upper vault
+  // Layered procedural FBM golden-hour clouds drifting across the sky vault
   float cloudAlpha = 0.0;
   if (h > 0.01) {
     vec2 cloudUv = dir.xz / (h + 0.19);
@@ -130,27 +141,27 @@ void main() {
       1.0
     );
 
-    vec3 cloudTopViolet = vec3(0.18, 0.08, 0.31);
-    vec3 cloudCoralEdge = vec3(0.98, 0.38, 0.48);
-    vec3 cloudGoldUnderside = vec3(1.0, 0.78, 0.32);
+    vec3 cloudTopSlate = vec3(0.32, 0.36, 0.48);
+    vec3 cloudApricotEdge = vec3(0.95, 0.65, 0.46);
+    vec3 cloudGoldUnderside = vec3(1.0, 0.88, 0.66);
 
-    vec3 cloudColor = mix(cloudTopViolet, cloudCoralEdge, smoothstep(0.16, 0.62, undersideLight));
+    vec3 cloudColor = mix(cloudTopSlate, cloudApricotEdge, smoothstep(0.18, 0.62, undersideLight));
     cloudColor = mix(
       cloudColor,
       cloudGoldUnderside,
       smoothstep(0.56, 0.96, undersideLight) * (0.45 + 0.55 * pow(sunDot, 1.8))
     );
-    skyColor = mix(skyColor, cloudColor, cloudAlpha * 0.88);
+    skyColor = mix(skyColor, cloudColor, cloudAlpha * 0.84);
   }
 
-  // Subtle twinkling zenith dusk stars emerging above the clouds
-  if (h > 0.22) {
+  // Faint early-dusk stars high in the cerulean zenith
+  if (h > 0.32) {
     vec2 starGrid = floor((dir.xz / (h + 0.18)) * 96.0);
     float starHash = hash21(starGrid);
-    if (starHash > 0.992) {
-      float twinkle = 0.62 + 0.38 * sin(uTime * 1.9 + starHash * 62.83);
-      float zenithMask = smoothstep(0.24, 0.7, h) * (1.0 - cloudAlpha);
-      skyColor += vec3(0.88, 0.93, 1.0) * twinkle * zenithMask * 0.72;
+    if (starHash > 0.995) {
+      float twinkle = 0.68 + 0.32 * sin(uTime * 1.9 + starHash * 62.83);
+      float zenithMask = smoothstep(0.35, 0.78, h) * (1.0 - cloudAlpha);
+      skyColor += vec3(0.92, 0.95, 1.0) * twinkle * zenithMask * 0.32;
     }
   }
 
@@ -185,8 +196,8 @@ function finiteOr(value: number, fallback: number): number {
 }
 
 /**
- * Creates a large BackSide sunset sky sphere with Rayleigh/Mie atmospheric scatter,
- * drifting FBM sunset clouds, zenith dusk stars, and western sun disc behind Cerro Los Cristales.
+ * Creates a large BackSide golden-hour photographic sky dome fallback with Rayleigh/Mie scatter,
+ * drifting FBM sunset clouds, and western sun disc behind Cerro Los Cristales.
  */
 export function createSunsetSkyDome(): THREE.Mesh {
   const skyGeometry = new THREE.SphereGeometry(SKY_RADIUS, 32, 20);
@@ -194,11 +205,11 @@ export function createSunsetSkyDome(): THREE.Mesh {
     vertexShader: SKY_VERTEX_SHADER,
     fragmentShader: SKY_FRAGMENT_SHADER,
     uniforms: {
-      uZenithColor: { value: new THREE.Color(0x120826) },
-      uUpperMidColor: { value: new THREE.Color(0x7a1e6e) },
-      uLowerMidColor: { value: new THREE.Color(0xff5e7e) },
-      uHorizonColor: { value: new THREE.Color(0xffb800) },
-      uGroundColor: { value: new THREE.Color(0x1a0b2e) },
+      uZenithColor: { value: new THREE.Color(0x1f3b6b) },
+      uUpperMidColor: { value: new THREE.Color(0x5c688a) },
+      uLowerMidColor: { value: new THREE.Color(0xe08e68) },
+      uHorizonColor: { value: new THREE.Color(0xffca80) },
+      uGroundColor: { value: new THREE.Color(0x3a322c) },
       uSunDirection: { value: SUN_DIRECTION.clone() },
       uTime: { value: 0 },
     },
@@ -212,9 +223,9 @@ export function createSunsetSkyDome(): THREE.Mesh {
   skyMesh.frustumCulled = false;
 
   const sunDisc = new THREE.Mesh(
-    new THREE.CircleGeometry(34, 32),
+    new THREE.CircleGeometry(30, 32),
     new THREE.MeshBasicMaterial({
-      color: 0xffe082,
+      color: 0xfff2cc,
       fog: false,
       depthWrite: false,
     }),
@@ -225,11 +236,11 @@ export function createSunsetSkyDome(): THREE.Mesh {
   skyMesh.add(sunDisc);
 
   const sunCorona = new THREE.Mesh(
-    new THREE.CircleGeometry(66, 32),
+    new THREE.CircleGeometry(62, 32),
     new THREE.MeshBasicMaterial({
-      color: 0xff5e7e,
+      color: 0xffd996,
       transparent: true,
-      opacity: 0.34,
+      opacity: 0.24,
       blending: THREE.AdditiveBlending,
       fog: false,
       depthWrite: false,
@@ -244,7 +255,7 @@ export function createSunsetSkyDome(): THREE.Mesh {
 }
 
 /**
- * Advances the procedural sky dome shader time uniform to animate drifting sunset clouds and stars.
+ * Advances the procedural sky dome shader time uniform to animate drifting sunset clouds.
  */
 export function updateSkyDomeTime(
   skyDome: THREE.Mesh,
@@ -261,18 +272,19 @@ export function updateSkyDomeTime(
 }
 
 /**
- * Creates Vice-Sunset Cali lighting with a 2048x2048 tight-frustum (±72m) directional sun shadow rig,
- * twilight hemisphere bounce, and cyan/magenta rim fill lights for sculpted PBR clearcoat edges.
+ * Creates naturalistic GTA V golden-hour Cali lighting with a 2048x2048 tight-frustum (±72m)
+ * directional afternoon sun shadow rig, cerulean sky / warm earth hemisphere bounce, and subtle
+ * cool-sky rim fill.
  */
 export function createSunsetLighting(): THREE.Group {
   const lightGroup = new THREE.Group();
   lightGroup.name = 'sunset_lighting';
 
-  const hemisphere = new THREE.HemisphereLight(0xff94b2, 0x241242, 1.0);
+  const hemisphere = new THREE.HemisphereLight(0x9bc4e8, 0x6b5240, 0.9);
   hemisphere.name = 'sunset_hemisphere_light';
   lightGroup.add(hemisphere);
 
-  const sunLight = new THREE.DirectionalLight(0xffbe6b, 2.05);
+  const sunLight = new THREE.DirectionalLight(0xffe0b5, 2.85);
   sunLight.name = 'sunset_key_light';
   sunLight.position.copy(SUN_SHADOW_OFFSET);
   sunLight.castShadow = true;
@@ -290,15 +302,10 @@ export function createSunsetLighting(): THREE.Group {
   lightGroup.add(sunLight.target);
   lightGroup.userData.keyLight = sunLight;
 
-  const cyanFill = new THREE.DirectionalLight(0x00f0ff, 0.5);
-  cyanFill.name = 'sunset_cyan_fill';
-  cyanFill.position.set(145, 70, -100);
-  lightGroup.add(cyanFill);
-
-  const magentaFill = new THREE.DirectionalLight(0xff2e93, 0.36);
-  magentaFill.name = 'sunset_magenta_fill';
-  magentaFill.position.set(95, 42, 145);
-  lightGroup.add(magentaFill);
+  const skyRim = new THREE.DirectionalLight(0x88b4e6, 0.35);
+  skyRim.name = 'sunset_sky_rim';
+  skyRim.position.set(140, 72, 95);
+  lightGroup.add(skyRim);
 
   return lightGroup;
 }
@@ -468,6 +475,71 @@ function getCameraRigState(camera: THREE.PerspectiveCamera): CameraRigState {
   return created;
 }
 
+export interface CameraOrbitState {
+  yawOffset: number;
+  pitchOffset: number;
+  zoomDistance: number;
+  idleSeconds: number;
+}
+
+function wrapRadians(angle: number): number {
+  const twoPi = Math.PI * 2;
+  let wrapped = (angle + Math.PI) % twoPi;
+  if (wrapped < 0) {
+    wrapped += twoPi;
+  }
+  return wrapped - Math.PI;
+}
+
+/**
+ * Creates a fresh GTA V free-orbit camera state centered directly behind the player/vehicle
+ * at the sleek golden-hour default chase zoom distance (6.2m).
+ */
+export function createCameraOrbitState(): CameraOrbitState {
+  return {
+    yawOffset: 0,
+    pitchOffset: 0,
+    zoomDistance: DEFAULT_ORBIT_ZOOM,
+    idleSeconds: 0,
+  };
+}
+
+/**
+ * Applies free-orbit mouse-look & zoom deltas to a CameraOrbitState, clamping pitch to
+ * [-0.12, 0.62], zoomDistance to [4.4, 11.0], allowing full 360° yaw orbit, and resetting
+ * idleSeconds = 0 when input is active.
+ */
+export function applyCameraOrbitInput(
+  state: CameraOrbitState,
+  yawDelta: number,
+  pitchDelta: number,
+  zoomDelta: number,
+): void {
+  const safeYaw = finiteOr(yawDelta, 0);
+  const safePitch = finiteOr(pitchDelta, 0);
+  const safeZoom = finiteOr(zoomDelta, 0);
+
+  state.yawOffset = wrapRadians(finiteOr(state.yawOffset, 0) + safeYaw);
+  state.pitchOffset = THREE.MathUtils.clamp(
+    finiteOr(state.pitchOffset, 0) + safePitch,
+    MIN_ORBIT_PITCH,
+    MAX_ORBIT_PITCH,
+  );
+  state.zoomDistance = THREE.MathUtils.clamp(
+    finiteOr(state.zoomDistance, DEFAULT_ORBIT_ZOOM) + safeZoom,
+    MIN_ORBIT_ZOOM,
+    MAX_ORBIT_ZOOM,
+  );
+
+  if (
+    Math.abs(safeYaw) > ORBIT_INPUT_EPSILON ||
+    Math.abs(safePitch) > ORBIT_INPUT_EPSILON ||
+    Math.abs(safeZoom) > ORBIT_INPUT_EPSILON
+  ) {
+    state.idleSeconds = 0;
+  }
+}
+
 function applyFovIfChanged(
   camera: THREE.PerspectiveCamera,
   nextFov: number,
@@ -480,9 +552,9 @@ function applyFovIfChanged(
 
 /**
  * Smoothly updates a PerspectiveCamera across 'chase', 'cinematic', 'hood', and 'victory_orbit'
- * modes with speed-responsive dynamic FOV (58°..72°), drift banking, and damped collision shake
- * (all motion FX disabled when reducedMotion is true) while guaranteeing finite coordinates and
- * terrain clearance.
+ * modes with GTA V 360° free-orbit mouse-look, zoom, driving auto-recenter, speed-responsive
+ * dynamic FOV (58°..72°), drift banking, and damped collision shake (motion FX disabled when
+ * reducedMotion is true) while guaranteeing finite coordinates and terrain clearance.
  */
 export function updateCameraRig(
   camera: THREE.PerspectiveCamera,
@@ -491,6 +563,7 @@ export function updateCameraRig(
   dt: number,
   orbitAngle: number,
   reducedMotion = false,
+  orbitState?: CameraOrbitState,
 ): void {
   const target = resolveCameraTarget(world);
   const safeOrbit = finiteOr(orbitAngle, 0);
@@ -503,31 +576,87 @@ export function updateCameraRig(
   const absSpeed = Math.abs(target.speedMps);
 
   let targetFov = CHASE_CRUISE_FOV;
-  let posSmoothRate = 7.5;
-  let lookSmoothRate = 10.0;
+  let posSmoothRate = 8.5;
+  let lookSmoothRate = 11.0;
   let clampTerrain = true;
 
   switch (mode) {
     case 'chase': {
-      const baseDist = target.isDriving ? 9.4 : 5.8;
-      const speedPull = target.isDriving ? Math.min(3.4, absSpeed * 0.085) : 0;
-      const boostPull = target.isBoosting && !reducedMotion ? 1.85 : 0;
+      if (orbitState) {
+        orbitState.idleSeconds = finiteOr(orbitState.idleSeconds, 0) + safeDt;
+        if (
+          target.isDriving &&
+          absSpeed > ORBIT_RECENTER_MIN_SPEED_MPS &&
+          orbitState.idleSeconds > ORBIT_RECENTER_IDLE_SECONDS &&
+          safeDt > 0
+        ) {
+          const decay = Math.exp(-ORBIT_RECENTER_DECAY_RATE * safeDt);
+          orbitState.yawOffset = finiteOr(orbitState.yawOffset, 0) * decay;
+          orbitState.pitchOffset = finiteOr(orbitState.pitchOffset, 0) * decay;
+          if (Math.abs(orbitState.yawOffset) < 0.001) {
+            orbitState.yawOffset = 0;
+          }
+          if (Math.abs(orbitState.pitchOffset) < 0.001) {
+            orbitState.pitchOffset = 0;
+          }
+        }
+      }
+
+      const zoomDist = orbitState
+        ? THREE.MathUtils.clamp(
+            finiteOr(orbitState.zoomDistance, DEFAULT_ORBIT_ZOOM),
+            MIN_ORBIT_ZOOM,
+            MAX_ORBIT_ZOOM,
+          )
+        : DEFAULT_ORBIT_ZOOM;
+      const yawOffset = orbitState ? finiteOr(orbitState.yawOffset, 0) : 0;
+      const pitchOffset = orbitState
+        ? THREE.MathUtils.clamp(
+            finiteOr(orbitState.pitchOffset, 0),
+            MIN_ORBIT_PITCH,
+            MAX_ORBIT_PITCH,
+          )
+        : 0;
+
+      const baseDist = target.isDriving
+        ? zoomDist
+        : THREE.MathUtils.clamp(zoomDist * 0.65, 3.0, 7.2);
+      const speedPull = target.isDriving ? Math.min(1.6, absSpeed * 0.045) : 0;
+      const boostPull = target.isBoosting && !reducedMotion ? 1.15 : 0;
       const distance = baseDist + speedPull + boostPull;
-      const height = target.isDriving
-        ? 4.2 + Math.min(1.0, absSpeed * 0.02)
-        : 2.9;
+
+      const chaseHeading = target.heading + yawOffset;
+      const orbitForwardX = Math.sin(chaseHeading);
+      const orbitForwardZ = Math.cos(chaseHeading);
+      const basePitch = target.isDriving ? 0.14 : 0.18;
+      const totalPitch = THREE.MathUtils.clamp(basePitch + pitchOffset, -0.02, 0.92);
+      const pivotY = target.isDriving ? 1.18 : 1.38;
+      const horizDist = distance * Math.cos(totalPitch);
+      const height = pivotY + distance * Math.sin(totalPitch);
 
       SCRATCH_DESIRED_POS.set(
-        target.x - forwardX * distance,
+        target.x - orbitForwardX * horizDist,
         target.y + height,
-        target.z - forwardZ * distance,
+        target.z - orbitForwardZ * horizDist,
       );
-      const lookAhead = target.isDriving ? 6.5 : 3.5;
+
+      const alignFactor = Math.max(0, Math.cos(yawOffset));
+      const lookAhead = (target.isDriving ? 5.5 : 2.2) * alignFactor;
+      const lookHeight = target.isDriving ? 1.38 + 0.12 * alignFactor : 1.42;
       SCRATCH_DESIRED_LOOK.set(
         target.x + forwardX * lookAhead,
-        target.y + (target.isDriving ? 1.55 : 1.45),
+        target.y + lookHeight,
         target.z + forwardZ * lookAhead,
       );
+
+      if (
+        orbitState &&
+        orbitState.idleSeconds < 0.25 &&
+        (Math.abs(yawOffset) > 0.001 || Math.abs(pitchOffset) > 0.001)
+      ) {
+        posSmoothRate = 18;
+        lookSmoothRate = 18;
+      }
 
       if (reducedMotion) {
         targetFov = CHASE_CRUISE_FOV;

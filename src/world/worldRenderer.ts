@@ -1,8 +1,10 @@
 /**
  * Pure presentation WebGL renderer for GTA VI: Cali (La Sucursal del Cielo).
  * Consumes immutable WorldSnapshot and MissionSnapshot objects without mutating simulation state.
- * Wires PMREM sunset reflections, 2048px player-tracking shadows, UnrealBloom post-processing,
- * dynamic vehicle headlights & siren lights, braking taillights, GLSL water/sky, and GPU particles.
+ * Wires local HDRI golden-hour PMREM reflections & sky, 1K photographic PBR city textures,
+ * real Ferrari 458 Italia & rigged animated character GLBs, 2048px player-tracking soft shadows,
+ * subtle HDR UnrealBloom post-processing, GTA V free-orbit camera look, dynamic headlights &
+ * siren lights, braking taillights, GLSL water/sky fallback, and GPU particles.
  */
 
 import * as THREE from 'three';
@@ -15,23 +17,33 @@ import type {
   VehicleSnapshot,
   WorldSnapshot,
 } from '../types/game';
-import { buildCaliWorld } from './caliLandmarks';
+import { loadWorldAssets, type LoadedWorldAssets } from './assetLoader';
+import { applyPhotographicAssets, buildCaliWorld } from './caliLandmarks';
 import { ParticleSystem } from './particles';
-import { createSunsetEnvironmentMap } from './pbrTextures';
+import {
+  bindRenderTargetDisposal,
+  createSunsetEnvironmentMap,
+} from './pbrTextures';
 import {
   WebGLUnavailableError,
+  applyCameraOrbitInput,
+  createCameraOrbitState,
   createPostProcessing,
   createSunsetLighting,
   createSunsetSkyDome,
   updateCameraRig,
   updateShadowFocus,
   updateSkyDomeTime,
+  type CameraOrbitState,
   type PostProcessingRig,
 } from './sceneSetup';
 import {
+  createFerrariPlayerMesh,
   createObjectiveBeacon,
   createPlayerMesh,
+  createRiggedCharacterMesh,
   createVehicleMesh,
+  type RiggedCharacterActions,
 } from './vehicleMeshes';
 
 const HEADLIGHT_LOOK_AHEAD_METERS = 45;
@@ -41,9 +53,14 @@ const BRAKE_DECEL_THRESHOLD_MPS2 = -3.2;
 const DRIFT_SMOKE_MIN_SPEED_MPS = 4.5;
 const COLLISION_SPARK_THRESHOLD = 0.14;
 const COLLISION_SPARK_COOLDOWN_SECONDS = 0.09;
+const CHARACTER_RUN_SPEED_THRESHOLD_MPS = 5.2;
+const CHARACTER_CROSSFADE_SECONDS = 0.22;
+
+type CharacterLocomotionState = 'idle' | 'walk' | 'run';
 
 interface PooledVehicleEntry {
   readonly kind: VehicleKind;
+  readonly usesFerrariModel: boolean;
   readonly mesh: THREE.Group;
 }
 
@@ -161,18 +178,26 @@ export class WorldRenderer {
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly map: CaliMapConfig;
+  private readonly worldGroup: THREE.Group;
   private readonly skyDome: THREE.Mesh;
   private readonly lightingGroup: THREE.Group;
-  private readonly environmentMap: THREE.Texture | null;
+  private environmentMap: THREE.Texture | null;
+  private hdriEnvTexture: THREE.Texture | null = null;
+  private loadedAssets: LoadedWorldAssets | null = null;
+  private ferrariTemplate: THREE.Group | null = null;
   private readonly postProcessing: PostProcessingRig | null;
   private readonly waterMesh: THREE.Mesh;
-  private readonly playerMesh: THREE.Group;
+  private playerMesh: THREE.Group;
+  private characterMixer: THREE.AnimationMixer | null = null;
+  private characterActions: RiggedCharacterActions = {};
+  private activeCharacterState: CharacterLocomotionState = 'idle';
   private readonly objectiveBeacon: THREE.Group;
   private readonly particles: ParticleSystem;
   private readonly headlightSpot: THREE.SpotLight;
   private readonly headlightTarget: THREE.Object3D;
   private readonly vehiclePool = new Map<string, PooledVehicleEntry>();
   private readonly prevSpeeds = new Map<string, number>();
+  private readonly cameraOrbit: CameraOrbitState = createCameraOrbitState();
   private readonly landmarkCount: number;
   private readonly reducedMotion: boolean;
 
@@ -217,7 +242,7 @@ export class WorldRenderer {
     this.renderer.setPixelRatio(pixelRatio);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.12;
+    this.renderer.toneMappingExposure = 1.06;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -229,7 +254,7 @@ export class WorldRenderer {
     this.renderer.setSize(initialWidth, initialHeight, false);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x281140, 0.002);
+    this.scene.fog = new THREE.FogExp2(0xc49576, 0.00145);
 
     this.environmentMap = createSunsetEnvironmentMap(this.renderer);
     if (this.environmentMap) {
@@ -251,8 +276,9 @@ export class WorldRenderer {
     this.scene.add(this.lightingGroup);
 
     const builtWorld = buildCaliWorld(this.map);
+    this.worldGroup = builtWorld.group;
     this.waterMesh = builtWorld.waterMesh;
-    this.scene.add(builtWorld.group);
+    this.scene.add(this.worldGroup);
 
     let count = 0;
     for (const landmark of this.map.landmarks) {
@@ -274,8 +300,8 @@ export class WorldRenderer {
 
     this.headlightSpot = new THREE.SpotLight(
       0xfff1cc,
-      44,
-      62,
+      36,
+      60,
       Math.PI / 5.2,
       0.55,
       1.35,
@@ -298,6 +324,20 @@ export class WorldRenderer {
       initialHeight,
       this.reducedMotion,
     );
+
+    // Load local HDRI sky, 1K photographic city PBR textures, Ferrari 458, and rigged character
+    void this.loadRealWorldAssets();
+  }
+
+  public applyCameraLook(
+    yawDelta: number,
+    pitchDelta: number,
+    zoomDelta: number,
+  ): void {
+    if (this.disposed) {
+      return;
+    }
+    applyCameraOrbitInput(this.cameraOrbit, yawDelta, pitchDelta, zoomDelta);
   }
 
   public sync(
@@ -316,11 +356,13 @@ export class WorldRenderer {
     this.sparkCooldown = Math.max(0, this.sparkCooldown - safeDt);
 
     const animTime = this.reducedMotion ? 0 : this.elapsedSeconds;
-    updateSkyDomeTime(this.skyDome, animTime);
+    if (this.skyDome.visible) {
+      updateSkyDomeTime(this.skyDome, animTime);
+    }
     updateShadowFocus(this.lightingGroup, world.player.x, world.player.z);
 
     this.animateWater(safeDt, animTime);
-    this.syncPlayer(world);
+    this.syncPlayer(world, safeDt);
     this.syncVehicles(world.vehicles, safeDt);
     this.syncPlayerHeadlight(world);
     this.syncCollisionSparks(world);
@@ -334,8 +376,11 @@ export class WorldRenderer {
       safeDt,
       this.orbitAngle,
       this.reducedMotion,
+      this.cameraOrbit,
     );
-    this.skyDome.position.set(this.camera.position.x, 0, this.camera.position.z);
+    if (this.skyDome.visible) {
+      this.skyDome.position.set(this.camera.position.x, 0, this.camera.position.z);
+    }
 
     if (this.postProcessing) {
       this.postProcessing.render();
@@ -370,18 +415,138 @@ export class WorldRenderer {
     }
     this.disposed = true;
 
+    if (this.characterMixer) {
+      this.characterMixer.stopAllAction();
+      this.characterMixer.uncacheRoot(this.characterMixer.getRoot());
+      this.characterMixer = null;
+    }
+    this.characterActions = {};
+
     this.scene.remove(this.particles.group);
     this.particles.dispose();
 
     this.postProcessing?.dispose();
 
+    this.scene.background = null;
     this.scene.environment = null;
+    this.hdriEnvTexture?.dispose();
+    this.hdriEnvTexture = null;
     this.environmentMap?.dispose();
+    this.environmentMap = null;
+
+    this.loadedAssets?.dispose();
+    this.loadedAssets = null;
+    this.ferrariTemplate = null;
 
     disposeObjectTree(this.scene);
     this.vehiclePool.clear();
     this.prevSpeeds.clear();
     this.renderer.dispose();
+  }
+
+  private async loadRealWorldAssets(): Promise<void> {
+    let assets: LoadedWorldAssets;
+    try {
+      assets = await loadWorldAssets();
+    } catch {
+      return;
+    }
+
+    if (this.disposed) {
+      assets.dispose();
+      return;
+    }
+
+    this.loadedAssets = assets;
+
+    if (assets.hdriTexture) {
+      this.applyHdriEnvironment(assets.hdriTexture);
+    }
+
+    applyPhotographicAssets(this.worldGroup, assets.textures);
+
+    if (assets.ferrari) {
+      this.ferrariTemplate = assets.ferrari;
+      this.upgradePooledBansheesToFerrari(assets.ferrari);
+    }
+
+    if (assets.character) {
+      this.upgradePlayerToRiggedCharacter(assets.character);
+    }
+  }
+
+  private applyHdriEnvironment(hdriTexture: THREE.DataTexture): void {
+    let pmrem: THREE.PMREMGenerator | null = null;
+    try {
+      if (!this.renderer.getContext()) {
+        return;
+      }
+      pmrem = new THREE.PMREMGenerator(this.renderer);
+      pmrem.compileEquirectangularShader();
+      const renderTarget = pmrem.fromEquirectangular(hdriTexture);
+      const envTex = bindRenderTargetDisposal(renderTarget);
+
+      this.hdriEnvTexture = envTex;
+      this.scene.background = envTex;
+      this.scene.backgroundBlurriness = 0.015;
+      this.scene.environment = envTex;
+      this.scene.environmentIntensity = 1.15;
+      this.skyDome.visible = false;
+
+      if (this.environmentMap) {
+        this.environmentMap.dispose();
+        this.environmentMap = null;
+      }
+    } catch {
+      // Keep procedural sunset sky dome & fallback PMREM environment map
+    } finally {
+      pmrem?.dispose();
+    }
+  }
+
+  private upgradePooledBansheesToFerrari(ferrariTemplate: THREE.Group): void {
+    for (const [id, entry] of this.vehiclePool.entries()) {
+      if (entry.kind !== 'banshee' || entry.usesFerrariModel) {
+        continue;
+      }
+      const ferrariMesh = createFerrariPlayerMesh(ferrariTemplate);
+      ferrariMesh.position.copy(entry.mesh.position);
+      ferrariMesh.rotation.copy(entry.mesh.rotation);
+      ferrariMesh.visible = entry.mesh.visible;
+
+      this.scene.remove(entry.mesh);
+      disposeObjectTree(entry.mesh);
+      this.scene.add(ferrariMesh);
+      this.vehiclePool.set(id, {
+        kind: entry.kind,
+        usesFerrariModel: true,
+        mesh: ferrariMesh,
+      });
+    }
+  }
+
+  private upgradePlayerToRiggedCharacter(
+    characterAsset: NonNullable<LoadedWorldAssets['character']>,
+  ): void {
+    const rig = createRiggedCharacterMesh(characterAsset);
+    rig.group.position.copy(this.playerMesh.position);
+    rig.group.rotation.copy(this.playerMesh.rotation);
+    rig.group.visible = this.playerMesh.visible;
+
+    const previousMesh = this.playerMesh;
+    this.scene.remove(previousMesh);
+    disposeObjectTree(previousMesh);
+
+    if (this.characterMixer) {
+      this.characterMixer.stopAllAction();
+      this.characterMixer.uncacheRoot(this.characterMixer.getRoot());
+    }
+
+    this.playerMesh = rig.group;
+    this.characterMixer = rig.mixer;
+    this.characterActions = rig.actions;
+    this.activeCharacterState = 'idle';
+    this.scene.add(this.playerMesh);
   }
 
   private animateWater(dt: number, animTime: number): void {
@@ -404,7 +569,7 @@ export class WorldRenderer {
     }
   }
 
-  private syncPlayer(world: WorldSnapshot): void {
+  private syncPlayer(world: WorldSnapshot, dt: number): void {
     const { player } = world;
     const isOnFoot = player.mode === 'on_foot';
     this.playerMesh.visible = isOnFoot;
@@ -415,7 +580,33 @@ export class WorldRenderer {
     this.playerMesh.position.set(player.x, player.y, player.z);
     this.playerMesh.rotation.y = player.heading;
 
-    const moving = Math.abs(player.speedMps) > 0.35;
+    const absSpeed = Math.abs(player.speedMps);
+
+    if (this.characterMixer) {
+      const targetState: CharacterLocomotionState =
+        absSpeed <= 0.35
+          ? 'idle'
+          : player.isSprinting || absSpeed > CHARACTER_RUN_SPEED_THRESHOLD_MPS
+            ? 'run'
+            : 'walk';
+
+      if (targetState !== this.activeCharacterState) {
+        const prevAction = this.characterActions[this.activeCharacterState];
+        const nextAction = this.characterActions[targetState];
+        if (nextAction) {
+          nextAction.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
+          if (prevAction && prevAction !== nextAction) {
+            prevAction.crossFadeTo(nextAction, CHARACTER_CROSSFADE_SECONDS, false);
+          }
+        }
+        this.activeCharacterState = targetState;
+      }
+
+      this.characterMixer.update(this.reducedMotion ? 0 : dt);
+      return;
+    }
+
+    const moving = absSpeed > 0.35;
     const swingRate = player.isSprinting ? 14 : 9;
     const swingAmp = moving && !this.reducedMotion ? 0.55 : 0;
     const swing = Math.sin(this.elapsedSeconds * swingRate) * swingAmp;
@@ -513,18 +704,31 @@ export class WorldRenderer {
       activeIds.add(vehicle.id);
       let entry = this.vehiclePool.get(vehicle.id);
 
-      if (!entry || entry.kind !== vehicle.kind) {
+      const shouldUseFerrari =
+        vehicle.kind === 'banshee' && this.ferrariTemplate !== null;
+      if (
+        !entry ||
+        entry.kind !== vehicle.kind ||
+        entry.usesFerrariModel !== shouldUseFerrari
+      ) {
         if (entry) {
           this.scene.remove(entry.mesh);
           disposeObjectTree(entry.mesh);
         }
-        const createdMesh = createVehicleMesh(
-          vehicle.kind,
-          vehicle.colorHex,
-          vehicle.accentHex,
-        );
+        const createdMesh =
+          shouldUseFerrari && this.ferrariTemplate
+            ? createFerrariPlayerMesh(this.ferrariTemplate)
+            : createVehicleMesh(
+                vehicle.kind,
+                vehicle.colorHex,
+                vehicle.accentHex,
+              );
         this.scene.add(createdMesh);
-        entry = { kind: vehicle.kind, mesh: createdMesh };
+        entry = {
+          kind: vehicle.kind,
+          usesFerrariModel: shouldUseFerrari,
+          mesh: createdMesh,
+        };
         this.vehiclePool.set(vehicle.id, entry);
       }
 
@@ -598,7 +802,11 @@ export class WorldRenderer {
     if (wheels) {
       const spinDelta = vehicle.speedMps * dt * 2.4;
       for (const wheel of wheels) {
-        wheel.rotation.x += spinDelta;
+        const spinSign =
+          typeof wheel.userData.spinSign === 'number'
+            ? wheel.userData.spinSign
+            : 1;
+        wheel.rotation.x += spinDelta * spinSign;
       }
     }
 

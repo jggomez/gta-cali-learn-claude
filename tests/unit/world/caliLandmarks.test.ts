@@ -6,9 +6,19 @@ import type {
   VehicleKind,
   WorldSnapshot,
 } from '../../../src/types/game';
-import { buildCaliWorld } from '../../../src/world/caliLandmarks';
+import {
+  applyPhotographicAssets,
+  buildCaliWorld,
+} from '../../../src/world/caliLandmarks';
+import type {
+  LoadedCharacterAsset,
+  LoadedWorldTextureSets,
+  PhotoPbrMaterialMaps,
+} from '../../../src/world/assetLoader';
 import {
   WebGLUnavailableError,
+  applyCameraOrbitInput,
+  createCameraOrbitState,
   createSunsetLighting,
   createSunsetSkyDome,
   updateCameraRig,
@@ -16,8 +26,10 @@ import {
   updateSkyDomeTime,
 } from '../../../src/world/sceneSetup';
 import {
+  createFerrariPlayerMesh,
   createObjectiveBeacon,
   createPlayerMesh,
+  createRiggedCharacterMesh,
   createVehicleMesh,
 } from '../../../src/world/vehicleMeshes';
 import {
@@ -542,5 +554,290 @@ describe('cinematic sky and shadow helpers', () => {
     expect(pointsMatSpy).toHaveBeenCalledTimes(1);
     expect(lineGeoSpy).toHaveBeenCalledTimes(1);
     expect(lineMatSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+function createMockPbrMaps(): PhotoPbrMaterialMaps {
+  const map = new THREE.DataTexture(new Uint8Array(16), 2, 2);
+  const normalMap = new THREE.DataTexture(new Uint8Array(16), 2, 2);
+  const roughnessMap = new THREE.DataTexture(new Uint8Array(16), 2, 2);
+  return {
+    map,
+    normalMap,
+    roughnessMap,
+    dispose() {
+      map.dispose();
+      normalMap.dispose();
+      roughnessMap.dispose();
+    },
+  };
+}
+
+function createMockFerrariTemplate(): THREE.Group {
+  const root = new THREE.Group();
+  root.name = 'RootNode';
+
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+  bodyMat.name = 'Body_Color';
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.9, 4.2), bodyMat);
+  body.name = 'body';
+  body.position.set(0, 0.72, 0);
+  root.add(body);
+
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+  glassMat.name = 'Glass_Gray';
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.4, 1.8), glassMat);
+  glass.name = 'glass';
+  glass.position.set(0, 1.05, 0);
+  root.add(glass);
+
+  const tailMat = new THREE.MeshStandardMaterial({ color: 0xaa0000 });
+  tailMat.name = 'Taillight_Glass';
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.15, 0.1), tailMat);
+  tail.name = 'lights_red';
+  tail.position.set(0, 0.75, 2.08);
+  root.add(tail);
+
+  const headMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+  headMat.name = 'Projector_Glass';
+  const head = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.15, 0.1), headMat);
+  head.name = 'lights';
+  head.position.set(0, 0.65, -2.08);
+  root.add(head);
+
+  const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.28, 12);
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+  const wheelPositions: readonly [string, number, number, number][] = [
+    ['wheel_fl', -0.84, 0.35, -1.2],
+    ['wheel_fr', 0.84, 0.35, -1.2],
+    ['wheel_rl', -0.84, 0.35, 1.4],
+    ['wheel_rr', 0.84, 0.35, 1.4],
+  ];
+
+  for (const [name, x, y, z] of wheelPositions) {
+    const wheelGroup = new THREE.Group();
+    wheelGroup.name = name;
+    wheelGroup.position.set(x, y, z);
+    wheelGroup.rotation.x = -Math.PI / 2;
+    const tireMesh = new THREE.Mesh(wheelGeo, wheelMat);
+    tireMesh.name = 'tire';
+    wheelGroup.add(tireMesh);
+    root.add(wheelGroup);
+  }
+
+  return root;
+}
+
+function createMockCharacterAsset(): LoadedCharacterAsset {
+  const scene = new THREE.Group();
+  scene.name = 'Character';
+
+  const bodyMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 1.9, 0.35),
+    new THREE.MeshStandardMaterial({ color: 0x555555 }),
+  );
+  bodyMesh.name = 'vanguard_Mesh';
+  bodyMesh.position.set(0, 0.95, 0);
+  scene.add(bodyMesh);
+
+  const makeClip = (name: string) =>
+    new THREE.AnimationClip(name, 1.0, [
+      new THREE.NumberKeyframeTrack('vanguard_Mesh.position[1]', [0, 0.5, 1], [0.95, 1.0, 0.95]),
+    ]);
+
+  return {
+    scene,
+    animations: [
+      makeClip('Idle'),
+      makeClip('Walk'),
+      makeClip('Run'),
+      makeClip('TPose'),
+    ],
+  };
+}
+
+describe('photorealistic golden-hour lighting, free-orbit camera, photographic PBR, and real GLB rigs', () => {
+  it('uses naturalistic golden-hour sun, sky-earth hemisphere, and cool-sky rim without neon fills', () => {
+    const lighting = createSunsetLighting();
+    const keyLight = lighting.getObjectByName('sunset_key_light') as THREE.DirectionalLight | undefined;
+    const hemi = lighting.getObjectByName('sunset_hemisphere_light') as THREE.HemisphereLight | undefined;
+    const skyRim = lighting.getObjectByName('sunset_sky_rim') as THREE.DirectionalLight | undefined;
+
+    expect(keyLight).toBeInstanceOf(THREE.DirectionalLight);
+    expect(keyLight?.color.getHex()).toBe(0xffe0b5);
+    expect(keyLight?.intensity).toBeCloseTo(2.85, 2);
+
+    expect(hemi).toBeInstanceOf(THREE.HemisphereLight);
+    expect(hemi?.color.getHex()).toBe(0x9bc4e8);
+    expect(hemi?.groundColor.getHex()).toBe(0x6b5240);
+
+    expect(skyRim).toBeInstanceOf(THREE.DirectionalLight);
+    expect(skyRim?.color.getHex()).toBe(0x88b4e6);
+    expect(lighting.getObjectByName('sunset_cyan_fill')).toBeUndefined();
+    expect(lighting.getObjectByName('sunset_magenta_fill')).toBeUndefined();
+  });
+
+  it('clamps CameraOrbitState pitch and zoom, resets idleSeconds, and auto-recenters while driving', () => {
+    const orbit = createCameraOrbitState();
+    expect(orbit.yawOffset).toBe(0);
+    expect(orbit.pitchOffset).toBe(0);
+    expect(orbit.zoomDistance).toBeCloseTo(6.2, 2);
+
+    orbit.idleSeconds = 4.2;
+    applyCameraOrbitInput(orbit, Math.PI * 0.5, 5.0, -50);
+    expect(orbit.pitchOffset).toBeCloseTo(0.62, 4);
+    expect(orbit.zoomDistance).toBeCloseTo(4.4, 4);
+    expect(orbit.idleSeconds).toBe(0);
+
+    applyCameraOrbitInput(orbit, 0, -5.0, 50);
+    expect(orbit.pitchOffset).toBeCloseTo(-0.12, 4);
+    expect(orbit.zoomDistance).toBeCloseTo(11.0, 4);
+
+    // Non-finite deltas must not corrupt camera orbit state
+    applyCameraOrbitInput(orbit, Number.NaN, Number.POSITIVE_INFINITY, Number.NaN);
+    expect(Number.isFinite(orbit.yawOffset)).toBe(true);
+    expect(Number.isFinite(orbit.pitchOffset)).toBe(true);
+    expect(Number.isFinite(orbit.zoomDistance)).toBe(true);
+
+    // Driving above 4 m/s after > 1.5s idle smoothly decays yawOffset & pitchOffset toward 0
+    orbit.yawOffset = 1.1;
+    orbit.pitchOffset = 0.35;
+    orbit.idleSeconds = 0;
+
+    const camera = new THREE.PerspectiveCamera(58, 16 / 9, 0.4, 900);
+    const drivingWorld = createSampleWorld();
+
+    // During first 1.0s idle, orbit offset remains preserved
+    for (let i = 0; i < 10; i += 1) {
+      updateCameraRig(camera, drivingWorld, 'chase', 0.1, i * 0.1, false, orbit);
+    }
+    expect(orbit.yawOffset).toBeCloseTo(1.1, 3);
+    expect(orbit.pitchOffset).toBeCloseTo(0.35, 3);
+
+    // After > 1.5s idle while driving, offsets smoothly decay toward 0
+    for (let i = 0; i < 30; i += 1) {
+      updateCameraRig(camera, drivingWorld, 'chase', 0.1, 1.0 + i * 0.1, false, orbit);
+    }
+    expect(Math.abs(orbit.yawOffset)).toBeLessThan(0.25);
+    expect(Math.abs(orbit.pitchOffset)).toBeLessThan(0.1);
+  });
+
+  it('upgrades all 10 Cali surface roles in-place via applyPhotographicAssets and handles null slots safely', () => {
+    const { group } = buildCaliWorld(CALI_MAP);
+    const textures: LoadedWorldTextureSets = {
+      asphalt: createMockPbrMaps(),
+      sidewalk: createMockPbrMaps(),
+      terrain: createMockPbrMaps(),
+      plaster: createMockPbrMaps(),
+      roof: createMockPbrMaps(),
+      facade: createMockPbrMaps(),
+      palmBark: createMockPbrMaps(),
+      palmLeaves: createMockPbrMaps(),
+      jacarandaBark: createMockPbrMaps(),
+      jacarandaLeaves: createMockPbrMaps(),
+    };
+
+    applyPhotographicAssets(group, textures);
+
+    const upgradedMaps = new Set<THREE.Texture>();
+    group.traverse((node) => {
+      if (!(node instanceof THREE.Mesh)) {
+        return;
+      }
+      const mats = Array.isArray(node.material) ? node.material : [node.material];
+      for (const mat of mats) {
+        if (mat instanceof THREE.MeshStandardMaterial && mat.map && mat.normalMap && mat.roughnessMap) {
+          upgradedMaps.add(mat.map);
+        }
+      }
+    });
+
+    for (const texSet of Object.values(textures)) {
+      expect(texSet).not.toBeNull();
+      expect(upgradedMaps.has(texSet!.map)).toBe(true);
+    }
+
+    // All-null texture sets must be a safe no-op
+    const nullTextures: LoadedWorldTextureSets = {
+      asphalt: null,
+      sidewalk: null,
+      terrain: null,
+      plaster: null,
+      roof: null,
+      facade: null,
+      palmBark: null,
+      palmLeaves: null,
+      jacarandaBark: null,
+      jacarandaLeaves: null,
+    };
+    expect(() => applyPhotographicAssets(group, nullTextures)).not.toThrow();
+
+    disposeObjectTree(group);
+    for (const texSet of Object.values(textures)) {
+      texSet?.dispose();
+    }
+  });
+
+  it('builds a properly oriented, scaled, wheel-rigged Rosso Corsa Ferrari mesh without mutating template', () => {
+    const template = createMockFerrariTemplate();
+    const originalBody = template.getObjectByName('body') as THREE.Mesh;
+    const originalBodyMat = originalBody.material;
+
+    const ferrari = createFerrariPlayerMesh(template);
+    expect(ferrari).toBeInstanceOf(THREE.Group);
+
+    // Template must remain untouched
+    expect(originalBody.material).toBe(originalBodyMat);
+
+    // Inner model normalized to ~4.55m length and grounded at y = 0
+    const bodyClone = ferrari.getObjectByName('body') as THREE.Mesh | undefined;
+    expect(bodyClone).toBeInstanceOf(THREE.Mesh);
+    expect(bodyClone?.material).toBeInstanceOf(THREE.MeshPhysicalMaterial);
+    const bodyMat = bodyClone?.material as THREE.MeshPhysicalMaterial;
+    expect(bodyMat.color.getHex()).toBe(0xb80e24);
+    expect(bodyMat.clearcoat).toBe(1.0);
+    expect(bodyClone?.castShadow).toBe(true);
+    expect(bodyClone?.receiveShadow).toBe(true);
+
+    const chassisBox = new THREE.Box3().setFromObject(bodyClone!);
+    expect(chassisBox.max.z - chassisBox.min.z).toBeGreaterThan(4.2);
+    expect(chassisBox.max.z - chassisBox.min.z).toBeLessThan(4.9);
+
+    const wheels = ferrari.userData.wheels as THREE.Object3D[] | undefined;
+    const frontWheels = ferrari.userData.frontWheels as THREE.Object3D[] | undefined;
+    const brakeLights = ferrari.userData.brakeLightMaterials as THREE.MeshStandardMaterial[] | undefined;
+    expect(wheels?.length).toBe(4);
+    expect(frontWheels?.length).toBe(2);
+    expect(brakeLights?.length).toBeGreaterThanOrEqual(1);
+    expect(ferrari.userData.headlightCones).toBeInstanceOf(THREE.Object3D);
+    expect(ferrari.userData.nitroFlames).toBeInstanceOf(THREE.Object3D);
+
+    disposeObjectTree(ferrari);
+    disposeObjectTree(template);
+  });
+
+  it('builds a normalized, grounded, animated rigged character mesh with Idle/Walk/Run actions', () => {
+    const asset = createMockCharacterAsset();
+    const rig = createRiggedCharacterMesh(asset);
+
+    expect(rig.group).toBeInstanceOf(THREE.Group);
+    expect(rig.mixer).toBeInstanceOf(THREE.AnimationMixer);
+    expect(rig.actions.idle).toBeDefined();
+    expect(rig.actions.walk).toBeDefined();
+    expect(rig.actions.run).toBeDefined();
+    expect(rig.actions.idle?.isRunning()).toBe(true);
+
+    const bodyClone = rig.group.getObjectByName('vanguard_Mesh') as THREE.Mesh | undefined;
+    expect(bodyClone).toBeInstanceOf(THREE.Mesh);
+    expect(bodyClone?.castShadow).toBe(true);
+
+    const box = new THREE.Box3().setFromObject(bodyClone!);
+    expect(box.min.y).toBeCloseTo(0, 2);
+    expect(box.max.y - box.min.y).toBeCloseTo(1.78, 2);
+
+    rig.mixer.stopAllAction();
+    rig.mixer.uncacheRoot(rig.mixer.getRoot());
+    disposeObjectTree(rig.group);
+    disposeObjectTree(asset.scene);
   });
 });

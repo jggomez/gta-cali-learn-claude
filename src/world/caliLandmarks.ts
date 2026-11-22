@@ -1,12 +1,12 @@
 /**
- * Procedural 3D Santiago de Cali world builder:
+ * Photorealistic 3D Santiago de Cali world builder:
  * - Displaced Andean hillside & valley terrain from getTerrainElevation()
- * - Animated GLSL Fresnel-reflective Río Cali corridor and neon-railed twin bridge decks
- * - Wet-sheen PBR asphalt roads with UV-scaled lane lines, zebra crosswalks, and raised sidewalks
- * - Cantilevered traffic signals, warm streetlamps with soft ground light pools, and Cali neon signs
- * - Cached PBR architectural buildings (colonial stucco, modern glass, downtown midrise) + rooftops
- * - 6 enhanced iconic named Cali landmarks + two-tier tropical palm trees
- * 100% procedural (zero network fetches; safe in headless Node tests).
+ * - Animated GLSL Fresnel-reflective Río Cali corridor and architectural concrete/steel bridges
+ * - Photographic 1K PBR asphalt roads with crisp road stripes, zebra crosswalks, and concrete sidewalks
+ * - Cantilevered traffic signals, warm streetlamps, and boutique Cali signage
+ * - Architectural buildings (San Antonio stucco + clay tile roofs, downtown masonry + reflective glass)
+ * - 6 iconic named Cali landmarks + curved tropical palms & flowering Cali Jacarandas
+ * - `applyPhotographicAssets()` in-place PBR texture upgrade (safe in headless Node tests).
  */
 
 import * as THREE from 'three';
@@ -19,6 +19,7 @@ import type {
   RiverCorridor,
   Vec2,
 } from '../types/game';
+import type { LoadedWorldTextureSets, PhotoPbrMaterialMaps } from './assetLoader';
 import {
   createAsphaltTextures,
   createBuildingFacadeTextures,
@@ -30,6 +31,18 @@ import {
   type BuildingFacadeTextureSet,
   type SidewalkTextureSet,
 } from './pbrTextures';
+
+export type SurfaceRole =
+  | 'asphalt'
+  | 'sidewalk'
+  | 'terrain'
+  | 'plaster'
+  | 'roof'
+  | 'facade'
+  | 'palm_bark'
+  | 'palm_leaves'
+  | 'jacaranda_bark'
+  | 'jacaranda_leaves';
 
 const TERRAIN_EXTENT = 520;
 const TERRAIN_SEGMENTS = 104;
@@ -232,13 +245,13 @@ function buildTerrainMesh(map: CaliMapConfig): THREE.Mesh {
   const colors = new Float32Array(posAttr.count * 3);
   const color = new THREE.Color();
 
-  const urbanDark = new THREE.Color(0x1b1530);
-  const urbanAlt = new THREE.Color(0x231b3d);
-  const parkGreen = new THREE.Color(0x1f4e3e);
-  const hillsideGreen = new THREE.Color(0x246645);
-  const crestGreen = new THREE.Color(0x4a8e4e);
-  const colonialEarth = new THREE.Color(0x2f5446);
-  const riverBed = new THREE.Color(0x0b253a);
+  const urbanDark = new THREE.Color(0x5d5b54);
+  const urbanAlt = new THREE.Color(0x6b675d);
+  const parkGreen = new THREE.Color(0x4b7441);
+  const hillsideGreen = new THREE.Color(0x4c743d);
+  const crestGreen = new THREE.Color(0x7d8e50);
+  const colonialEarth = new THREE.Color(0x7a6c57);
+  const riverBed = new THREE.Color(0x233834);
 
   const { river } = map;
 
@@ -277,14 +290,16 @@ function buildTerrainMesh(map: CaliMapConfig): THREE.Mesh {
 
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.92,
-    metalness: 0.04,
-    flatShading: true,
+    roughness: 0.96,
+    metalness: 0.02,
+    flatShading: false,
   });
+  material.userData.surfaceRole = 'terrain' satisfies SurfaceRole;
 
   const terrain = new THREE.Mesh(geometry, material);
   terrain.name = 'cali_terrain';
   terrain.receiveShadow = true;
+  terrain.userData.surfaceRole = 'terrain' satisfies SurfaceRole;
   return terrain;
 }
 
@@ -305,18 +320,41 @@ function buildRiverAndBridges(map: CaliMapConfig): {
   const waterGeometry = new THREE.PlaneGeometry(riverWidth, riverLength, 16, 80);
   waterGeometry.rotateX(-Math.PI / 2);
   const waterMaterial = createWaterShaderMaterial();
+  // Tune Río Cali shader to realistic golden-hour Andean river & warm-sky Fresnel reflections
+  const deepUniform = waterMaterial.uniforms.uDeepColor;
+  if (deepUniform?.value instanceof THREE.Color) {
+    deepUniform.value.setHex(0x10282c);
+  }
+  const shallowUniform = waterMaterial.uniforms.uShallowColor;
+  if (shallowUniform?.value instanceof THREE.Color) {
+    shallowUniform.value.setHex(0x234f4a);
+  }
+  const horizonUniform = waterMaterial.uniforms.uSkyHorizonColor;
+  if (horizonUniform?.value instanceof THREE.Color) {
+    horizonUniform.value.setHex(0xf2bc84);
+  }
+  const zenithUniform = waterMaterial.uniforms.uSkyZenithColor;
+  if (zenithUniform?.value instanceof THREE.Color) {
+    zenithUniform.value.setHex(0x2c4a76);
+  }
+  const sunUniform = waterMaterial.uniforms.uSunDirection;
+  if (sunUniform?.value instanceof THREE.Vector3) {
+    sunUniform.value.set(-0.94, 0.16, -0.14).normalize();
+  }
 
   const waterMesh = new THREE.Mesh(waterGeometry, waterMaterial);
   waterMesh.name = 'rio_cali_water';
   waterMesh.position.set(riverCenterX, river.waterLevel, riverCenterZ);
   riverGroup.add(waterMesh);
 
-  // River concrete embankments + golden promenade edge strip on Bulevar side
+  // River concrete embankments + sandstone promenade coping along Bulevar del Río
   const bankMat = new THREE.MeshStandardMaterial({
-    color: 0x342a4f,
-    roughness: 0.84,
-    metalness: 0.08,
+    color: 0x827d75,
+    roughness: 0.9,
+    metalness: 0.04,
   });
+  bankMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
+
   const westBank = new THREE.Mesh(
     new THREE.BoxGeometry(1.6, 2.2, riverLength),
     bankMat,
@@ -324,6 +362,7 @@ function buildRiverAndBridges(map: CaliMapConfig): {
   westBank.position.set(river.minX - 0.55, -0.8, riverCenterZ);
   westBank.castShadow = true;
   westBank.receiveShadow = true;
+  westBank.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
   riverGroup.add(westBank);
 
   const eastBank = new THREE.Mesh(
@@ -333,39 +372,49 @@ function buildRiverAndBridges(map: CaliMapConfig): {
   eastBank.position.set(river.maxX + 0.55, -0.8, riverCenterZ);
   eastBank.castShadow = true;
   eastBank.receiveShadow = true;
+  eastBank.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
   riverGroup.add(eastBank);
 
   const bulevarTrim = new THREE.Mesh(
     new THREE.BoxGeometry(0.45, 0.24, 110),
     new THREE.MeshStandardMaterial({
-      color: 0xffb800,
-      emissive: 0xffb800,
-      emissiveIntensity: 1.15,
-      roughness: 0.3,
+      color: 0xc9b492,
+      emissive: 0xffb35c,
+      emissiveIntensity: 0.18,
+      roughness: 0.65,
     }),
   );
   bulevarTrim.position.set(river.minX - 0.6, 0.36, 16);
   riverGroup.add(bulevarTrim);
 
-  // Twin raised bridges with glowing neon-cyan railings
+  // Twin raised bridges with weathered concrete piers and architectural steel railings
   const bridgesGroup = new THREE.Group();
   bridgesGroup.name = 'cali_bridges';
 
   const deckMat = new THREE.MeshStandardMaterial({
-    color: 0x26213d,
-    roughness: 0.82,
-    metalness: 0.1,
+    color: 0x3b3a38,
+    roughness: 0.88,
+    metalness: 0.05,
   });
+  deckMat.userData.surfaceRole = 'asphalt' satisfies SurfaceRole;
+
   const concreteMat = new THREE.MeshStandardMaterial({
-    color: 0x4b426b,
-    roughness: 0.78,
-    metalness: 0.08,
+    color: 0x8e887f,
+    roughness: 0.88,
+    metalness: 0.05,
   });
-  const neonRailMat = new THREE.MeshStandardMaterial({
-    color: 0x3ef4ff,
-    emissive: 0x00f0ff,
-    emissiveIntensity: 1.55,
-    roughness: 0.18,
+  concreteMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
+
+  const steelRailMat = new THREE.MeshStandardMaterial({
+    color: 0x282d36,
+    roughness: 0.34,
+    metalness: 0.72,
+  });
+  const warmLanternMat = new THREE.MeshStandardMaterial({
+    color: 0xffd796,
+    emissive: 0xffb95e,
+    emissiveIntensity: 0.9,
+    roughness: 0.24,
   });
 
   for (const bridge of river.bridges) {
@@ -384,6 +433,7 @@ function buildRiverAndBridges(map: CaliMapConfig): {
     deck.position.set(cx, bridge.deckElevation - 0.25, cz);
     deck.castShadow = true;
     deck.receiveShadow = true;
+    deck.userData.surfaceRole = 'asphalt' satisfies SurfaceRole;
     bridgeNode.add(deck);
 
     // Support piers down into riverbed
@@ -395,10 +445,11 @@ function buildRiverAndBridges(map: CaliMapConfig): {
       pier.position.set(pierX, bridge.deckElevation - 1.5, cz);
       pier.castShadow = true;
       pier.receiveShadow = true;
+      pier.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
       bridgeNode.add(pier);
     }
 
-    // Raised concrete curbs & glowing neon-cyan railings on both bridge sides
+    // Raised concrete curbs & dark architectural steel railings on both bridge sides
     for (const sideSign of [-1, 1] as const) {
       const railZ = cz + sideSign * (spanZ * 0.5 - 0.45);
       const curb = new THREE.Mesh(
@@ -408,16 +459,17 @@ function buildRiverAndBridges(map: CaliMapConfig): {
       curb.position.set(cx, bridge.deckElevation + 0.35, railZ);
       curb.castShadow = true;
       curb.receiveShadow = true;
+      curb.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
       bridgeNode.add(curb);
 
-      const neonRail = new THREE.Mesh(
-        new THREE.BoxGeometry(spanX + 0.4, 0.22, 0.22),
-        neonRailMat,
+      const bridgeRail = new THREE.Mesh(
+        new THREE.BoxGeometry(spanX + 0.4, 0.16, 0.16),
+        steelRailMat,
       );
-      neonRail.position.set(cx, bridge.deckElevation + 0.92, railZ);
-      bridgeNode.add(neonRail);
+      bridgeRail.position.set(cx, bridge.deckElevation + 0.92, railZ);
+      bridgeNode.add(bridgeRail);
 
-      // Glowing corner bridge pylons
+      // Corner concrete bridge pylons with subtle warm amber lanterns
       for (const endSign of [-1, 1] as const) {
         const pylonX = cx + endSign * (spanX * 0.5 - 0.8);
         const pylon = new THREE.Mesh(
@@ -427,11 +479,12 @@ function buildRiverAndBridges(map: CaliMapConfig): {
         pylon.position.set(pylonX, bridge.deckElevation + 1.6, railZ);
         pylon.castShadow = true;
         pylon.receiveShadow = true;
+        pylon.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
         bridgeNode.add(pylon);
 
         const pylonCap = new THREE.Mesh(
-          new THREE.BoxGeometry(1.12, 0.38, 1.12),
-          neonRailMat,
+          new THREE.BoxGeometry(1.06, 0.34, 1.06),
+          warmLanternMat,
         );
         pylonCap.position.set(pylonX, bridge.deckElevation + 3.45, railZ);
         bridgeNode.add(pylonCap);
@@ -521,26 +574,45 @@ function buildRoadsGroup(map: CaliMapConfig): THREE.Group {
     bumpMap: asphaltTextures.bumpMap,
     bumpScale: 0.055,
     roughnessMap: asphaltTextures.roughnessMap,
-    roughness: 1.0,
-    metalness: 0.14,
-    envMapIntensity: 1.35,
+    roughness: 0.94,
+    metalness: 0.06,
+    envMapIntensity: 0.9,
   });
+  asphaltMat.userData.surfaceRole = 'asphalt' satisfies SurfaceRole;
+
   const medianConcreteMat = new THREE.MeshStandardMaterial({
-    color: 0x4e4566,
-    roughness: 0.84,
-    metalness: 0.08,
+    color: 0x8a857c,
+    roughness: 0.88,
+    metalness: 0.05,
   });
-  const medianGlowMat = new THREE.MeshStandardMaterial({
-    color: 0xffd166,
-    emissive: 0xff9f1a,
-    emissiveIntensity: 0.95,
-    roughness: 0.3,
+  medianConcreteMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
+
+  const medianReflectorMat = new THREE.MeshStandardMaterial({
+    color: 0xdca834,
+    emissive: 0xc28a1d,
+    emissiveIntensity: 0.28,
+    roughness: 0.48,
   });
   const rampGuardMat = new THREE.MeshStandardMaterial({
-    color: 0xff5e7e,
-    emissive: 0xff5e7e,
-    emissiveIntensity: 1.05,
-    roughness: 0.28,
+    color: 0x868c94,
+    roughness: 0.42,
+    metalness: 0.65,
+  });
+  const whiteLaneMat = new THREE.MeshStandardMaterial({
+    color: 0xe2dfd7,
+    roughness: 0.78,
+    metalness: 0.02,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+  const yellowCenterMat = new THREE.MeshStandardMaterial({
+    color: 0xdca52a,
+    roughness: 0.74,
+    metalness: 0.02,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
   });
 
   for (const road of map.roads) {
@@ -556,6 +628,8 @@ function buildRoadsGroup(map: CaliMapConfig): THREE.Group {
 
     const dirX = dx / length;
     const dirZ = dz / length;
+    const perpX = -dirZ;
+    const perpZ = dirX;
     const isNorthSouth = Math.abs(dz) > Math.abs(dx);
     const layerOffset = isNorthSouth ? 0.018 : 0;
 
@@ -592,7 +666,62 @@ function buildRoadsGroup(map: CaliMapConfig): THREE.Group {
       asphaltMat,
     );
     surfaceMesh.receiveShadow = true;
+    surfaceMesh.userData.surfaceRole = 'asphalt' satisfies SurfaceRole;
     segmentGroup.add(surfaceMesh);
+
+    // Subtle crisp road shoulder stripes & dashed Cali golden-yellow centerline
+    const edgeInset = Math.max(1.2, road.width * 0.5 - 0.55);
+    for (const side of [-1, 1] as const) {
+      const lineStart: Vec2 = {
+        x: road.start.x + perpX * edgeInset * side,
+        z: road.start.z + perpZ * edgeInset * side,
+      };
+      const lineEnd: Vec2 = {
+        x: road.end.x + perpX * edgeInset * side,
+        z: road.end.z + perpZ * edgeInset * side,
+      };
+      const edgeLine = new THREE.Mesh(
+        createTerrainRibbonGeometry(
+          lineStart,
+          lineEnd,
+          0.18,
+          layerOffset + 0.025,
+          map,
+          ROAD_TILE_LENGTH_METERS,
+        ),
+        whiteLaneMat,
+      );
+      edgeLine.receiveShadow = true;
+      segmentGroup.add(edgeLine);
+    }
+
+    if (!road.hasMedian && length > 10) {
+      const dashLen = 4.2;
+      const dashStride = 9.0;
+      for (let dist = 3.0; dist + dashLen < length - 2.0; dist += dashStride) {
+        const dStart: Vec2 = {
+          x: road.start.x + dirX * dist,
+          z: road.start.z + dirZ * dist,
+        };
+        const dEnd: Vec2 = {
+          x: road.start.x + dirX * (dist + dashLen),
+          z: road.start.z + dirZ * (dist + dashLen),
+        };
+        const dashMesh = new THREE.Mesh(
+          createTerrainRibbonGeometry(
+            dStart,
+            dEnd,
+            0.22,
+            layerOffset + 0.028,
+            map,
+            dashLen,
+          ),
+          yellowCenterMat,
+        );
+        dashMesh.receiveShadow = true;
+        segmentGroup.add(dashMesh);
+      }
+    }
 
     // Concrete + warm amber reflector median strip for major Cali avenues
     if (road.hasMedian) {
@@ -608,26 +737,25 @@ function buildRoadsGroup(map: CaliMapConfig): THREE.Group {
         medianConcreteMat,
       );
       medianBase.receiveShadow = true;
+      medianBase.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
       segmentGroup.add(medianBase);
 
       const medianStrip = new THREE.Mesh(
         createTerrainRibbonGeometry(
           road.start,
           road.end,
-          0.34,
+          0.26,
           layerOffset + 0.072,
           map,
           ROAD_TILE_LENGTH_METERS,
         ),
-        medianGlowMat,
+        medianReflectorMat,
       );
       segmentGroup.add(medianStrip);
     }
 
-    // Illuminated sunset coral guardrails along mountain ascent ramps
+    // Galvanized steel safety guardrails along mountain ascent ramps
     if (road.isRamp) {
-      const perpX = -dirZ;
-      const perpZ = dirX;
       const edgeOffset = road.width * 0.5 - 0.45;
       for (const side of [-1, 1] as const) {
         const railStart: Vec2 = {
@@ -639,7 +767,7 @@ function buildRoadsGroup(map: CaliMapConfig): THREE.Group {
           z: road.end.z + perpZ * edgeOffset * side,
         };
         const railMesh = new THREE.Mesh(
-          createTerrainRibbonGeometry(railStart, railEnd, 0.5, 0.72, map),
+          createTerrainRibbonGeometry(railStart, railEnd, 0.45, 0.72, map),
           rampGuardMat,
         );
         segmentGroup.add(railMesh);
@@ -748,13 +876,15 @@ function buildSidewalksGroup(
   group.name = 'cali_sidewalks';
 
   const sidewalkMat = new THREE.MeshStandardMaterial({
+    color: 0xd9d4cb,
     map: sidewalkTex.map,
     bumpMap: sidewalkTex.bumpMap,
     bumpScale: 0.045,
-    roughness: 0.86,
-    metalness: 0.06,
-    envMapIntensity: 0.72,
+    roughness: 0.9,
+    metalness: 0.04,
+    envMapIntensity: 0.65,
   });
+  sidewalkMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
 
   const slabHeight = 0.28;
   for (const block of URBAN_SIDEWALK_BLOCKS) {
@@ -776,6 +906,7 @@ function buildSidewalksGroup(
     slab.position.set(cx, slabHeight * 0.5, cz);
     slab.receiveShadow = true;
     slab.castShadow = false;
+    slab.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
     group.add(slab);
   }
 
@@ -808,6 +939,7 @@ function buildSidewalksGroup(
     pad.position.set(cx, groundY - padHeight * 0.5 + 0.22, cz);
     pad.receiveShadow = true;
     pad.castShadow = false;
+    pad.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
     group.add(pad);
   }
 
@@ -996,24 +1128,24 @@ function buildStreetlightsGroup(): THREE.Group {
   group.name = 'cali_streetlights';
 
   const poleMat = new THREE.MeshStandardMaterial({
-    color: 0x1e2030,
+    color: 0x2a2e36,
     roughness: 0.45,
     metalness: 0.76,
   });
   const bulbMat = new THREE.MeshStandardMaterial({
     color: 0xffe4a8,
     emissive: 0xffc663,
-    emissiveIntensity: 2.25,
-    roughness: 0.16,
+    emissiveIntensity: 1.45,
+    roughness: 0.18,
   });
   const poolTex = createSoftGlowPoolTexture(
-    'rgba(255, 210, 128, 0.72)',
-    'rgba(255, 168, 92, 0.28)',
+    'rgba(255, 210, 128, 0.55)',
+    'rgba(255, 168, 92, 0.18)',
   );
   const poolMat = new THREE.MeshBasicMaterial({
     map: poolTex,
     transparent: true,
-    opacity: 0.34,
+    opacity: 0.18,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
@@ -1085,8 +1217,11 @@ function classifyBuildingStyle(bldg: AabbCollider): BuildingFacadeStyle {
 interface BuildingSharedMaterials {
   readonly roofMat: THREE.MeshStandardMaterial;
   readonly parapetMat: THREE.MeshStandardMaterial;
+  readonly corniceMat: THREE.MeshStandardMaterial;
   readonly hvacMat: THREE.MeshStandardMaterial;
   readonly storefrontGlassMat: THREE.MeshPhysicalMaterial;
+  readonly reflectiveGlassMat: THREE.MeshPhysicalMaterial;
+  readonly warmInteriorGlassMat: THREE.MeshStandardMaterial;
   readonly antennaMat: THREE.MeshStandardMaterial;
   readonly beaconRedMat: THREE.MeshStandardMaterial;
   readonly woodTrimMat: THREE.MeshStandardMaterial;
@@ -1095,41 +1230,62 @@ interface BuildingSharedMaterials {
 function createBuildingSharedMaterials(): BuildingSharedMaterials {
   return {
     roofMat: new THREE.MeshStandardMaterial({
-      color: 0x241f35,
-      roughness: 0.9,
-      metalness: 0.08,
+      color: 0x4e4b47,
+      roughness: 0.92,
+      metalness: 0.04,
     }),
     parapetMat: new THREE.MeshStandardMaterial({
-      color: 0x3b3354,
-      roughness: 0.78,
-      metalness: 0.16,
+      color: 0x807b73,
+      roughness: 0.84,
+      metalness: 0.08,
+    }),
+    corniceMat: new THREE.MeshStandardMaterial({
+      color: 0xa69f94,
+      roughness: 0.68,
+      metalness: 0.22,
     }),
     hvacMat: new THREE.MeshStandardMaterial({
-      color: 0x625d78,
+      color: 0x767470,
       roughness: 0.56,
-      metalness: 0.55,
+      metalness: 0.52,
     }),
     storefrontGlassMat: new THREE.MeshPhysicalMaterial({
-      color: 0x10182d,
-      roughness: 0.12,
-      metalness: 0.35,
+      color: 0x15202e,
+      roughness: 0.08,
+      metalness: 0.38,
       clearcoat: 1.0,
-      clearcoatRoughness: 0.08,
+      clearcoatRoughness: 0.05,
+      envMapIntensity: 1.55,
+    }),
+    reflectiveGlassMat: new THREE.MeshPhysicalMaterial({
+      color: 0x162433,
+      roughness: 0.07,
+      metalness: 0.48,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.04,
+      envMapIntensity: 1.65,
+    }),
+    warmInteriorGlassMat: new THREE.MeshStandardMaterial({
+      color: 0xffd596,
+      emissive: 0xffb866,
+      emissiveIntensity: 0.65,
+      roughness: 0.14,
+      metalness: 0.2,
     }),
     antennaMat: new THREE.MeshStandardMaterial({
-      color: 0x8b95ad,
+      color: 0x8d939c,
       roughness: 0.4,
       metalness: 0.82,
     }),
     beaconRedMat: new THREE.MeshStandardMaterial({
       color: 0xff2b4a,
       emissive: 0xff1e3c,
-      emissiveIntensity: 2.4,
-      roughness: 0.15,
+      emissiveIntensity: 1.65,
+      roughness: 0.16,
     }),
     woodTrimMat: new THREE.MeshStandardMaterial({
-      color: 0x4d2d1c,
-      roughness: 0.82,
+      color: 0x573723,
+      roughness: 0.84,
     }),
   };
 }
@@ -1142,13 +1298,12 @@ function attachBuildingRooftopDetails(
   width: number,
   depth: number,
   roofY: number,
-  accentMat: THREE.Material,
   shared: BuildingSharedMaterials,
 ): void {
   const wallT = 0.45;
   const parapetH = 0.85;
 
-  // Perimeter concrete roof parapet rim
+  // Perimeter architectural concrete roof parapet rim
   const northSouthGeo = new THREE.BoxGeometry(width + 0.25, parapetH, wallT);
   const eastWestGeo = new THREE.BoxGeometry(wallT, parapetH, depth + 0.25);
 
@@ -1166,13 +1321,15 @@ function attachBuildingRooftopDetails(
     group.add(ewWall);
   }
 
-  // Crisp glowing Vice-Sunset architectural crown line
-  const crownLine = new THREE.Mesh(
-    new THREE.BoxGeometry(width + 0.36, 0.28, depth + 0.36),
-    accentMat,
+  // Refined architectural stone/metal cornice coping (no neon bands)
+  const corniceBand = new THREE.Mesh(
+    new THREE.BoxGeometry(width + 0.42, 0.26, depth + 0.42),
+    shared.corniceMat,
   );
-  crownLine.position.set(cx, roofY + parapetH + 0.1, cz);
-  group.add(crownLine);
+  corniceBand.position.set(cx, roofY + parapetH + 0.1, cz);
+  corniceBand.castShadow = true;
+  corniceBand.receiveShadow = true;
+  group.add(corniceBand);
 
   // Rooftop mechanical HVAC boxes
   const hvacA = new THREE.Mesh(
@@ -1225,6 +1382,118 @@ function attachBuildingRooftopDetails(
   }
 }
 
+const COLONIAL_WARM_TINTS = [0xf4ead8, 0xf0dfca, 0xead4b9, 0xf6efe2] as const;
+const DOWNTOWN_STONE_TINTS = [0xdcd5c9, 0xd1c7b8, 0xc9c2b8, 0xd8cec2] as const;
+
+function hashBuildingIndex(id: string): number {
+  let acc = 0;
+  for (let i = 0; i < id.length; i += 1) {
+    acc = (acc * 31 + id.charCodeAt(i)) >>> 0;
+  }
+  return acc;
+}
+
+function attachArchitecturalWindows(
+  group: THREE.Group,
+  style: BuildingFacadeStyle,
+  cx: number,
+  cz: number,
+  width: number,
+  depth: number,
+  centerY: number,
+  height: number,
+  shared: BuildingSharedMaterials,
+): void {
+  if (style === 'colonial_stucco') {
+    // Timber-framed San Antonio colonial windows with dark reflective glass & subtle warm lamp glow
+    const floorLevels = height >= 7.5 ? [centerY + 2.2, centerY + 5.6] : [centerY + 2.5];
+    const frameGeoEW = new THREE.BoxGeometry(0.14, 1.85, 1.35);
+    const paneGeoEW = new THREE.BoxGeometry(0.18, 1.55, 1.05);
+    const frameGeoNS = new THREE.BoxGeometry(1.35, 1.85, 0.14);
+    const paneGeoNS = new THREE.BoxGeometry(1.05, 1.55, 0.18);
+
+    const xCount = Math.max(1, Math.min(3, Math.floor(width / 4.2)));
+    const zCount = Math.max(1, Math.min(3, Math.floor(depth / 4.2)));
+
+    for (let flIdx = 0; flIdx < floorLevels.length; flIdx += 1) {
+      const wy = floorLevels[flIdx] ?? centerY + 2.2;
+      for (const side of [-1, 1] as const) {
+        for (let i = 0; i < zCount; i += 1) {
+          const tz = ((i + 0.5) / zCount - 0.5) * (depth * 0.72);
+          const isLit = (flIdx + i + (side > 0 ? 1 : 0)) % 3 === 0;
+          const frame = new THREE.Mesh(frameGeoEW, shared.woodTrimMat);
+          frame.position.set(cx + side * (width * 0.5 + 0.04), wy, cz + tz);
+          group.add(frame);
+
+          const pane = new THREE.Mesh(
+            paneGeoEW,
+            isLit ? shared.warmInteriorGlassMat : shared.storefrontGlassMat,
+          );
+          pane.position.set(cx + side * (width * 0.5 + 0.06), wy, cz + tz);
+          group.add(pane);
+        }
+
+        for (let i = 0; i < xCount; i += 1) {
+          const tx = ((i + 0.5) / xCount - 0.5) * (width * 0.72);
+          const isLit = (flIdx + i) % 3 === 1;
+          const frame = new THREE.Mesh(frameGeoNS, shared.woodTrimMat);
+          frame.position.set(cx + tx, wy, cz + side * (depth * 0.5 + 0.04));
+          group.add(frame);
+
+          const pane = new THREE.Mesh(
+            paneGeoNS,
+            isLit ? shared.warmInteriorGlassMat : shared.storefrontGlassMat,
+          );
+          pane.position.set(cx + tx, wy, cz + side * (depth * 0.5 + 0.06));
+          group.add(pane);
+        }
+      }
+    }
+    return;
+  }
+
+  // Downtown & Granada towers: horizontal dark reflective architectural glass ribbon bands
+  // + architectural floor ledges catching real golden-hour HDRI sunset sky reflections
+  const floorStep = style === 'modern_glass' ? 4.1 : 4.4;
+  const startY = centerY + 4.4;
+  const maxY = centerY + height - 1.4;
+  const bandHeight = style === 'modern_glass' ? 2.45 : 1.75;
+  const glassBandGeo = new THREE.BoxGeometry(width + 0.16, bandHeight, depth + 0.16);
+  const ledgeGeo = new THREE.BoxGeometry(width + 0.34, 0.22, depth + 0.34);
+
+  let floorIndex = 0;
+  for (let wy = startY; wy < maxY; wy += floorStep) {
+    const glassBand = new THREE.Mesh(glassBandGeo, shared.reflectiveGlassMat);
+    glassBand.position.set(cx, wy, cz);
+    glassBand.receiveShadow = true;
+    group.add(glassBand);
+
+    if (floorIndex % 2 === 0 || style === 'modern_glass') {
+      const ledge = new THREE.Mesh(ledgeGeo, shared.corniceMat);
+      ledge.position.set(cx, wy - bandHeight * 0.5 - 0.12, cz);
+      ledge.castShadow = true;
+      ledge.receiveShadow = true;
+      group.add(ledge);
+    }
+
+    // Occasional warm sunset-lit interior office bays for authentic architectural life
+    if (floorIndex % 3 === 1) {
+      const litStrip = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 0.32, bandHeight * 0.72, depth + 0.2),
+        shared.warmInteriorGlassMat,
+      );
+      litStrip.position.set(
+        cx + (floorIndex % 2 === 0 ? width * 0.22 : -width * 0.22),
+        wy,
+        cz,
+      );
+      group.add(litStrip);
+    }
+
+    floorIndex += 1;
+  }
+}
+
 function createSingleBuilding(
   bldg: AabbCollider,
   textureCache: Map<string, BuildingFacadeTextureSet>,
@@ -1237,8 +1506,9 @@ function createSingleBuilding(
   const depth = bldg.maxZ - bldg.minZ;
   const cx = (bldg.minX + bldg.maxX) * 0.5;
   const cz = (bldg.minZ + bldg.maxZ) * 0.5;
-  const accentHex = bldg.accentHex ?? 0x00f0ff;
+  const accentHex = bldg.accentHex ?? 0x8f887d;
   const style = classifyBuildingStyle(bldg);
+  const bldgHash = hashBuildingIndex(bldg.id);
 
   const minCornerY = Math.min(
     getTerrainElevation(bldg.minX, bldg.minZ),
@@ -1263,22 +1533,27 @@ function createSingleBuilding(
     roughnessMap: facadeTex.roughnessMap,
     roughness: 1.0,
     bumpMap: facadeTex.bumpMap,
-    bumpScale: style === 'modern_glass' ? 0.045 : 0.085,
-    emissive: 0xffffff,
+    bumpScale: style === 'modern_glass' ? 0.04 : 0.08,
+    emissive: 0xffe4bc,
     emissiveMap: facadeTex.emissiveMap,
     emissiveIntensity:
-      style === 'modern_glass' ? 1.25 : style === 'colonial_stucco' ? 1.05 : 1.18,
+      style === 'modern_glass' ? 0.42 : style === 'colonial_stucco' ? 0.26 : 0.36,
     metalness:
-      style === 'modern_glass' ? 0.46 : style === 'downtown_midrise' ? 0.16 : 0.06,
-    envMapIntensity: style === 'modern_glass' ? 1.35 : 0.9,
+      style === 'modern_glass' ? 0.5 : style === 'downtown_midrise' ? 0.1 : 0.04,
+    envMapIntensity: style === 'modern_glass' ? 1.55 : 0.8,
   });
 
-  const accentMat = new THREE.MeshStandardMaterial({
-    color: accentHex,
-    emissive: accentHex,
-    emissiveIntensity: 1.35,
-    roughness: 0.22,
-  });
+  if (style === 'colonial_stucco') {
+    facadeMat.userData.surfaceRole = 'plaster' satisfies SurfaceRole;
+    facadeMat.userData.photoTintHex =
+      COLONIAL_WARM_TINTS[bldgHash % COLONIAL_WARM_TINTS.length] ?? 0xf4ead8;
+  } else {
+    facadeMat.userData.surfaceRole = 'facade' satisfies SurfaceRole;
+    facadeMat.userData.photoTintHex =
+      style === 'modern_glass'
+        ? 0xadb4be
+        : (DOWNTOWN_STONE_TINTS[bldgHash % DOWNTOWN_STONE_TINTS.length] ?? 0xdcd5c9);
+  }
 
   const verticalRepeat =
     style === 'modern_glass' ? Math.max(1, Math.round(totalHeight / 22)) : 1;
@@ -1299,17 +1574,33 @@ function createSingleBuilding(
   body.receiveShadow = true;
   group.add(body);
 
+  attachArchitecturalWindows(
+    group,
+    style,
+    cx,
+    cz,
+    width,
+    depth,
+    centerY,
+    bldg.height,
+    shared,
+  );
+
   const roofY = centerY + bldg.height;
 
   if (style === 'colonial_stucco') {
-    // Terracotta pitched colonial roof + timber eaves trim for San Antonio & Oeste houses
+    // Terracotta clay-tiled pitched colonial roof + timber eaves trim for San Antonio & Oeste houses
+    const roofTileMat = new THREE.MeshStandardMaterial({
+      color: 0xc25d3c,
+      roughness: 0.82,
+      metalness: 0.04,
+      flatShading: false,
+    });
+    roofTileMat.userData.surfaceRole = 'roof' satisfies SurfaceRole;
+
     const roofPeak = new THREE.Mesh(
       new THREE.ConeGeometry(Math.max(width, depth) * 0.75, 2.9, 4),
-      new THREE.MeshStandardMaterial({
-        color: accentHex,
-        roughness: 0.74,
-        flatShading: true,
-      }),
+      roofTileMat,
     );
     roofPeak.rotation.y = Math.PI / 4;
     roofPeak.scale.set(
@@ -1320,6 +1611,7 @@ function createSingleBuilding(
     roofPeak.position.set(cx, roofY + 1.45, cz);
     roofPeak.castShadow = true;
     roofPeak.receiveShadow = true;
+    roofPeak.userData.surfaceRole = 'roof' satisfies SurfaceRole;
     group.add(roofPeak);
 
     const eaves = new THREE.Mesh(
@@ -1331,14 +1623,14 @@ function createSingleBuilding(
     eaves.receiveShadow = true;
     group.add(eaves);
   } else {
-    // Ground-floor architectural storefront trim & canopy awning
+    // Ground-floor architectural storefront trim & concrete canopy awning
     const canopyY =
       style === 'downtown_midrise'
         ? centerY + Math.min(4.2, Math.max(2.9, bldg.height * 0.23))
         : centerY + 3.6;
     const storefrontCanopy = new THREE.Mesh(
       new THREE.BoxGeometry(width + 0.65, 0.24, depth + 0.65),
-      shared.parapetMat,
+      shared.corniceMat,
     );
     storefrontCanopy.position.set(cx, canopyY, cz);
     storefrontCanopy.castShadow = true;
@@ -1354,12 +1646,12 @@ function createSingleBuilding(
       lobbyGlass.receiveShadow = true;
       group.add(lobbyGlass);
     } else {
-      // Corner pilasters & low kickplate keep painted illuminated Cali shopfronts visible
+      // Corner pilasters & dark architectural storefront glazing
       const pilasterHeight = canopyY - centerY;
-      const pilasterGeo = new THREE.BoxGeometry(0.42, pilasterHeight, 0.42);
+      const pilasterGeo = new THREE.BoxGeometry(0.48, pilasterHeight, 0.48);
       for (const sx of [-1, 1] as const) {
         for (const sz of [-1, 1] as const) {
-          const pilaster = new THREE.Mesh(pilasterGeo, shared.storefrontGlassMat);
+          const pilaster = new THREE.Mesh(pilasterGeo, shared.parapetMat);
           pilaster.position.set(
             cx + sx * (width * 0.5 - 0.12),
             centerY + pilasterHeight * 0.5,
@@ -1387,7 +1679,6 @@ function createSingleBuilding(
       width,
       depth,
       roofY,
-      accentMat,
       shared,
     );
   }
@@ -1569,8 +1860,8 @@ function buildNeonSignsGroup(map: CaliMapConfig): THREE.Group {
       map: signTexture,
       emissive: 0xffffff,
       emissiveMap: signTexture,
-      emissiveIntensity: 1.9,
-      roughness: 0.2,
+      emissiveIntensity: 1.15,
+      roughness: 0.24,
       metalness: 0.1,
     });
 
@@ -1593,34 +1884,41 @@ function buildCristoReyLandmark(landmark: LandmarkDef): THREE.Group {
   group.position.set(landmark.position.x, landmark.elevation, landmark.position.z);
 
   const plazaMat = new THREE.MeshStandardMaterial({
-    color: 0x3b3158,
-    roughness: 0.84,
+    color: 0x867e73,
+    roughness: 0.88,
   });
+  plazaMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
+
   const terraceStoneMat = new THREE.MeshStandardMaterial({
-    color: 0xb9b2d1,
-    roughness: 0.72,
+    color: 0xc9c0b2,
+    roughness: 0.78,
   });
+  terraceStoneMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
+
   const pedestalMat = new THREE.MeshStandardMaterial({
-    color: 0xe3def2,
-    roughness: 0.62,
+    color: 0xe6dfd3,
+    roughness: 0.68,
   });
+  pedestalMat.userData.surfaceRole = 'plaster' satisfies SurfaceRole;
+
   const statueMat = new THREE.MeshStandardMaterial({
-    color: landmark.colorHex,
-    emissive: 0xffebd0,
-    emissiveIntensity: 0.52,
-    roughness: 0.34,
-    flatShading: true,
+    color: 0xede6da,
+    emissive: 0xffe4bc,
+    emissiveIntensity: 0.12,
+    roughness: 0.48,
+    flatShading: false,
   });
   const goldMat = new THREE.MeshStandardMaterial({
-    color: landmark.accentHex,
-    emissive: landmark.accentHex,
-    emissiveIntensity: 1.4,
-    roughness: 0.22,
+    color: 0xc99c45,
+    emissive: 0x997024,
+    emissiveIntensity: 0.35,
+    roughness: 0.32,
+    metalness: 0.72,
   });
   const uplightBeamMat = new THREE.MeshBasicMaterial({
-    color: 0xffd275,
+    color: 0xffd796,
     transparent: true,
-    opacity: 0.14,
+    opacity: 0.08,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -1728,37 +2026,38 @@ function buildLaErmitaLandmark(landmark: LandmarkDef): THREE.Group {
   group.position.set(landmark.position.x, landmark.elevation, landmark.position.z);
 
   const ivoryMat = new THREE.MeshStandardMaterial({
-    color: landmark.colorHex,
-    emissive: 0x3b4870,
-    emissiveIntensity: 0.25,
-    roughness: 0.52,
-    flatShading: true,
+    color: 0xeee8dd,
+    roughness: 0.72,
+    flatShading: false,
   });
+  ivoryMat.userData.surfaceRole = 'plaster' satisfies SurfaceRole;
+
   const skyBlueMat = new THREE.MeshStandardMaterial({
-    color: landmark.accentHex,
-    emissive: 0x2b6cb0,
-    emissiveIntensity: 0.5,
-    roughness: 0.36,
-    metalness: 0.18,
-    flatShading: true,
+    color: 0x7aa4c9,
+    roughness: 0.52,
+    metalness: 0.14,
+    flatShading: false,
   });
   const roseGlowMat = new THREE.MeshStandardMaterial({
-    color: 0xff4fa8,
-    emissive: 0xff2e93,
-    emissiveIntensity: 1.75,
-    roughness: 0.16,
+    color: 0xd96b4e,
+    emissive: 0xff8b4a,
+    emissiveIntensity: 0.9,
+    roughness: 0.22,
   });
   const goldMat = new THREE.MeshStandardMaterial({
-    color: 0xffc83b,
-    emissive: 0xffb800,
-    emissiveIntensity: 1.35,
-    roughness: 0.22,
+    color: 0xd9a845,
+    emissive: 0xb88424,
+    emissiveIntensity: 0.42,
+    roughness: 0.28,
+    metalness: 0.68,
   });
 
   // Stone sanctuary plinth
+  const plinthMat = new THREE.MeshStandardMaterial({ color: 0x8f887d, roughness: 0.88 });
+  plinthMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
   const plinth = new THREE.Mesh(
     new THREE.BoxGeometry(17.8, 1.2, 22.4),
-    new THREE.MeshStandardMaterial({ color: 0x3a325c, roughness: 0.85 }),
+    plinthMat,
   );
   plinth.position.y = 0.6;
   group.add(plinth);
@@ -1868,49 +2167,55 @@ function buildTorreDeCaliLandmark(landmark: LandmarkDef): THREE.Group {
 
   const curtainTex = createBuildingFacadeTextures(
     'modern_glass',
-    landmark.colorHex,
-    landmark.accentHex,
+    0x1e2c3d,
+    0xd6c7a8,
   );
   const glassMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     map: curtainTex.map,
     roughnessMap: curtainTex.roughnessMap,
-    roughness: 1.0,
+    roughness: 0.82,
     bumpMap: curtainTex.bumpMap,
-    bumpScale: 0.05,
-    emissive: 0xffffff,
+    bumpScale: 0.045,
+    emissive: 0xffe2b5,
     emissiveMap: curtainTex.emissiveMap,
-    emissiveIntensity: 1.35,
-    metalness: 0.68,
-    envMapIntensity: 1.5,
+    emissiveIntensity: 0.45,
+    metalness: 0.65,
+    envMapIntensity: 1.7,
   });
   const roofMat = new THREE.MeshStandardMaterial({
-    color: 0x1e1638,
+    color: 0x524f4b,
+    roughness: 0.8,
+    metalness: 0.2,
+  });
+  const concreteRibMat = new THREE.MeshStandardMaterial({
+    color: 0xddd7cc,
     roughness: 0.72,
-    metalness: 0.3,
+    metalness: 0.1,
   });
-  const cyanMat = new THREE.MeshStandardMaterial({
-    color: landmark.accentHex,
-    emissive: landmark.accentHex,
-    emissiveIntensity: 1.65,
-    roughness: 0.16,
+  concreteRibMat.userData.surfaceRole = 'facade' satisfies SurfaceRole;
+
+  const crownSteelMat = new THREE.MeshStandardMaterial({
+    color: 0x3b4049,
+    roughness: 0.34,
+    metalness: 0.78,
   });
-  const magentaMat = new THREE.MeshStandardMaterial({
-    color: 0xff2e93,
-    emissive: 0xff2e93,
-    emissiveIntensity: 1.65,
-    roughness: 0.16,
+  const aviationBeaconMat = new THREE.MeshStandardMaterial({
+    color: 0xff3b3b,
+    emissive: 0xff2828,
+    emissiveIntensity: 1.6,
+    roughness: 0.18,
   });
 
-  // Grand stepped plaza podium
+  // Grand stepped architectural stone plaza podium
   const podium = new THREE.Mesh(
     new THREE.BoxGeometry(21.4, 5.5, 21.4),
-    new THREE.MeshStandardMaterial({ color: 0x261a45, roughness: 0.65, metalness: 0.25 }),
+    concreteRibMat,
   );
   podium.position.y = 2.75;
   group.add(podium);
 
-  // Three stepped reflective curtain-glass skyscraper tiers
+  // Three stepped reflective curtain-glass skyscraper tiers with concrete floor bands
   const tiers = [
     { size: 15.6, height: 30, y: 20.5 },
     { size: 12.6, height: 24, y: 47.5 },
@@ -1934,39 +2239,39 @@ function buildTorreDeCaliLandmark(landmark: LandmarkDef): THREE.Group {
 
     const ring = new THREE.Mesh(
       new THREE.BoxGeometry(tier.size + 0.55, 0.78, tier.size + 0.55),
-      cyanMat,
+      concreteRibMat,
     );
     ring.position.y = tier.y + tier.height * 0.5;
     group.add(ring);
   }
 
-  // Vertical cyan corner edge fins
+  // Iconic vertical white-concrete modernist structural corner fins
   for (const sx of [-1, 1] as const) {
     for (const sz of [-1, 1] as const) {
-      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.62, 56, 0.62), cyanMat);
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.62, 56, 0.62), concreteRibMat);
       fin.position.set(sx * 7.85, 33, sz * 7.85);
       group.add(fin);
     }
   }
 
-  // Glowing cyan/magenta crown & twin telecom spires
-  const crownLower = new THREE.Mesh(new THREE.BoxGeometry(10.8, 1.5, 10.8), magentaMat);
+  // Modernist architectural steel crown & twin telecom spires with aviation beacons
+  const crownLower = new THREE.Mesh(new THREE.BoxGeometry(10.8, 1.5, 10.8), concreteRibMat);
   crownLower.position.y = 77.2;
   group.add(crownLower);
 
-  const crownUpper = new THREE.Mesh(new THREE.BoxGeometry(7.4, 2.3, 7.4), cyanMat);
+  const crownUpper = new THREE.Mesh(new THREE.BoxGeometry(7.4, 2.3, 7.4), crownSteelMat);
   crownUpper.position.y = 79.0;
   group.add(crownUpper);
 
   for (const offset of [-1.8, 1.8] as const) {
     const spire = new THREE.Mesh(
       new THREE.CylinderGeometry(0.14, 0.34, 12.0, 8),
-      cyanMat,
+      crownSteelMat,
     );
     spire.position.set(offset, 86.0, 0);
     group.add(spire);
 
-    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.54, 10, 10), magentaMat);
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 10), aviationBeaconMat);
     tip.position.set(offset, 92.2, 0);
     group.add(tip);
   }
@@ -1984,67 +2289,90 @@ function buildBulevarDelRioLandmark(
   group.position.set(landmark.position.x, landmark.elevation, landmark.position.z);
 
   const deckMat = new THREE.MeshStandardMaterial({
-    color: 0xd0c2df,
+    color: 0xd8d2c6,
     map: sidewalkTex.map,
     bumpMap: sidewalkTex.bumpMap,
     bumpScale: 0.04,
-    roughness: 0.78,
+    roughness: 0.88,
   });
-  const archMat = new THREE.MeshStandardMaterial({
-    color: landmark.colorHex,
-    emissive: 0xff2e93,
-    emissiveIntensity: 1.05,
-    roughness: 0.25,
+  deckMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
+
+  // Sleek modern architectural dark-steel arches with warm-amber cove lighting
+  const archSteelMat = new THREE.MeshStandardMaterial({
+    color: 0x292d34,
+    roughness: 0.32,
+    metalness: 0.74,
+  });
+  const archAmberCoveMat = new THREE.MeshStandardMaterial({
+    color: 0xffd08a,
+    emissive: 0xffae4a,
+    emissiveIntensity: 0.95,
+    roughness: 0.22,
   });
   const lampPostMat = new THREE.MeshStandardMaterial({
-    color: 0x1d1433,
-    roughness: 0.55,
-    metalness: 0.65,
+    color: 0x262a31,
+    roughness: 0.45,
+    metalness: 0.72,
   });
   const lampGlobeMat = new THREE.MeshStandardMaterial({
-    color: landmark.accentHex,
-    emissive: landmark.accentHex,
-    emissiveIntensity: 1.7,
-    roughness: 0.16,
+    color: 0xffe4b0,
+    emissive: 0xffbf66,
+    emissiveIntensity: 1.35,
+    roughness: 0.18,
   });
   const poolTex = createSoftGlowPoolTexture(
-    'rgba(255, 200, 96, 0.72)',
-    'rgba(255, 94, 126, 0.25)',
+    'rgba(255, 206, 124, 0.5)',
+    'rgba(255, 168, 86, 0.16)',
   );
   const poolMat = new THREE.MeshBasicMaterial({
     map: poolTex,
     transparent: true,
-    opacity: 0.32,
+    opacity: 0.2,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
 
-  // Riverside tiled boardwalk promenade
+  // Riverside stone-tiled boardwalk promenade
   const boardwalk = new THREE.Mesh(
     createUvScaledBoxGeometry(11.6, 0.48, 28, 6, 2, { topBottomTile: 6 }),
     deckMat,
   );
   boardwalk.position.y = 0.24;
+  boardwalk.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
   group.add(boardwalk);
 
-  // 5 Vice-Sunset architectural arches spanning the boulevard
+  // 5 modern architectural dark-steel & warm-amber illuminated promenade arches
   for (let i = -2; i <= 2; i += 1) {
     const zPos = i * 5.6;
     const archGroup = new THREE.Group();
     archGroup.position.set(0, 0.44, zPos);
 
     for (const side of [-4.4, 4.4] as const) {
-      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.65, 5.4, 0.65), archMat);
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.58, 5.4, 0.58), archSteelMat);
       pillar.position.set(side, 2.7, 0);
       archGroup.add(pillar);
+
+      const accentInlay = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 4.4, 0.14),
+        archAmberCoveMat,
+      );
+      accentInlay.position.set(side > 0 ? side - 0.3 : side + 0.3, 2.7, 0);
+      archGroup.add(accentInlay);
     }
 
     const archCurve = new THREE.Mesh(
-      new THREE.TorusGeometry(4.4, 0.36, 8, 20, Math.PI),
-      archMat,
+      new THREE.TorusGeometry(4.4, 0.34, 8, 24, Math.PI),
+      archSteelMat,
     );
     archCurve.position.y = 5.2;
     archGroup.add(archCurve);
+
+    const innerGlowCove = new THREE.Mesh(
+      new THREE.TorusGeometry(4.06, 0.08, 6, 24, Math.PI),
+      archAmberCoveMat,
+    );
+    innerGlowCove.position.y = 5.2;
+    archGroup.add(innerGlowCove);
 
     group.add(archGroup);
   }
@@ -2098,33 +2426,32 @@ function buildEstadioPascualLandmark(landmark: LandmarkDef): THREE.Group {
     emissiveIntensity: 0.55,
   });
   const redBowlMat = new THREE.MeshStandardMaterial({
-    color: landmark.colorHex,
-    emissive: 0x5c0e22,
-    emissiveIntensity: 0.35,
-    roughness: 0.52,
-    flatShading: true,
+    color: 0xa6202a,
+    roughness: 0.72,
+    flatShading: false,
   });
+  redBowlMat.userData.surfaceRole = 'facade' satisfies SurfaceRole;
+  redBowlMat.userData.photoTintHex = 0xb8353c;
+
   const whiteRoofMat = new THREE.MeshStandardMaterial({
-    color: landmark.accentHex,
-    emissive: 0x454166,
-    emissiveIntensity: 0.32,
-    roughness: 0.4,
+    color: 0xe6e2da,
+    roughness: 0.56,
   });
   const towerMat = new THREE.MeshStandardMaterial({
-    color: 0x453b66,
-    roughness: 0.65,
-    metalness: 0.45,
+    color: 0x62666e,
+    roughness: 0.54,
+    metalness: 0.52,
   });
   const floodlightMat = new THREE.MeshStandardMaterial({
-    color: 0xfffbe6,
-    emissive: 0xfff3c4,
-    emissiveIntensity: 2.35,
-    roughness: 0.14,
+    color: 0xfff8e0,
+    emissive: 0xffe8b0,
+    emissiveIntensity: 1.55,
+    roughness: 0.16,
   });
   const beamMat = new THREE.MeshBasicMaterial({
-    color: 0xfff3cc,
+    color: 0xfff0c8,
     transparent: true,
-    opacity: 0.08,
+    opacity: 0.055,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -2217,42 +2544,47 @@ function buildSanAntonioLandmark(landmark: LandmarkDef): THREE.Group {
   group.position.set(landmark.position.x, landmark.elevation, landmark.position.z);
 
   const stuccoMat = new THREE.MeshStandardMaterial({
-    color: landmark.colorHex,
-    emissive: 0x3b2c20,
-    emissiveIntensity: 0.2,
-    roughness: 0.78,
+    color: 0xf4ead8,
+    roughness: 0.86,
   });
+  stuccoMat.userData.surfaceRole = 'plaster' satisfies SurfaceRole;
+  stuccoMat.userData.photoTintHex = 0xf4ead8;
+
   const terracottaMat = new THREE.MeshStandardMaterial({
-    color: landmark.accentHex,
-    roughness: 0.7,
-    flatShading: true,
+    color: 0xc25e3c,
+    roughness: 0.82,
+    flatShading: false,
   });
+  terracottaMat.userData.surfaceRole = 'roof' satisfies SurfaceRole;
+
   const warmGlowMat = new THREE.MeshStandardMaterial({
-    color: 0xffd166,
-    emissive: 0xffb800,
-    emissiveIntensity: 1.75,
-    roughness: 0.2,
+    color: 0xffd57a,
+    emissive: 0xffb347,
+    emissiveIntensity: 1.25,
+    roughness: 0.24,
   });
   const woodMat = new THREE.MeshStandardMaterial({
-    color: 0x5c3420,
+    color: 0x5c3620,
     roughness: 0.85,
   });
   const poolTex = createSoftGlowPoolTexture(
-    'rgba(255, 206, 118, 0.7)',
-    'rgba(255, 164, 82, 0.24)',
+    'rgba(255, 206, 118, 0.55)',
+    'rgba(255, 164, 82, 0.18)',
   );
   const poolMat = new THREE.MeshBasicMaterial({
     map: poolTex,
     transparent: true,
-    opacity: 0.34,
+    opacity: 0.22,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
 
   // Cobblestone hillside plaza base
+  const plazaMat = new THREE.MeshStandardMaterial({ color: 0x8d8579, roughness: 0.9 });
+  plazaMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
   const plaza = new THREE.Mesh(
     new THREE.BoxGeometry(12.8, 1.4, 10.8),
-    new THREE.MeshStandardMaterial({ color: 0x4b3f57, roughness: 0.88 }),
+    plazaMat,
   );
   plaza.position.set(0, -0.35, 0);
   group.add(plaza);
@@ -2371,101 +2703,166 @@ const PALM_LOCATIONS: readonly Vec2[] = [
   { x: 144, z: 94 },
 ];
 
+const JACARANDA_LOCATIONS: readonly Vec2[] = [
+  // Bulevar del Río riverside flowering Jacarandas
+  { x: 8.5, z: -2 },
+  { x: 19.5, z: 24 },
+  { x: 8.5, z: 46 },
+  { x: 19.5, z: 60 },
+  { x: 9.0, z: -48 },
+  { x: 19.5, z: -64 },
+  { x: 9.0, z: 108 },
+  { x: 19.5, z: 132 },
+  // Barrio San Antonio hillside shade Jacarandas
+  { x: -112, z: 12 },
+  { x: -110, z: 50 },
+  { x: -82, z: 16 },
+  { x: -72, z: 50 },
+  // Estadio Pascual Guerrero & park perimeter Jacarandas
+  { x: 108, z: 110 },
+  { x: 156, z: 110 },
+  { x: 108, z: 142 },
+  { x: 156, z: 142 },
+];
+
 function buildPalmTreesGroup(): THREE.Group {
   const palmsGroup = new THREE.Group();
   palmsGroup.name = 'cali_palms';
 
-  const trunkLowerGeo = new THREE.CylinderGeometry(0.24, 0.44, 4.2, 7);
-  const trunkUpperGeo = new THREE.CylinderGeometry(0.16, 0.25, 3.8, 7);
-  const frondGeo = new THREE.ConeGeometry(0.92, 4.4, 4);
-  const coconutGeo = new THREE.SphereGeometry(0.22, 6, 6);
+  // Multi-segment gracefully curved palm trunk geometries
+  const trunkSegGeos = [
+    new THREE.CylinderGeometry(0.32, 0.44, 2.3, 9),
+    new THREE.CylinderGeometry(0.26, 0.33, 2.2, 9),
+    new THREE.CylinderGeometry(0.2, 0.27, 2.1, 9),
+    new THREE.CylinderGeometry(0.15, 0.21, 1.9, 9),
+  ] as const;
+
+  // Curved two-piece arched frond blades (inner arch + drooping tip)
+  const frondInnerGeo = new THREE.ConeGeometry(0.68, 2.5, 5);
+  const frondTipGeo = new THREE.ConeGeometry(0.56, 2.4, 5);
+  const coconutGeo = new THREE.SphereGeometry(0.21, 7, 7);
 
   const trunkMat = new THREE.MeshStandardMaterial({
-    color: 0x6e4730,
-    roughness: 0.9,
-    flatShading: true,
+    color: 0x7b5c43,
+    roughness: 0.92,
+    metalness: 0.02,
+    flatShading: false,
   });
+  trunkMat.userData.surfaceRole = 'palm_bark' satisfies SurfaceRole;
+
   const coconutMat = new THREE.MeshStandardMaterial({
-    color: 0x4b2f1c,
-    roughness: 0.85,
+    color: 0x523620,
+    roughness: 0.86,
   });
+
   const lowerFrondMat = new THREE.MeshStandardMaterial({
-    color: 0x167c50,
-    emissive: 0x09291e,
-    emissiveIntensity: 0.2,
-    roughness: 0.64,
-    flatShading: true,
+    color: 0x3b6e32,
+    roughness: 0.72,
+    metalness: 0.02,
+    flatShading: false,
   });
+  lowerFrondMat.userData.surfaceRole = 'palm_leaves' satisfies SurfaceRole;
+
   const upperFrondMat = new THREE.MeshStandardMaterial({
-    color: 0x24a369,
-    emissive: 0x0d3626,
-    emissiveIntensity: 0.22,
-    roughness: 0.58,
-    flatShading: true,
+    color: 0x4d823b,
+    roughness: 0.68,
+    metalness: 0.02,
+    flatShading: false,
   });
+  upperFrondMat.userData.surfaceRole = 'palm_leaves' satisfies SurfaceRole;
 
   PALM_LOCATIONS.forEach((loc, index) => {
     const palm = new THREE.Group();
     palm.name = `palm_${index}`;
 
     const groundY = getTerrainElevation(loc.x, loc.z);
-    const scale = 0.9 + (index % 4) * 0.09;
+    const scale = 0.92 + (index % 4) * 0.09;
     palm.position.set(loc.x, groundY, loc.z);
     palm.rotation.y = (index * 1.13) % (Math.PI * 2);
     palm.scale.setScalar(scale);
 
-    const lowerTrunk = new THREE.Mesh(trunkLowerGeo, trunkMat);
-    lowerTrunk.position.set(0, 2.0, 0);
-    lowerTrunk.rotation.z = 0.06;
-    lowerTrunk.castShadow = true;
-    lowerTrunk.receiveShadow = true;
-    palm.add(lowerTrunk);
+    // 4-segment smoothly curved palm trunk
+    const curveSpecs = [
+      { x: 0, y: 1.1, rotZ: 0.04 },
+      { x: -0.13, y: 3.18, rotZ: 0.09 },
+      { x: -0.37, y: 5.18, rotZ: 0.14 },
+      { x: -0.68, y: 7.0, rotZ: 0.19 },
+    ] as const;
 
-    const upperTrunk = new THREE.Mesh(trunkUpperGeo, trunkMat);
-    upperTrunk.position.set(-0.34, 5.75, 0);
-    upperTrunk.rotation.z = 0.14;
-    upperTrunk.castShadow = true;
-    upperTrunk.receiveShadow = true;
-    palm.add(upperTrunk);
+    curveSpecs.forEach((seg, segIdx) => {
+      const geo = trunkSegGeos[segIdx];
+      if (!geo) {
+        return;
+      }
+      const mesh = new THREE.Mesh(geo, trunkMat);
+      mesh.position.set(seg.x, seg.y, 0);
+      mesh.rotation.z = seg.rotZ;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData.surfaceRole = 'palm_bark' satisfies SurfaceRole;
+      palm.add(mesh);
+    });
 
     const crown = new THREE.Group();
-    crown.position.set(-0.62, 7.55, 0);
+    crown.position.set(-0.88, 7.9, 0);
 
     // Coconut cluster nestled beneath canopy
-    for (let c = 0; c < 3; c += 1) {
-      const ca = (c / 3) * Math.PI * 2;
+    for (let c = 0; c < 4; c += 1) {
+      const ca = (c / 4) * Math.PI * 2;
       const nut = new THREE.Mesh(coconutGeo, coconutMat);
-      nut.position.set(Math.cos(ca) * 0.26, -0.22, Math.sin(ca) * 0.26);
+      nut.position.set(Math.cos(ca) * 0.28, -0.22, Math.sin(ca) * 0.28);
       crown.add(nut);
     }
 
-    // Lower sweeping frond ring (7 fronds)
-    for (let f = 0; f < 7; f += 1) {
+    // Lush lower sweeping arched frond ring (9 multi-segment fronds)
+    for (let f = 0; f < 9; f += 1) {
       const frondPivot = new THREE.Group();
-      frondPivot.rotation.y = (f / 7) * Math.PI * 2;
+      frondPivot.rotation.y = (f / 9) * Math.PI * 2;
 
-      const frond = new THREE.Mesh(frondGeo, lowerFrondMat);
-      frond.scale.set(0.78, 1.04, 0.28);
-      frond.position.set(0, 0.16, 1.85);
-      frond.rotation.x = 1.28;
-      frond.castShadow = true;
-      frond.receiveShadow = true;
-      frondPivot.add(frond);
+      const innerBlade = new THREE.Mesh(frondInnerGeo, lowerFrondMat);
+      innerBlade.scale.set(0.86, 1.0, 0.22);
+      innerBlade.position.set(0, 0.34, 1.15);
+      innerBlade.rotation.x = 1.16;
+      innerBlade.castShadow = true;
+      innerBlade.receiveShadow = true;
+      innerBlade.userData.surfaceRole = 'palm_leaves' satisfies SurfaceRole;
+      frondPivot.add(innerBlade);
+
+      const outerTip = new THREE.Mesh(frondTipGeo, lowerFrondMat);
+      outerTip.scale.set(0.74, 1.0, 0.18);
+      outerTip.position.set(0, -0.18, 2.95);
+      outerTip.rotation.x = 1.78;
+      outerTip.castShadow = true;
+      outerTip.receiveShadow = true;
+      outerTip.userData.surfaceRole = 'palm_leaves' satisfies SurfaceRole;
+      frondPivot.add(outerTip);
+
       crown.add(frondPivot);
     }
 
-    // Upper arched tropical canopy ring (5 fronds)
-    for (let f = 0; f < 5; f += 1) {
+    // Upper arched tropical canopy ring (6 fronds)
+    for (let f = 0; f < 6; f += 1) {
       const frondPivot = new THREE.Group();
-      frondPivot.rotation.y = (f / 5) * Math.PI * 2 + 0.35;
+      frondPivot.rotation.y = (f / 6) * Math.PI * 2 + 0.32;
 
-      const frond = new THREE.Mesh(frondGeo, upperFrondMat);
-      frond.scale.set(0.68, 0.86, 0.24);
-      frond.position.set(0, 0.62, 1.42);
-      frond.rotation.x = 0.88;
-      frond.castShadow = true;
-      frond.receiveShadow = true;
-      frondPivot.add(frond);
+      const innerBlade = new THREE.Mesh(frondInnerGeo, upperFrondMat);
+      innerBlade.scale.set(0.74, 0.9, 0.2);
+      innerBlade.position.set(0, 0.78, 0.92);
+      innerBlade.rotation.x = 0.78;
+      innerBlade.castShadow = true;
+      innerBlade.receiveShadow = true;
+      innerBlade.userData.surfaceRole = 'palm_leaves' satisfies SurfaceRole;
+      frondPivot.add(innerBlade);
+
+      const outerTip = new THREE.Mesh(frondTipGeo, upperFrondMat);
+      outerTip.scale.set(0.62, 0.85, 0.16);
+      outerTip.position.set(0, 0.65, 2.38);
+      outerTip.rotation.x = 1.48;
+      outerTip.castShadow = true;
+      outerTip.receiveShadow = true;
+      outerTip.userData.surfaceRole = 'palm_leaves' satisfies SurfaceRole;
+      frondPivot.add(outerTip);
+
       crown.add(frondPivot);
     }
 
@@ -2473,7 +2870,353 @@ function buildPalmTreesGroup(): THREE.Group {
     palmsGroup.add(palm);
   });
 
+  // Cali Jacaranda & tropical shade trees with forked woody trunks & rounded flowering canopies
+  const jacTrunkGeo = new THREE.CylinderGeometry(0.28, 0.44, 3.6, 8);
+  const jacBranchGeo = new THREE.CylinderGeometry(0.14, 0.24, 2.6, 7);
+  const canopyGeo = new THREE.IcosahedronGeometry(1.85, 1);
+
+  const jacBarkMat = new THREE.MeshStandardMaterial({
+    color: 0x6b5342,
+    roughness: 0.94,
+    metalness: 0.02,
+    flatShading: false,
+  });
+  jacBarkMat.userData.surfaceRole = 'jacaranda_bark' satisfies SurfaceRole;
+
+  const jacBlossomMat = new THREE.MeshStandardMaterial({
+    color: 0x9b82c7,
+    roughness: 0.82,
+    metalness: 0.02,
+    flatShading: false,
+  });
+  jacBlossomMat.userData.surfaceRole = 'jacaranda_leaves' satisfies SurfaceRole;
+  jacBlossomMat.userData.photoTintHex = 0xbaa4df;
+
+  const jacGreenMat = new THREE.MeshStandardMaterial({
+    color: 0x4b783c,
+    roughness: 0.8,
+    metalness: 0.02,
+    flatShading: false,
+  });
+  jacGreenMat.userData.surfaceRole = 'jacaranda_leaves' satisfies SurfaceRole;
+  jacGreenMat.userData.photoTintHex = 0x7ca662;
+
+  const clusterOffsets: readonly { x: number; y: number; z: number; sx: number; sy: number; sz: number }[] = [
+    { x: 0, y: 5.7, z: 0, sx: 1.35, sy: 0.92, sz: 1.35 },
+    { x: 1.55, y: 5.05, z: 0.85, sx: 1.05, sy: 0.82, sz: 1.05 },
+    { x: -1.48, y: 5.15, z: 0.72, sx: 1.08, sy: 0.84, sz: 1.02 },
+    { x: 0.38, y: 5.0, z: -1.52, sx: 1.05, sy: 0.8, sz: 1.05 },
+    { x: -0.65, y: 6.25, z: -0.35, sx: 0.96, sy: 0.76, sz: 0.96 },
+  ];
+
+  JACARANDA_LOCATIONS.forEach((loc, index) => {
+    const tree = new THREE.Group();
+    tree.name = `jacaranda_${index}`;
+    const groundY = getTerrainElevation(loc.x, loc.z);
+    const scale = 0.88 + (index % 3) * 0.11;
+    tree.position.set(loc.x, groundY, loc.z);
+    tree.rotation.y = (index * 1.47) % (Math.PI * 2);
+    tree.scale.setScalar(scale);
+
+    const trunk = new THREE.Mesh(jacTrunkGeo, jacBarkMat);
+    trunk.position.set(0, 1.8, 0);
+    trunk.rotation.z = 0.04;
+    trunk.castShadow = true;
+    trunk.receiveShadow = true;
+    trunk.userData.surfaceRole = 'jacaranda_bark' satisfies SurfaceRole;
+    tree.add(trunk);
+
+    for (let b = 0; b < 3; b += 1) {
+      const ba = (b / 3) * Math.PI * 2 + 0.4;
+      const branch = new THREE.Mesh(jacBranchGeo, jacBarkMat);
+      branch.position.set(Math.cos(ba) * 0.58, 3.85, Math.sin(ba) * 0.58);
+      branch.rotation.z = -Math.cos(ba) * 0.46;
+      branch.rotation.x = Math.sin(ba) * 0.46;
+      branch.castShadow = true;
+      branch.receiveShadow = true;
+      branch.userData.surfaceRole = 'jacaranda_bark' satisfies SurfaceRole;
+      tree.add(branch);
+    }
+
+    const leafMat = index % 2 === 0 ? jacBlossomMat : jacGreenMat;
+    for (const cluster of clusterOffsets) {
+      const puff = new THREE.Mesh(canopyGeo, leafMat);
+      puff.position.set(cluster.x, cluster.y, cluster.z);
+      puff.scale.set(cluster.sx, cluster.sy, cluster.sz);
+      puff.castShadow = true;
+      puff.receiveShadow = true;
+      puff.userData.surfaceRole = 'jacaranda_leaves' satisfies SurfaceRole;
+      tree.add(puff);
+    }
+
+    palmsGroup.add(tree);
+  });
+
   return palmsGroup;
+}
+
+interface PhotoRoleProfile {
+  readonly textureSet: PhotoPbrMaterialMaps | null;
+  readonly repeatX: number;
+  readonly repeatY: number;
+  readonly defaultTintHex: number;
+  readonly roughness: number;
+  readonly metalness: number;
+  readonly normalScale: number;
+  readonly envMapIntensity: number;
+  readonly clearEmissive?: boolean;
+}
+
+function buildPhotoRoleProfiles(
+  textures: LoadedWorldTextureSets,
+): Record<SurfaceRole, PhotoRoleProfile> {
+  return {
+    asphalt: {
+      textureSet: textures.asphalt,
+      repeatX: 2.0,
+      repeatY: 2.0,
+      defaultTintHex: 0xd4d2ce,
+      roughness: 0.92,
+      metalness: 0.05,
+      normalScale: 0.85,
+      envMapIntensity: 0.85,
+    },
+    sidewalk: {
+      textureSet: textures.sidewalk,
+      repeatX: 1.25,
+      repeatY: 1.25,
+      defaultTintHex: 0xdedbd4,
+      roughness: 0.94,
+      metalness: 0.04,
+      normalScale: 0.8,
+      envMapIntensity: 0.65,
+    },
+    terrain: {
+      textureSet: textures.terrain,
+      repeatX: 24,
+      repeatY: 24,
+      defaultTintHex: 0xd8d6cc,
+      roughness: 1.0,
+      metalness: 0.02,
+      normalScale: 1.0,
+      envMapIntensity: 0.55,
+    },
+    plaster: {
+      textureSet: textures.plaster,
+      repeatX: 1.5,
+      repeatY: 1.5,
+      defaultTintHex: 0xf4ead8,
+      roughness: 0.95,
+      metalness: 0.02,
+      normalScale: 0.75,
+      envMapIntensity: 0.6,
+      clearEmissive: true,
+    },
+    roof: {
+      textureSet: textures.roof,
+      repeatX: 3.0,
+      repeatY: 2.0,
+      defaultTintHex: 0xc96644,
+      roughness: 0.88,
+      metalness: 0.04,
+      normalScale: 1.0,
+      envMapIntensity: 0.6,
+    },
+    facade: {
+      textureSet: textures.facade,
+      repeatX: 1.5,
+      repeatY: 1.5,
+      defaultTintHex: 0xdad4ca,
+      roughness: 0.92,
+      metalness: 0.06,
+      normalScale: 0.85,
+      envMapIntensity: 0.75,
+      clearEmissive: true,
+    },
+    palm_bark: {
+      textureSet: textures.palmBark,
+      repeatX: 1.0,
+      repeatY: 3.0,
+      defaultTintHex: 0xc8b29b,
+      roughness: 0.95,
+      metalness: 0.02,
+      normalScale: 1.1,
+      envMapIntensity: 0.5,
+    },
+    palm_leaves: {
+      textureSet: textures.palmLeaves,
+      repeatX: 1.5,
+      repeatY: 1.5,
+      defaultTintHex: 0x8ab86e,
+      roughness: 0.78,
+      metalness: 0.02,
+      normalScale: 0.7,
+      envMapIntensity: 0.65,
+    },
+    jacaranda_bark: {
+      textureSet: textures.jacarandaBark,
+      repeatX: 1.0,
+      repeatY: 2.0,
+      defaultTintHex: 0xb89f88,
+      roughness: 0.96,
+      metalness: 0.02,
+      normalScale: 1.0,
+      envMapIntensity: 0.5,
+    },
+    jacaranda_leaves: {
+      textureSet: textures.jacarandaLeaves,
+      repeatX: 2.0,
+      repeatY: 2.0,
+      defaultTintHex: 0xa090c8,
+      roughness: 0.82,
+      metalness: 0.02,
+      normalScale: 0.8,
+      envMapIntensity: 0.6,
+    },
+  };
+}
+
+function isSurfaceRole(value: unknown): value is SurfaceRole {
+  return (
+    value === 'asphalt' ||
+    value === 'sidewalk' ||
+    value === 'terrain' ||
+    value === 'plaster' ||
+    value === 'roof' ||
+    value === 'facade' ||
+    value === 'palm_bark' ||
+    value === 'palm_leaves' ||
+    value === 'jacaranda_bark' ||
+    value === 'jacaranda_leaves'
+  );
+}
+
+/**
+ * Upgrades tagged Cali world meshes in-place with loaded 1K photographic PBR texture sets
+ * (albedo + OpenGL normal + roughness). Any `null` texture slot is skipped safely while
+ * retaining its procedural fallback; obsolete replaced procedural textures are disposed cleanly.
+ */
+export function applyPhotographicAssets(
+  worldGroup: THREE.Group,
+  textures: LoadedWorldTextureSets,
+): void {
+  const profiles = buildPhotoRoleProfiles(textures);
+
+  // Configure per-role tiling repeats on each loaded photographic PBR set
+  for (const profile of Object.values(profiles)) {
+    const texSet = profile.textureSet;
+    if (!texSet) {
+      continue;
+    }
+    for (const tex of [texSet.map, texSet.normalMap, texSet.roughnessMap]) {
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(profile.repeatX, profile.repeatY);
+      tex.needsUpdate = true;
+    }
+  }
+
+  const upgradedMaterials = new Set<THREE.Material>();
+  const replacedProceduralTextures = new Set<THREE.Texture>();
+  const loadedPhotoTextures = new Set<THREE.Texture>();
+  for (const profile of Object.values(profiles)) {
+    if (profile.textureSet) {
+      loadedPhotoTextures.add(profile.textureSet.map);
+      loadedPhotoTextures.add(profile.textureSet.normalMap);
+      loadedPhotoTextures.add(profile.textureSet.roughnessMap);
+    }
+  }
+
+  worldGroup.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+
+    const meshRole = isSurfaceRole(node.userData.surfaceRole)
+      ? node.userData.surfaceRole
+      : undefined;
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+
+    for (const mat of materials) {
+      if (!(mat instanceof THREE.MeshStandardMaterial) || upgradedMaterials.has(mat)) {
+        continue;
+      }
+
+      const role = isSurfaceRole(mat.userData.surfaceRole)
+        ? mat.userData.surfaceRole
+        : meshRole;
+      if (!role) {
+        continue;
+      }
+
+      const profile = profiles[role];
+      const texSet = profile.textureSet;
+      if (!texSet) {
+        continue;
+      }
+
+      // Collect previous procedural textures for safe orphan cleanup
+      for (const prevTex of [mat.map, mat.bumpMap, mat.roughnessMap, mat.normalMap]) {
+        if (prevTex && !loadedPhotoTextures.has(prevTex)) {
+          replacedProceduralTextures.add(prevTex);
+        }
+      }
+
+      mat.map = texSet.map;
+      mat.normalMap = texSet.normalMap;
+      mat.normalScale.set(profile.normalScale, profile.normalScale);
+      mat.bumpMap = null;
+      mat.roughnessMap = texSet.roughnessMap;
+      mat.roughness = profile.roughness;
+      mat.metalness = profile.metalness;
+      mat.envMapIntensity = profile.envMapIntensity;
+      mat.flatShading = false;
+
+      if (profile.clearEmissive && mat.emissiveMap) {
+        if (!loadedPhotoTextures.has(mat.emissiveMap)) {
+          replacedProceduralTextures.add(mat.emissiveMap);
+        }
+        mat.emissiveMap = null;
+        mat.emissive.setHex(0x000000);
+        mat.emissiveIntensity = 0;
+      }
+
+      const customTint = mat.userData.photoTintHex;
+      if (typeof customTint === 'number') {
+        mat.color.setHex(customTint);
+      } else {
+        mat.color.setHex(profile.defaultTintHex);
+      }
+
+      mat.needsUpdate = true;
+      upgradedMaterials.add(mat);
+    }
+  });
+
+  // Dispose only replaced procedural textures that are no longer referenced anywhere in worldGroup
+  const stillReferenced = new Set<THREE.Texture>();
+  worldGroup.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    for (const mat of materials) {
+      if (!(mat instanceof THREE.MeshStandardMaterial)) {
+        continue;
+      }
+      if (mat.map) stillReferenced.add(mat.map);
+      if (mat.bumpMap) stillReferenced.add(mat.bumpMap);
+      if (mat.roughnessMap) stillReferenced.add(mat.roughnessMap);
+      if (mat.normalMap) stillReferenced.add(mat.normalMap);
+      if (mat.emissiveMap) stillReferenced.add(mat.emissiveMap);
+    }
+  });
+
+  for (const oldTex of replacedProceduralTextures) {
+    if (!stillReferenced.has(oldTex)) {
+      oldTex.dispose();
+    }
+  }
 }
 
 /**
