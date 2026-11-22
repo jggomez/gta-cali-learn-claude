@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CALI_MAP } from '../../../src/config/caliMap';
+import { CALI_MAP, DEFAULT_GARAGE_CONFIG } from '../../../src/config/caliMap';
 import { LOCALE_CALI } from '../../../src/config/localeCali';
 import type {
   AudioState,
   DialogueSpeaker,
+  GarageConfig,
   MissionSnapshot,
   WorldSnapshot,
 } from '../../../src/types/game';
@@ -627,6 +628,218 @@ describe('HudController', () => {
     // Clicking invokes onToggleVoices
     voicesBtn?.click();
     expect(onToggleVoices).toHaveBeenCalledTimes(1);
+
+    hud.dispose();
+  });
+
+  it('renders Mission 3 card and Title Garage CTA with active Colombian car & protagonist', () => {
+    const onStartMission = vi.fn();
+    const onToggleGarage = vi.fn();
+    const callbacks: HudCallbacks = {
+      ...createCallbacks(),
+      onStartMission,
+      onToggleGarage,
+    };
+    const hud = new HudController(root as unknown as HTMLElement, callbacks, CALI_MAP);
+
+    const m3Btn = root.findFirst((el) => el.dataset.testid === 'btn-mission-3');
+    const titleGarageBtn = root.findFirst((el) => el.dataset.testid === 'btn-title-garage');
+    expect(m3Btn).not.toBeNull();
+    expect(titleGarageBtn).not.toBeNull();
+
+    hud.render(
+      createWorldSnapshot(100),
+      {
+        ...createMissionSnapshot(),
+        mode: 'title',
+        completedMissions: ['mission_3_pique_bulevar'],
+        bestTimes: { mission_3_pique_bulevar: 65 },
+      },
+      DEFAULT_AUDIO,
+      'victory_orbit',
+    );
+
+    expect(
+      m3Btn?.findFirst((el) => el.textContent === LOCALE_CALI.missions.mission_3_pique_bulevar.title),
+    ).not.toBeNull();
+    expect(
+      m3Btn?.findFirst((el) => el.textContent.includes('01:05')),
+    ).not.toBeNull();
+    expect(titleGarageBtn?.findFirst((el) => el.textContent.includes(LOCALE_CALI.garage.cars.renault4_turbo))).not.toBeNull();
+    expect(titleGarageBtn?.findFirst((el) => el.textContent.includes(LOCALE_CALI.speakers.valeria))).not.toBeNull();
+
+    m3Btn?.click();
+    expect(onStartMission).toHaveBeenCalledWith('mission_3_pique_bulevar');
+
+    titleGarageBtn?.click();
+    expect(onToggleGarage).toHaveBeenCalledTimes(1);
+
+    hud.dispose();
+  });
+
+  it('opens Garaje Caleño overlay, fires onUpdateGarage on car/paint/avatar/outfit clicks, and closes cleanly', () => {
+    const onToggleGarage = vi.fn();
+    const onUpdateGarage = vi.fn<(garage: GarageConfig) => void>();
+    const callbacks: HudCallbacks = {
+      ...createCallbacks(),
+      onToggleGarage,
+      onUpdateGarage,
+    };
+    const hud = new HudController(root as unknown as HTMLElement, callbacks, CALI_MAP);
+
+    const garagePanel = root.findFirst((el) => el.dataset.testid === 'garage-panel');
+    const pauseOverlay = root.findFirst((el) => el.dataset.testid === 'pause-overlay');
+    const titleGarageBtn = root.findFirst((el) => el.dataset.testid === 'btn-title-garage');
+    const hudGarageBtn = root.findFirst((el) => el.dataset.testid === 'btn-garage');
+    expect(garagePanel).not.toBeNull();
+    expect(hudGarageBtn).not.toBeNull();
+    expect(garagePanel?.hidden).toBe(true);
+    expect(hud.isGarageOpen()).toBe(false);
+
+    hud.setGarageOpen(true);
+    expect(hud.isGarageOpen()).toBe(true);
+    expect(garagePanel?.hidden).toBe(false);
+
+    // When paused with garage open, pause overlay stays hidden behind garage
+    hud.render(
+      createWorldSnapshot(100),
+      { ...createMissionSnapshot(), mode: 'paused' },
+      DEFAULT_AUDIO,
+      'chase',
+    );
+    expect(pauseOverlay?.hidden).toBe(true);
+    expect(garagePanel?.hidden).toBe(false);
+
+    // Verify all required testids exist
+    const requiredIds = [
+      'garage-car-renault4_turbo',
+      'garage-car-spark_gt_turbo',
+      'garage-car-willys_v8',
+      'garage-car-banshee',
+      'garage-paint-0',
+      'garage-paint-1',
+      'garage-paint-2',
+      'garage-paint-3',
+      'garage-paint-4',
+      'garage-avatar-valeria',
+      'garage-avatar-mateo',
+      'garage-outfit-urbano_cali',
+      'garage-outfit-escarlata',
+      'garage-outfit-azucarero',
+      'garage-outfit-tricolor',
+      'garage-outfit-guayabera',
+      'btn-garage-close',
+    ];
+    for (const testId of requiredIds) {
+      expect(root.findFirst((el) => el.dataset.testid === testId)).not.toBeNull();
+    }
+
+    // Select Jeep Willys Yipao V8
+    root.findFirst((el) => el.dataset.testid === 'garage-car-willys_v8')?.click();
+    expect(onUpdateGarage).toHaveBeenLastCalledWith({
+      ...DEFAULT_GARAGE_CONFIG,
+      carKind: 'willys_v8',
+    });
+
+    // Select Paint 1 (Verde Azucarero)
+    const paint1 = LOCALE_CALI.garage.paints[1]!;
+    root.findFirst((el) => el.dataset.testid === 'garage-paint-1')?.click();
+    expect(onUpdateGarage).toHaveBeenLastCalledWith({
+      ...DEFAULT_GARAGE_CONFIG,
+      carKind: 'willys_v8',
+      paintHex: paint1.paintHex,
+      neonHex: paint1.neonHex,
+    });
+
+    // Select Mateo
+    root.findFirst((el) => el.dataset.testid === 'garage-avatar-mateo')?.click();
+    expect(onUpdateGarage).toHaveBeenLastCalledWith({
+      ...DEFAULT_GARAGE_CONFIG,
+      carKind: 'willys_v8',
+      paintHex: paint1.paintHex,
+      neonHex: paint1.neonHex,
+      avatar: 'mateo',
+    });
+
+    // Select Escarlata jersey
+    root.findFirst((el) => el.dataset.testid === 'garage-outfit-escarlata')?.click();
+    expect(onUpdateGarage).toHaveBeenLastCalledWith({
+      ...DEFAULT_GARAGE_CONFIG,
+      carKind: 'willys_v8',
+      paintHex: paint1.paintHex,
+      neonHex: paint1.neonHex,
+      avatar: 'mateo',
+      outfit: 'escarlata',
+    });
+
+    // Title CTA reflects updated car & avatar
+    expect(
+      titleGarageBtn?.findFirst((el) =>
+        el.textContent.includes(LOCALE_CALI.garage.cars.willys_v8),
+      ),
+    ).not.toBeNull();
+    expect(
+      titleGarageBtn?.findFirst((el) => el.textContent.includes(LOCALE_CALI.speakers.mateo)),
+    ).not.toBeNull();
+
+    // Clicking HUD garage pill & close button invoke onToggleGarage
+    hudGarageBtn?.click();
+    root.findFirst((el) => el.dataset.testid === 'btn-garage-close')?.click();
+    expect(onToggleGarage).toHaveBeenCalledTimes(2);
+
+    hud.setGarageOpen(false);
+    expect(hud.isGarageOpen()).toBe(false);
+    expect(garagePanel?.hidden).toBe(true);
+
+    hud.dispose();
+  });
+
+  it('renders POS 1/3 race badge, DERRAPE xN combo badge with pending COP, and enterNamedVehicle for player Renault 4 GT Turbo', () => {
+    const hud = new HudController(root as unknown as HTMLElement, createCallbacks(), CALI_MAP);
+    const racePosEl = root.findFirst((el) => el.dataset.testid === 'hud-race-pos');
+    const driftComboEl = root.findFirst((el) => el.dataset.testid === 'hud-drift-combo');
+    const promptEl = root.findFirst((el) => el.dataset.testid === 'hud-vehicle-prompt');
+
+    expect(racePosEl).not.toBeNull();
+    expect(driftComboEl).not.toBeNull();
+    expect(promptEl).not.toBeNull();
+
+    const baseWorld = createWorldSnapshot(85);
+    // Inactive race & combo -> hidden
+    hud.render(baseWorld, createMissionSnapshot(), DEFAULT_AUDIO, 'chase');
+    expect(racePosEl?.hidden).toBe(true);
+    expect(driftComboEl?.hidden).toBe(true);
+
+    // Active race POS 1/3, active drift combo x3 with 15,000 COP pending, and on foot near player's Renault 4 GT Turbo
+    hud.render(
+      {
+        ...baseWorld,
+        player: {
+          ...baseWorld.player,
+          mode: 'on_foot',
+          canEnterVehicle: true,
+          nearbyVehicleId: 'player_banshee',
+          nearbyVehicleKind: 'renault4_turbo',
+        },
+        racePosition: 1,
+        raceTotalRacers: 3,
+        driftComboMultiplier: 3,
+        driftBankPendingCop: 15_000,
+      },
+      createMissionSnapshot(),
+      DEFAULT_AUDIO,
+      'chase',
+    );
+
+    expect(racePosEl?.hidden).toBe(false);
+    expect(racePosEl?.textContent).toBe(LOCALE_CALI.hud.racePosLabel(1, 3));
+    expect(driftComboEl?.hidden).toBe(false);
+    expect(driftComboEl?.textContent).toContain(LOCALE_CALI.hud.driftComboLabel(3));
+    expect(driftComboEl?.textContent).toContain('15.000');
+    expect(promptEl?.hidden).toBe(false);
+    expect(promptEl?.textContent).toBe(
+      LOCALE_CALI.hud.enterNamedVehicle(LOCALE_CALI.vehicleNames.renault4_turbo),
+    );
 
     hud.dispose();
   });

@@ -12,6 +12,8 @@ export interface InputActionCallbacks {
   readonly onToggleVoices?: () => void;
   readonly onTogglePause?: () => void;
   readonly onToggleTimeOfDay?: () => void;
+  readonly onToggleGarage?: () => void;
+  readonly onHorn?: () => void;
   readonly onAnyUserGesture?: () => void;
   readonly isPlaying?: () => boolean;
 }
@@ -328,6 +330,12 @@ export class InputManager {
         if (isPlaying) {
           this.callbacks.onToggleTimeOfDay?.();
         }
+        break;
+      case 'KeyG':
+        this.callbacks.onToggleGarage?.();
+        break;
+      case 'KeyH':
+        this.callbacks.onHorn?.();
         break;
       case 'Escape':
       case 'KeyP':

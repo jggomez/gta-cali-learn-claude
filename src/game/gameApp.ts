@@ -15,6 +15,7 @@ import type {
   CameraMode,
   DialogueSpeaker,
   GameDebugSnapshot,
+  GarageConfig,
   InputState,
   MissionId,
   MissionSnapshot,
@@ -48,6 +49,9 @@ const PEDESTRIAN_ADMIRE_RANGE_METERS = 13;
 const PEDESTRIAN_ADMIRE_RANGE_SQ =
   PEDESTRIAN_ADMIRE_RANGE_METERS * PEDESTRIAN_ADMIRE_RANGE_METERS;
 const PEDESTRIAN_ADMIRE_MIN_SPEED_KMH = 65;
+const PEDESTRIAN_HORN_RANGE_METERS = 18;
+const PEDESTRIAN_HORN_RANGE_SQ =
+  PEDESTRIAN_HORN_RANGE_METERS * PEDESTRIAN_HORN_RANGE_METERS;
 
 const IDLE_INPUT: InputState = {
   forward: false,
@@ -102,6 +106,14 @@ interface WorldRendererAssetsTelemetry {
   readonly areAssetsLoaded?: () => boolean;
   readonly getAssetsLoaded?: () => boolean;
   readonly assetsLoaded?: boolean;
+  readonly setGarageAppearance?: (garage: GarageConfig) => void;
+}
+
+function applyRendererGarageAppearance(
+  renderer: WorldRendererAssetsTelemetry | null,
+  garage: GarageConfig,
+): void {
+  renderer?.setGarageAppearance?.(garage);
 }
 
 function readAssetsLoaded(renderer: WorldRendererAssetsTelemetry | null): boolean | undefined {
@@ -137,6 +149,9 @@ export class GameApp {
   private worldRenderer: WorldRenderer | null = null;
 
   private cameraMode: CameraMode = 'chase';
+  private garageConfig: GarageConfig;
+  private garageOpen = false;
+  private garagePausedGameplay = false;
   private rafId: number | null = null;
   private lastFrameTimeMs: number | null = null;
   private smoothedFps = 60;
@@ -145,6 +160,8 @@ export class GameApp {
 
   private lastSpokenDialogueId: string | null = null;
   private lastWantedStars: WantedLevel = 0;
+  private lastStuntJumpAudioAt = 0;
+  private lastPayNSprayAudioAt = 0;
   private prevFleeingPedIds = new Set<string>();
   private policeMegaphoneIndex = 0;
   private pedestrianFleeIndex = 0;
@@ -166,6 +183,12 @@ export class GameApp {
     this.world = new GameWorld(this.map);
     const storage = new StorageAdapter(getBrowserLocalStorage());
     this.missionDirector = new MissionDirector(this.map, storage);
+    this.garageConfig = this.missionDirector.getGarageConfig();
+    this.world.applyGarageCar(
+      this.garageConfig.carKind,
+      this.garageConfig.paintHex,
+      this.garageConfig.neonHex,
+    );
 
     const initialRecords = this.missionDirector.getRecords();
     const initialVoicesEnabled = initialRecords.voicesEnabled ?? true;
@@ -194,10 +217,13 @@ export class GameApp {
         onCycleCamera: () => this.cycleCamera(),
         onTogglePause: () => this.togglePause(),
         onToggleTimeOfDay: () => this.toggleTimeOfDay(),
+        onToggleGarage: () => this.toggleGarage(),
+        onUpdateGarage: (garage) => this.updateGarage(garage),
         onRetryWebgl: () => this.retryWebgl(),
       },
       this.map,
     );
+    this.hud.setGarageConfig(this.garageConfig);
 
     this.inputManager = new InputManager(
       {
@@ -207,10 +233,12 @@ export class GameApp {
         onToggleVoices: () => this.toggleVoices(),
         onTogglePause: () => this.togglePause(),
         onToggleTimeOfDay: () => this.toggleTimeOfDay(),
+        onToggleGarage: () => this.toggleGarage(),
+        onHorn: () => this.triggerHorn(),
         onAnyUserGesture: () => {
           this.audioEngine.unlock();
         },
-        isPlaying: () => this.missionDirector.getSnapshot().mode === 'playing',
+        isPlaying: () => this.missionDirector.getSnapshot().mode === 'playing' && !this.garageOpen,
       },
       window,
       this.canvas,
@@ -275,6 +303,49 @@ export class GameApp {
     this.renderPresentState(0);
   }
 
+  public updateGarage(next: GarageConfig): void {
+    this.audioEngine.unlock();
+    const saved = this.missionDirector.saveGarageConfig(next);
+    this.garageConfig = saved;
+    this.world.applyGarageCar(saved.carKind, saved.paintHex, saved.neonHex);
+    applyRendererGarageAppearance(this.worldRenderer, saved);
+    this.hud.setGarageConfig(saved);
+    this.renderPresentState(0);
+  }
+
+  public toggleGarage(): void {
+    const mode = this.missionDirector.getSnapshot().mode;
+    if (this.garageOpen) {
+      this.garageOpen = false;
+      this.hud.setGarageOpen(false);
+      if (this.garagePausedGameplay) {
+        this.garagePausedGameplay = false;
+        if (mode === 'paused') {
+          this.missionDirector.setPaused(false);
+        }
+      }
+      this.inputManager.clearKeys();
+      blurFocusedElementInside(this.hudRoot);
+      this.renderPresentState(0);
+      return;
+    }
+
+    if (mode !== 'title' && mode !== 'playing') {
+      return;
+    }
+
+    this.audioEngine.unlock();
+    this.garageOpen = true;
+    this.garagePausedGameplay = mode === 'playing';
+    if (this.garagePausedGameplay) {
+      this.missionDirector.setPaused(true);
+      this.inputManager.clearKeys();
+      this.silenceAudioForFrozenState();
+    }
+    this.hud.setGarageOpen(true);
+    this.renderPresentState(0);
+  }
+
   public getDebugSnapshot(): GameDebugSnapshot {
     const worldSnap = this.world.getSnapshot();
     const missionSnap = this.missionDirector.getSnapshot();
@@ -286,6 +357,7 @@ export class GameApp {
       mission: missionSnap,
       audio: this.audioEngine.getState(),
       fps: Math.round(this.smoothedFps),
+      garage: { ...this.garageConfig },
       ...(assetsLoaded !== undefined ? { assetsLoaded } : {}),
     };
   }
@@ -296,6 +368,7 @@ export class GameApp {
 
     try {
       this.worldRenderer = new WorldRenderer(this.canvas, this.map);
+      applyRendererGarageAppearance(this.worldRenderer, this.garageConfig);
       this.hud.hideWebglError();
       this.resizeRenderer();
     } catch (error) {
@@ -325,13 +398,21 @@ export class GameApp {
 
   private startMission(missionId: MissionId): void {
     this.audioEngine.unlock();
+    this.garageOpen = false;
+    this.garagePausedGameplay = false;
+    this.hud.setGarageOpen(false);
     const start = this.map.missionStarts[missionId];
     this.world.reset({
       spawn: start.playerSpawn,
       carSpawn: start.carSpawn,
       startInVehicle: start.startInVehicle,
       wantedStars: start.initialWantedStars,
+      playerCarKind: this.garageConfig.carKind,
+      playerPaintHex: this.garageConfig.paintHex,
+      playerNeonHex: this.garageConfig.neonHex,
+      enableRivals: missionId === 'mission_3_pique_bulevar',
     });
+    applyRendererGarageAppearance(this.worldRenderer, this.garageConfig);
     const missionSnap = this.missionDirector.startMission(missionId);
     this.resetVoiceAndPursuitTrackers(start.initialWantedStars);
     this.syncSpokenMissionDialogue(missionSnap);
@@ -347,6 +428,9 @@ export class GameApp {
 
   private resumeGame(): void {
     this.audioEngine.unlock();
+    this.garageOpen = false;
+    this.garagePausedGameplay = false;
+    this.hud.setGarageOpen(false);
     this.missionDirector.setPaused(false);
     this.inputManager.clearKeys();
     blurFocusedElementInside(this.hudRoot);
@@ -354,6 +438,10 @@ export class GameApp {
   }
 
   private togglePause(): void {
+    if (this.garageOpen) {
+      this.toggleGarage();
+      return;
+    }
     const mode = this.missionDirector.getSnapshot().mode;
     if (mode === 'playing') {
       this.missionDirector.setPaused(true);
@@ -366,12 +454,49 @@ export class GameApp {
   }
 
   private returnToTitle(): void {
-    this.world.reset({ startInVehicle: false, wantedStars: 0 });
+    this.garageOpen = false;
+    this.garagePausedGameplay = false;
+    this.hud.setGarageOpen(false);
+    this.world.reset({
+      startInVehicle: false,
+      wantedStars: 0,
+      playerCarKind: this.garageConfig.carKind,
+      playerPaintHex: this.garageConfig.paintHex,
+      playerNeonHex: this.garageConfig.neonHex,
+    });
+    applyRendererGarageAppearance(this.worldRenderer, this.garageConfig);
     this.missionDirector.returnToTitle();
     this.resetVoiceAndPursuitTrackers(0);
     this.inputManager.clearKeys();
     this.silenceAudioForFrozenState();
     this.renderPresentState(0);
+  }
+
+  private triggerHorn(): void {
+    if (this.garageOpen || this.missionDirector.getSnapshot().mode !== 'playing') {
+      return;
+    }
+    this.audioEngine.unlock();
+    const worldSnap = this.world.getSnapshot();
+    if (worldSnap.player.mode !== 'driving' || worldSnap.player.vehicleId === null) {
+      return;
+    }
+    const activeVehicle = worldSnap.vehicles.find(
+      (vehicle) => vehicle.id === worldSnap.player.vehicleId,
+    );
+    if (!activeVehicle) {
+      return;
+    }
+    this.audioEngine.playHorn(activeVehicle.kind);
+    const pedestrians = worldSnap.pedestrians ?? [];
+    const hasNearbyPedestrian = pedestrians.some(
+      (ped) =>
+        distance2DSquared(ped.x, ped.z, worldSnap.player.x, worldSnap.player.z) <=
+        PEDESTRIAN_HORN_RANGE_SQ,
+    );
+    if (hasNearbyPedestrian) {
+      this.voiceEngine.speakPedestrianHornReaction(LOCALE_CALI.voiceLines.pedestrianHorn);
+    }
   }
 
   private cycleRadio(): void {
@@ -493,6 +618,15 @@ export class GameApp {
       worldMutated = true;
     }
 
+    if (
+      missionSnap.mode === 'playing' &&
+      missionSnap.activeMission === 'mission_3_pique_bulevar' &&
+      missionSnap.activeObjective
+    ) {
+      this.world.setPlayerRaceProgress(missionSnap.activeObjective.stepIndex);
+      worldMutated = true;
+    }
+
     if (worldSnap.wantedStars !== missionSnap.targetWantedStars) {
       this.world.setWantedStars(missionSnap.targetWantedStars);
       worldMutated = true;
@@ -511,6 +645,8 @@ export class GameApp {
   private resetVoiceAndPursuitTrackers(initialWantedStars: WantedLevel): void {
     this.lastSpokenDialogueId = null;
     this.lastWantedStars = initialWantedStars;
+    this.lastStuntJumpAudioAt = 0;
+    this.lastPayNSprayAudioAt = 0;
     this.prevFleeingPedIds.clear();
   }
 
@@ -520,6 +656,19 @@ export class GameApp {
   ): void {
     if (worldSnap.collisionImpact > COLLISION_FOLEY_THRESHOLD) {
       this.audioEngine.playCollision(worldSnap.collisionImpact);
+    }
+
+    const stuntJumpAt = worldSnap.lastStuntJumpAt ?? 0;
+    if (stuntJumpAt > this.lastStuntJumpAudioAt) {
+      this.lastStuntJumpAudioAt = stuntJumpAt;
+      this.audioEngine.playStuntJump();
+    }
+
+    const payNSprayAt = worldSnap.lastPayNSprayAt ?? 0;
+    if (payNSprayAt > this.lastPayNSprayAudioAt) {
+      this.lastPayNSprayAudioAt = payNSprayAt;
+      this.audioEngine.playPayNSpray();
+      this.voiceEngine.speakPayNSprayCallout(LOCALE_CALI.voiceLines.payNSpray);
     }
 
     this.syncSpokenMissionDialogue(missionSnap);
@@ -535,6 +684,9 @@ export class GameApp {
     }
     if (dialogue.id !== this.lastSpokenDialogueId) {
       this.lastSpokenDialogueId = dialogue.id;
+      if (dialogue.id.startsWith('payNSpray_')) {
+        return;
+      }
       const profile = mapDialogueSpeakerToVoiceProfile(dialogue.speaker);
       this.voiceEngine.speak(dialogue.text, profile, 'mission');
     }
@@ -622,7 +774,7 @@ export class GameApp {
         ? worldSnap.vehicles.find((vehicle) => vehicle.id === worldSnap.player.vehicleId)
         : undefined;
     if (
-      activeVehicle?.kind === 'banshee' &&
+      activeVehicle?.role === 'player' &&
       (worldSnap.player.speedKmh > PEDESTRIAN_ADMIRE_MIN_SPEED_KMH ||
         worldSnap.player.isDrifting)
     ) {
@@ -704,7 +856,13 @@ export class GameApp {
   ): void {
     const activeCamera = this.resolveActiveCameraMode(missionSnap);
     this.worldRenderer?.sync(worldSnap, missionSnap, activeCamera, dt);
-    this.hud.render(worldSnap, missionSnap, this.audioEngine.getState(), activeCamera);
+    this.hud.render(
+      worldSnap,
+      missionSnap,
+      this.audioEngine.getState(),
+      activeCamera,
+      this.garageConfig,
+    );
   }
 
   private attachDebugHook(): void {

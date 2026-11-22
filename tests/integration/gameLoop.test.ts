@@ -5,7 +5,7 @@ import {
   type SpeechSynthesisLike,
   type SpeechUtteranceLike,
 } from '../../src/audio/voiceEngine';
-import { CALI_MAP } from '../../src/config/caliMap';
+import { CALI_MAP, DEFAULT_GARAGE_CONFIG } from '../../src/config/caliMap';
 import { LOCALE_CALI } from '../../src/config/localeCali';
 import { GameApp } from '../../src/game/gameApp';
 import { InputManager, type InputTargetLike } from '../../src/game/inputManager';
@@ -19,6 +19,7 @@ import { GameWorld } from '../../src/simulation/gameWorld';
 import { normalizeAngle } from '../../src/simulation/physics';
 import type {
   CaliMapConfig,
+  GarageConfig,
   InputState,
   MissionId,
   MissionSnapshot,
@@ -50,6 +51,103 @@ function createMemoryStorage(): StorageLike & { readonly store: Map<string, stri
       store.set(key, value);
     },
   };
+}
+
+class FakeDomNode {
+  public readonly tagName: string;
+  public className = '';
+  public textContent = '';
+  public hidden = false;
+  public type = '';
+  public width = 0;
+  public height = 0;
+  public clientWidth = 1280;
+  public clientHeight = 720;
+  public readonly dataset: Record<string, string> = {};
+  public readonly style: Record<string, string> = {};
+  public readonly children: FakeDomNode[] = [];
+  private readonly attributes = new Map<string, string>();
+  private readonly listeners = new Map<string, EventListener[]>();
+  private parent: FakeDomNode | null = null;
+
+  public constructor(tagName: string) {
+    this.tagName = tagName.toLowerCase();
+  }
+
+  public setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+
+  public getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
+
+  public append(...nodes: FakeDomNode[]): void {
+    for (const node of nodes) {
+      this.appendChild(node);
+    }
+  }
+
+  public appendChild(node: FakeDomNode): FakeDomNode {
+    node.parent = this;
+    this.children.push(node);
+    return node;
+  }
+
+  public remove(): void {
+    if (!this.parent) {
+      return;
+    }
+    const idx = this.parent.children.indexOf(this);
+    if (idx >= 0) {
+      this.parent.children.splice(idx, 1);
+    }
+    this.parent = null;
+  }
+
+  public addEventListener(type: string, listener: EventListener): void {
+    const list = this.listeners.get(type) ?? [];
+    list.push(listener);
+    this.listeners.set(type, list);
+  }
+
+  public removeEventListener(type: string, listener: EventListener): void {
+    const list = this.listeners.get(type);
+    if (!list) {
+      return;
+    }
+    const idx = list.indexOf(listener);
+    if (idx >= 0) {
+      list.splice(idx, 1);
+    }
+  }
+
+  public click(): void {
+    for (const listener of this.listeners.get('click') ?? []) {
+      listener({} as Event);
+    }
+  }
+
+  public contains(): boolean {
+    return false;
+  }
+
+  public getContext(): null {
+    return null;
+  }
+
+  public findFirst(predicate: (el: FakeDomNode) => boolean): FakeDomNode | null {
+    if (predicate(this)) {
+      return this;
+    }
+    for (const child of this.children) {
+      const hit = child.findFirst(predicate);
+      if (hit) {
+        return hit;
+      }
+    }
+    return null;
+  }
 }
 
 class SyntheticInputTarget implements InputTargetLike {
@@ -901,103 +999,6 @@ describe('GTA VI: Cali headless game loop integration', () => {
   });
 
   it('wires GameApp KeyV toggle, localStorage reload persistence, mission dialogues, police megaphone + squelch, collision foley, pedestrian callouts, and VoiceEngine disposal', () => {
-    class FakeNode {
-      public readonly tagName: string;
-      public className = '';
-      public textContent = '';
-      public hidden = false;
-      public type = '';
-      public width = 0;
-      public height = 0;
-      public clientWidth = 1280;
-      public clientHeight = 720;
-      public readonly dataset: Record<string, string> = {};
-      public readonly style: Record<string, string> = {};
-      public readonly children: FakeNode[] = [];
-      private readonly attributes = new Map<string, string>();
-      private readonly listeners = new Map<string, EventListener[]>();
-      private parent: FakeNode | null = null;
-
-      public constructor(tagName: string) {
-        this.tagName = tagName.toLowerCase();
-      }
-
-      public setAttribute(name: string, value: string): void {
-        this.attributes.set(name, value);
-      }
-
-      public getAttribute(name: string): string | null {
-        return this.attributes.get(name) ?? null;
-      }
-
-      public append(...nodes: FakeNode[]): void {
-        for (const node of nodes) {
-          this.appendChild(node);
-        }
-      }
-
-      public appendChild(node: FakeNode): FakeNode {
-        node.parent = this;
-        this.children.push(node);
-        return node;
-      }
-
-      public remove(): void {
-        if (!this.parent) {
-          return;
-        }
-        const idx = this.parent.children.indexOf(this);
-        if (idx >= 0) {
-          this.parent.children.splice(idx, 1);
-        }
-        this.parent = null;
-      }
-
-      public addEventListener(type: string, listener: EventListener): void {
-        const list = this.listeners.get(type) ?? [];
-        list.push(listener);
-        this.listeners.set(type, list);
-      }
-
-      public removeEventListener(type: string, listener: EventListener): void {
-        const list = this.listeners.get(type);
-        if (!list) {
-          return;
-        }
-        const idx = list.indexOf(listener);
-        if (idx >= 0) {
-          list.splice(idx, 1);
-        }
-      }
-
-      public click(): void {
-        for (const listener of this.listeners.get('click') ?? []) {
-          listener({} as Event);
-        }
-      }
-
-      public contains(): boolean {
-        return false;
-      }
-
-      public getContext(): null {
-        return null;
-      }
-
-      public findFirst(predicate: (el: FakeNode) => boolean): FakeNode | null {
-        if (predicate(this)) {
-          return this;
-        }
-        for (const child of this.children) {
-          const hit = child.findFirst(predicate);
-          if (hit) {
-            return hit;
-          }
-        }
-        return null;
-      }
-    }
-
     const originalWindow = globalThis.window;
     const originalDocument = globalThis.document;
     const storage = createMemoryStorage();
@@ -1025,7 +1026,7 @@ describe('GTA VI: Cali headless game loop integration', () => {
     const fakeDocument = {
       activeElement: null,
       pointerLockElement: null,
-      createElement: (tag: string) => new FakeNode(tag),
+      createElement: (tag: string) => new FakeDomNode(tag),
     };
 
     Object.defineProperty(globalThis, 'window', {
@@ -1080,8 +1081,8 @@ describe('GTA VI: Cali headless game loop integration', () => {
     };
 
     try {
-      const canvas = new FakeNode('canvas') as unknown as HTMLCanvasElement;
-      const hudRoot = new FakeNode('div');
+      const canvas = new FakeDomNode('canvas') as unknown as HTMLCanvasElement;
+      const hudRoot = new FakeDomNode('div');
       const app = new GameApp(canvas, hudRoot as unknown as HTMLElement, CALI_MAP, {
         voiceEngine,
       });
@@ -1103,9 +1104,9 @@ describe('GTA VI: Cali headless game loop integration', () => {
       expect(new StorageAdapter(storage).loadRecords().voicesEnabled).toBe(false);
 
       // Reload a fresh GameApp against the same localStorage -> restores voicesEnabled === false
-      const reloadedHudRoot = new FakeNode('div');
+      const reloadedHudRoot = new FakeDomNode('div');
       const reloadedApp = new GameApp(
-        new FakeNode('canvas') as unknown as HTMLCanvasElement,
+        new FakeDomNode('canvas') as unknown as HTMLCanvasElement,
         reloadedHudRoot as unknown as HTMLElement,
         CALI_MAP,
       );
@@ -1297,6 +1298,356 @@ describe('GTA VI: Cali headless game loop integration', () => {
       // Dispose cleanly disposes VoiceEngine
       app.dispose();
       expect(disposeVoiceSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        writable: true,
+        value: originalWindow,
+      });
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        writable: true,
+        value: originalDocument,
+      });
+    }
+  });
+
+  it('binds KeyG to onToggleGarage and KeyH to hornPressed + non-repeat onHorn in InputManager', () => {
+    const target = new SyntheticInputTarget();
+    const onToggleGarage = vi.fn();
+    const onHorn = vi.fn();
+    const inputManager = new InputManager({ onToggleGarage, onHorn }, target);
+
+    // KeyG fires once on fresh keydown, ignores repeat and editable inputs
+    target.emit('keydown', { code: 'KeyG' });
+    target.emit('keydown', { code: 'KeyG', repeat: true });
+    expect(onToggleGarage).toHaveBeenCalledTimes(1);
+
+    target.emit('keyup', { code: 'KeyG' });
+    target.emit('keydown', {
+      code: 'KeyG',
+      target: { tagName: 'INPUT' } as unknown as EventTarget,
+    });
+    expect(onToggleGarage).toHaveBeenCalledTimes(1);
+
+    target.emit('keydown', { code: 'KeyG' });
+    expect(onToggleGarage).toHaveBeenCalledTimes(2);
+
+    // KeyH sets hornPressed while held and fires onHorn once on non-repeat keydown
+    expect(inputManager.consumeInputState().hornPressed).toBe(false);
+    target.emit('keydown', { code: 'KeyH' });
+    target.emit('keydown', { code: 'KeyH', repeat: true });
+    expect(onHorn).toHaveBeenCalledTimes(1);
+    expect(inputManager.consumeInputState().hornPressed).toBe(true);
+    expect(inputManager.consumeInputState().hornPressed).toBe(true);
+
+    target.emit('keyup', { code: 'KeyH' });
+    expect(inputManager.consumeInputState().hornPressed).toBe(false);
+
+    // Blur clears hornPressed cleanly
+    target.emit('keydown', { code: 'KeyH' });
+    expect(onHorn).toHaveBeenCalledTimes(2);
+    expect(inputManager.consumeInputState().hornPressed).toBe(true);
+    target.emit('blur');
+    expect(inputManager.consumeInputState().hornPressed).toBe(false);
+
+    inputManager.dispose();
+  });
+
+  it('integrates Garaje Caleño [G] persistence, Mission 3 rivals & race progress, [H] horn reactions, and Stunt Jump / Pay n Spray audio & voices in GameApp', () => {
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+    const storage = createMemoryStorage();
+    const windowTarget = new SyntheticInputTarget();
+    let rafHandle = 0;
+    const rafCallbacks = new Map<number, FrameRequestCallback>();
+
+    const fakeWindow = {
+      innerWidth: 1280,
+      innerHeight: 720,
+      devicePixelRatio: 1,
+      localStorage: storage,
+      addEventListener: windowTarget.addEventListener.bind(windowTarget),
+      removeEventListener: windowTarget.removeEventListener.bind(windowTarget),
+      requestAnimationFrame: (cb: FrameRequestCallback): number => {
+        rafHandle += 1;
+        rafCallbacks.set(rafHandle, cb);
+        return rafHandle;
+      },
+      cancelAnimationFrame: (id: number): void => {
+        rafCallbacks.delete(id);
+      },
+    };
+
+    const fakeDocument = {
+      activeElement: null,
+      pointerLockElement: null,
+      createElement: (tag: string) => new FakeDomNode(tag),
+    };
+
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: fakeWindow,
+    });
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      writable: true,
+      value: fakeDocument,
+    });
+
+    const playHornSpy = vi.spyOn(AudioEngine.prototype, 'playHorn');
+    const playStuntJumpSpy = vi.spyOn(AudioEngine.prototype, 'playStuntJump');
+    const playPayNSpraySpy = vi.spyOn(AudioEngine.prototype, 'playPayNSpray');
+    const setRaceProgressSpy = vi.spyOn(GameWorld.prototype, 'setPlayerRaceProgress');
+
+    let nowMs = 20_000;
+    const synthStub: SpeechSynthesisLike = {
+      getVoices: () => [{ lang: 'es-CO', name: 'Salomé Colombia' }],
+      speak: vi.fn(),
+      cancel: vi.fn(),
+    };
+    const voiceEngine = new VoiceEngine({
+      synthFactory: () => synthStub,
+      utteranceFactory: (text: string) => ({
+        text,
+        lang: 'es-CO',
+        rate: 1,
+        pitch: 1,
+        volume: 1,
+        voice: null,
+      }),
+      nowMs: () => nowMs,
+    });
+    const hornVoiceSpy = vi.spyOn(voiceEngine, 'speakPedestrianHornReaction');
+    const payNSprayVoiceSpy = vi.spyOn(voiceEngine, 'speakPayNSprayCallout');
+
+    let currentFrameTime = 0;
+    const tickFrame = (deltaMs = 16.67): void => {
+      currentFrameTime += deltaMs;
+      const entries = [...rafCallbacks.entries()];
+      rafCallbacks.clear();
+      for (const [, cb] of entries) {
+        cb(currentFrameTime);
+      }
+    };
+
+    try {
+      const canvas = new FakeDomNode('canvas') as unknown as HTMLCanvasElement;
+      const hudRoot = new FakeDomNode('div');
+      const app = new GameApp(canvas, hudRoot as unknown as HTMLElement, CALI_MAP, {
+        voiceEngine,
+      });
+      app.start();
+
+      // Default garage config exposed via getDebugSnapshot()
+      expect(app.getDebugSnapshot().garage).toEqual(DEFAULT_GARAGE_CONFIG);
+
+      // Press KeyG on Title Screen -> opens garage panel
+      const garagePanel = hudRoot.findFirst((el) => el.dataset.testid === 'garage-panel');
+      expect(garagePanel?.hidden).toBe(true);
+      windowTarget.emit('keydown', { code: 'KeyG' });
+      windowTarget.emit('keyup', { code: 'KeyG' });
+      expect(garagePanel?.hidden).toBe(false);
+
+      // Customize via Garage buttons (Jeep Willys + Mateo + Escarlata)
+      hudRoot.findFirst((el) => el.dataset.testid === 'garage-car-willys_v8')?.click();
+      hudRoot.findFirst((el) => el.dataset.testid === 'garage-avatar-mateo')?.click();
+      hudRoot.findFirst((el) => el.dataset.testid === 'garage-outfit-escarlata')?.click();
+
+      const expectedGarage: GarageConfig = {
+        ...DEFAULT_GARAGE_CONFIG,
+        carKind: 'willys_v8',
+        avatar: 'mateo',
+        outfit: 'escarlata',
+      };
+      expect(app.getDebugSnapshot().garage).toEqual(expectedGarage);
+      const playerCarAfterGarage = app
+        .getDebugSnapshot()
+        .world.vehicles.find((v) => v.id === 'player_banshee');
+      expect(playerCarAfterGarage?.kind).toBe('willys_v8');
+
+      // Reload a fresh GameApp against the same localStorage -> garage persists!
+      const reloadedApp = new GameApp(
+        new FakeDomNode('canvas') as unknown as HTMLCanvasElement,
+        new FakeDomNode('div') as unknown as HTMLElement,
+        CALI_MAP,
+      );
+      expect(reloadedApp.getDebugSnapshot().garage).toEqual(expectedGarage);
+      expect(
+        reloadedApp.getDebugSnapshot().world.vehicles.find((v) => v.id === 'player_banshee')?.kind,
+      ).toBe('willys_v8');
+      reloadedApp.dispose();
+
+      // Close Garage via KeyG
+      windowTarget.emit('keydown', { code: 'KeyG' });
+      windowTarget.emit('keyup', { code: 'KeyG' });
+      expect(garagePanel?.hidden).toBe(true);
+
+      // Launch Mission 3 -> starts in chosen Willys V8 with 2 rival racers (raceTotalRacers === 3)
+      const m3Btn = hudRoot.findFirst((el) => el.dataset.testid === 'btn-mission-3');
+      expect(m3Btn).not.toBeNull();
+      m3Btn?.click();
+
+      const m3Snap = app.getDebugSnapshot();
+      expect(m3Snap.mode).toBe('playing');
+      expect(m3Snap.mission.activeMission).toBe('mission_3_pique_bulevar');
+      expect(m3Snap.world.raceTotalRacers).toBe(3);
+      expect(m3Snap.world.racePosition).toBeGreaterThanOrEqual(1);
+      expect(m3Snap.world.vehicles.find((v) => v.id === 'player_banshee')?.kind).toBe('willys_v8');
+      const racePosBadge = hudRoot.findFirst((el) => el.dataset.testid === 'hud-race-pos');
+      expect(racePosBadge?.hidden).toBe(false);
+      expect(racePosBadge?.textContent).toMatch(/^POS [1-3]\/3$/);
+
+      // Frame tick syncs player race progress for Mission 3
+      tickFrame();
+      expect(setRaceProgressSpy).toHaveBeenCalledWith(0);
+
+      // KeyG while playing pauses simulation cleanly and resumes on close
+      const timeBeforeGarage = app.getDebugSnapshot().world.timeSeconds;
+      windowTarget.emit('keydown', { code: 'KeyG' });
+      windowTarget.emit('keyup', { code: 'KeyG' });
+      expect(garagePanel?.hidden).toBe(false);
+      expect(app.getDebugSnapshot().mode).toBe('paused');
+      tickFrame();
+      expect(app.getDebugSnapshot().world.timeSeconds).toBe(timeBeforeGarage);
+
+      windowTarget.emit('keydown', { code: 'KeyG' });
+      windowTarget.emit('keyup', { code: 'KeyG' });
+      expect(garagePanel?.hidden).toBe(true);
+      expect(app.getDebugSnapshot().mode).toBe('playing');
+
+      // Escape while Garage is open in-game closes Garage cleanly and resumes playing
+      windowTarget.emit('keydown', { code: 'KeyG' });
+      windowTarget.emit('keyup', { code: 'KeyG' });
+      expect(garagePanel?.hidden).toBe(false);
+      expect(app.getDebugSnapshot().mode).toBe('paused');
+      windowTarget.emit('keydown', { code: 'Escape' });
+      windowTarget.emit('keyup', { code: 'Escape' });
+      expect(garagePanel?.hidden).toBe(true);
+      expect(app.getDebugSnapshot().mode).toBe('playing');
+
+      // Direct public updateGarage updates live player car and persists
+      const sparkConfig: GarageConfig = {
+        ...expectedGarage,
+        carKind: 'spark_gt_turbo',
+      };
+      app.updateGarage(sparkConfig);
+      expect(app.getDebugSnapshot().garage).toEqual(sparkConfig);
+      expect(
+        app.getDebugSnapshot().world.vehicles.find((v) => v.id === 'player_banshee')?.kind,
+      ).toBe('spark_gt_turbo');
+
+      // KeyH while driving triggers playHorn(kind) + pedestrian reaction within 18m
+      nowMs += 8000;
+      const baseWorld = app.getDebugSnapshot().world;
+      const chivaDrivingSnapshot: WorldSnapshot = {
+        ...baseWorld,
+        player: {
+          ...baseWorld.player,
+          mode: 'driving',
+          vehicleId: 'traffic_chiva_test',
+        },
+        vehicles: [
+          ...baseWorld.vehicles,
+          {
+            id: 'traffic_chiva_test',
+            kind: 'chiva',
+            role: 'traffic',
+            x: baseWorld.player.x,
+            y: 0,
+            z: baseWorld.player.z,
+            heading: 0,
+            speedMps: 8,
+            speedKmh: 28,
+            steerAngle: 0,
+            isDrifting: false,
+            isBoosting: false,
+            nitro: 80,
+            sirenActive: false,
+            colorHex: 0xff2e93,
+            halfWidth: 1.35,
+            halfLength: 3.4,
+          },
+        ],
+        pedestrians: [
+          {
+            id: 'ped_horn_near',
+            x: baseWorld.player.x + 10,
+            y: 0,
+            z: baseWorld.player.z + 6,
+            heading: 0,
+            speedMps: 1.2,
+            fleeing: false,
+            shirtColorHex: 0x00f0ff,
+            pantsColorHex: 0x1d0e3d,
+          },
+        ],
+      };
+
+      const getSnapshotSpy = vi
+        .spyOn(GameWorld.prototype, 'getSnapshot')
+        .mockReturnValue(chivaDrivingSnapshot);
+
+      windowTarget.emit('keydown', { code: 'KeyH' });
+      windowTarget.emit('keyup', { code: 'KeyH' });
+      expect(playHornSpy).toHaveBeenCalledWith('chiva');
+      expect(hornVoiceSpy).toHaveBeenCalledTimes(1);
+      expect(hornVoiceSpy).toHaveBeenCalledWith(LOCALE_CALI.voiceLines.pedestrianHorn);
+
+      // Distant pedestrian (> 18m) does not trigger horn voice reaction
+      nowMs += 8000;
+      getSnapshotSpy.mockReturnValue({
+        ...chivaDrivingSnapshot,
+        pedestrians: [
+          {
+            id: 'ped_horn_far',
+            x: baseWorld.player.x + 40,
+            y: 0,
+            z: baseWorld.player.z + 40,
+            heading: 0,
+            speedMps: 1.2,
+            fleeing: false,
+            shirtColorHex: 0x00f0ff,
+            pantsColorHex: 0x1d0e3d,
+          },
+        ],
+      });
+      windowTarget.emit('keydown', { code: 'KeyH' });
+      windowTarget.emit('keyup', { code: 'KeyH' });
+      expect(playHornSpy).toHaveBeenCalledTimes(2);
+      expect(hornVoiceSpy).toHaveBeenCalledTimes(1);
+
+      // Stunt Jump & Pay 'n' Spray transitions trigger audio + voice once per timestamp
+      nowMs += 8000;
+      const stepSpy = vi.spyOn(GameWorld.prototype, 'step');
+      const stuntAndSpraySnapshot: WorldSnapshot = {
+        ...baseWorld,
+        lastStuntJumpAt: 12.5,
+        lastStuntJumpName: 'Salto del Bulevar',
+        lastStuntJumpCop: 35_000,
+        lastPayNSprayAt: 14.2,
+        lastPayNSprayName: 'Taller San Antonio',
+      };
+      stepSpy.mockReturnValue(stuntAndSpraySnapshot);
+      getSnapshotSpy.mockReturnValue(stuntAndSpraySnapshot);
+
+      tickFrame();
+      expect(playStuntJumpSpy).toHaveBeenCalledTimes(1);
+      expect(playPayNSpraySpy).toHaveBeenCalledTimes(1);
+      expect(payNSprayVoiceSpy).toHaveBeenCalledTimes(1);
+      expect(payNSprayVoiceSpy).toHaveBeenCalledWith(LOCALE_CALI.voiceLines.payNSpray);
+
+      // Repeating same timestamps on next frame does not duplicate SFX or voice
+      tickFrame();
+      expect(playStuntJumpSpy).toHaveBeenCalledTimes(1);
+      expect(playPayNSpraySpy).toHaveBeenCalledTimes(1);
+      expect(payNSprayVoiceSpy).toHaveBeenCalledTimes(1);
+
+      stepSpy.mockRestore();
+      getSnapshotSpy.mockRestore();
+      app.dispose();
     } finally {
       vi.restoreAllMocks();
       Object.defineProperty(globalThis, 'window', {

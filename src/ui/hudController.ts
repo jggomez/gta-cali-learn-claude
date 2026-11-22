@@ -4,14 +4,18 @@
  * All player-facing Español Caleño text is sourced strictly from LOCALE_CALI.
  */
 
-import { CALI_MAP } from '../config/caliMap';
+import { CALI_MAP, DEFAULT_GARAGE_CONFIG } from '../config/caliMap';
 import { LOCALE_CALI } from '../config/localeCali';
 import type {
   AudioState,
   CaliMapConfig,
+  CaliOutfitId,
   CameraMode,
+  CharacterAvatarId,
+  GarageConfig,
   MissionId,
   MissionSnapshot,
+  PlayerCarKind,
   PlayerSnapshot,
   WorldSnapshot,
 } from '../types/game';
@@ -29,6 +33,8 @@ export interface HudCallbacks {
   onTogglePause(): void;
   onRetryWebgl(): void;
   onToggleTimeOfDay?: () => void;
+  onToggleGarage?: () => void;
+  onUpdateGarage?: (garage: GarageConfig) => void;
 }
 
 interface ListenerBinding {
@@ -72,6 +78,27 @@ const MAX_STEP_DOTS = 6;
 const VOICES_BTN_BASE_CLASS = 'cali-btn cali-btn--ghost cali-btn--compact cali-voices-pill';
 const VOICES_BTN_OFF_CLASS = `${VOICES_BTN_BASE_CLASS} cali-voices-pill--off`;
 
+const GARAGE_CAR_ORDER: readonly PlayerCarKind[] = [
+  'renault4_turbo',
+  'spark_gt_turbo',
+  'willys_v8',
+  'banshee',
+];
+const GARAGE_AVATAR_ORDER: readonly CharacterAvatarId[] = ['valeria', 'mateo'];
+const GARAGE_OUTFIT_ORDER: readonly CaliOutfitId[] = [
+  'urbano_cali',
+  'escarlata',
+  'azucarero',
+  'tricolor',
+  'guayabera',
+];
+
+interface GaragePaintButtonRef {
+  readonly button: HTMLButtonElement;
+  readonly paintHex: number;
+  readonly neonHex: number;
+}
+
 export function formatTurnCue(bearingDeltaRad: number | null | undefined): string {
   const rad =
     typeof bearingDeltaRad === 'number' && Number.isFinite(bearingDeltaRad)
@@ -96,7 +123,10 @@ function formatVehiclePrompt(player: PlayerSnapshot): string | null {
   }
   if (player.nearbyVehicleKind) {
     const vehicleName = LOCALE_CALI.vehicleNames[player.nearbyVehicleKind];
-    return player.nearbyVehicleKind === 'banshee'
+    const isPlayerOwnedCar =
+      player.nearbyVehicleId === 'player_banshee' ||
+      (player.nearbyVehicleId === null && player.nearbyVehicleKind === 'banshee');
+    return isPlayerOwnedCar
       ? LOCALE_CALI.hud.enterNamedVehicle(vehicleName)
       : LOCALE_CALI.hud.hijackNamedVehicle(vehicleName);
   }
@@ -146,12 +176,23 @@ export class HudController {
   private readonly missionPassedOverlay: HTMLElement;
   private readonly bustedOverlay: HTMLElement;
   private readonly victoryOverlay: HTMLElement;
+  private readonly garageOverlay: HTMLElement;
   private readonly webglErrorOverlay: HTMLElement;
 
   // Title screen dynamic badges
+  private readonly titleGarageSummary: HTMLElement;
   private readonly mission1Card: MissionCardRefs;
   private readonly mission2Card: MissionCardRefs;
+  private readonly mission3Card: MissionCardRefs;
   private readonly freeRoamCard: MissionCardRefs;
+
+  // Garage state & buttons
+  private garageOpen = false;
+  private garageConfig: GarageConfig = { ...DEFAULT_GARAGE_CONFIG };
+  private readonly garageCarButtons: ReadonlyMap<PlayerCarKind, HTMLButtonElement>;
+  private readonly garagePaintButtons: readonly GaragePaintButtonRef[];
+  private readonly garageAvatarButtons: ReadonlyMap<CharacterAvatarId, HTMLButtonElement>;
+  private readonly garageOutfitButtons: ReadonlyMap<CaliOutfitId, HTMLButtonElement>;
 
   // Gameplay HUD dynamic nodes
   private readonly objectiveTitle: HTMLElement;
@@ -181,12 +222,14 @@ export class HudController {
   private readonly evadeBar: HTMLElement;
   private readonly evadeBarTrack: HTMLElement;
   private readonly evadeBarFill: HTMLElement;
+  private readonly racePosBadge: HTMLElement;
   private readonly cashValue: HTMLElement;
   private readonly timerValue: HTMLElement;
   private readonly timeToggleButton: HTMLButtonElement;
   private readonly cameraButton: HTMLButtonElement;
 
   private readonly vehiclePrompt: HTMLElement;
+  private readonly driftComboBadge: HTMLElement;
   private readonly driftBadge: HTMLElement;
   private readonly dialogueBox: HTMLElement;
   private readonly dialogueSpeaker: HTMLElement;
@@ -229,8 +272,10 @@ export class HudController {
     // 1. Title Screen (z-40)
     const titleParts = this.buildTitleScreen();
     this.titleScreen = titleParts.section;
+    this.titleGarageSummary = titleParts.titleGarageSummary;
     this.mission1Card = titleParts.mission1;
     this.mission2Card = titleParts.mission2;
+    this.mission3Card = titleParts.mission3;
     this.freeRoamCard = titleParts.freeRoam;
 
     // 2. Gameplay HUD (z-10 / z-20)
@@ -260,11 +305,13 @@ export class HudController {
     this.evadeBar = hudParts.evadeBar;
     this.evadeBarTrack = hudParts.evadeBarTrack;
     this.evadeBarFill = hudParts.evadeBarFill;
+    this.racePosBadge = hudParts.racePosBadge;
     this.cashValue = hudParts.cashValue;
     this.timerValue = hudParts.timerValue;
     this.timeToggleButton = hudParts.timeToggleButton;
     this.cameraButton = hudParts.cameraButton;
     this.vehiclePrompt = hudParts.vehiclePrompt;
+    this.driftComboBadge = hudParts.driftComboBadge;
     this.driftBadge = hudParts.driftBadge;
     this.dialogueBox = hudParts.dialogueBox;
     this.dialogueSpeaker = hudParts.dialogueSpeaker;
@@ -278,7 +325,7 @@ export class HudController {
     this.muteButton = hudParts.muteButton;
     this.minimapRenderer = new MinimapRenderer(hudParts.minimapCanvas, this.map);
 
-    // 3. Overlays (z-30 / z-40)
+    // 3. Overlays (z-30 / z-40 / z-45)
     const pauseParts = this.buildPauseOverlay();
     this.pauseOverlay = pauseParts.overlay;
     this.pauseRadioBtn = pauseParts.radioBtn;
@@ -305,6 +352,13 @@ export class HudController {
     this.victoryM2Time = victoryParts.m2Time;
     this.victoryLandmarks = victoryParts.landmarks;
 
+    const garageParts = this.buildGarageOverlay();
+    this.garageOverlay = garageParts.overlay;
+    this.garageCarButtons = garageParts.carButtons;
+    this.garagePaintButtons = garageParts.paintButtons;
+    this.garageAvatarButtons = garageParts.avatarButtons;
+    this.garageOutfitButtons = garageParts.outfitButtons;
+
     this.webglErrorOverlay = this.buildWebglErrorOverlay();
 
     this.shell.append(
@@ -314,9 +368,28 @@ export class HudController {
       this.bustedOverlay,
       this.victoryOverlay,
       this.titleScreen,
+      this.garageOverlay,
       this.webglErrorOverlay,
     );
     this.root.appendChild(this.shell);
+    this.syncGarageSelectionUi();
+  }
+
+  public setGarageOpen(open: boolean): void {
+    this.garageOpen = open;
+    setHidden(this.garageOverlay, !open);
+    if (open) {
+      setHidden(this.pauseOverlay, true);
+    }
+  }
+
+  public isGarageOpen(): boolean {
+    return this.garageOpen;
+  }
+
+  public setGarageConfig(garage: GarageConfig): void {
+    this.garageConfig = { ...garage };
+    this.syncGarageSelectionUi();
   }
 
   public render(
@@ -324,16 +397,22 @@ export class HudController {
     mission: MissionSnapshot,
     audio: AudioState,
     cameraMode: CameraMode,
+    garage?: GarageConfig,
   ): void {
+    if (garage) {
+      this.setGarageConfig(garage);
+    }
+
     const mode = mission.mode;
     const showHud = mode !== 'title';
 
     setHidden(this.titleScreen, mode !== 'title');
     setHidden(this.gameplayHud, !showHud);
-    setHidden(this.pauseOverlay, mode !== 'paused');
+    setHidden(this.pauseOverlay, mode !== 'paused' || this.garageOpen);
     setHidden(this.missionPassedOverlay, mode !== 'mission_passed');
     setHidden(this.bustedOverlay, mode !== 'busted');
     setHidden(this.victoryOverlay, mode !== 'victory');
+    setHidden(this.garageOverlay, !this.garageOpen);
 
     this.renderVoicesButton(audio);
 
@@ -384,6 +463,7 @@ export class HudController {
   private renderTitleCards(mission: MissionSnapshot): void {
     this.updateMissionCard(this.mission1Card, 'mission_1_bulevar', mission);
     this.updateMissionCard(this.mission2Card, 'mission_2_cristo_rey', mission);
+    this.updateMissionCard(this.mission3Card, 'mission_3_pique_bulevar', mission);
 
     const discovered = mission.discoveredLandmarks.length;
     const total = this.map.landmarks.length;
@@ -436,8 +516,15 @@ export class HudController {
     this.renderCompass(world, objective);
     this.renderBanner(mission);
 
-    // Top-right: wanted, bust/evade meters, cash, timer, time-of-day, camera
+    // Top-right: wanted, bust/evade meters, race pos, cash, timer, time-of-day, camera
     this.renderPoliceStatus(world, mission);
+    const raceTotal = world.raceTotalRacers ?? 0;
+    const showRacePos = world.racePosition != null && raceTotal > 1;
+    setHidden(this.racePosBadge, !showRacePos);
+    if (showRacePos && world.racePosition != null) {
+      setText(this.racePosBadge, LOCALE_CALI.hud.racePosLabel(world.racePosition, raceTotal));
+    }
+
     setText(this.cashValue, formatCop(mission.cashCop));
     setText(this.timerValue, formatTimer(mission.timerSeconds));
     const isCountdown = Boolean(mission.isCountdown);
@@ -449,11 +536,23 @@ export class HudController {
     setText(this.timeToggleButton, `[T] ${LOCALE_CALI.timeOfDayLabels[timeOfDay]}`);
     setText(this.cameraButton, LOCALE_CALI.cameraLabels[cameraMode]);
 
-    // Bottom-center: vehicle-specific [F] prompt, drift badge, dialogue
+    // Bottom-center: vehicle-specific [F] prompt, drift combo & score badges, dialogue
     const promptText = formatVehiclePrompt(world.player);
     setHidden(this.vehiclePrompt, promptText === null);
     if (promptText !== null) {
       setText(this.vehiclePrompt, promptText);
+    }
+
+    const driftMultiplier = world.driftComboMultiplier ?? 1;
+    const showDriftCombo = driftMultiplier > 1;
+    setHidden(this.driftComboBadge, !showDriftCombo);
+    if (showDriftCombo) {
+      const pendingCop = world.driftBankPendingCop ?? 0;
+      const comboLabel = LOCALE_CALI.hud.driftComboLabel(driftMultiplier);
+      const comboText =
+        pendingCop > 0 ? `${comboLabel} · +${formatCop(pendingCop)}` : comboLabel;
+      setText(this.driftComboBadge, comboText);
+      this.driftComboBadge.dataset.multiplier = String(driftMultiplier);
     }
 
     const showDrift = world.player.isDrifting || world.driftScore >= 50;
@@ -657,8 +756,10 @@ export class HudController {
 
   private buildTitleScreen(): {
     section: HTMLElement;
+    titleGarageSummary: HTMLElement;
     mission1: MissionCardRefs;
     mission2: MissionCardRefs;
+    mission3: MissionCardRefs;
     freeRoam: MissionCardRefs;
   } {
     const section = createEl('section', 'cali-screen cali-title-screen', 'title-screen');
@@ -673,11 +774,24 @@ export class HudController {
     tagline.textContent = LOCALE_CALI.brand.tagline;
     hero.append(title, subtitle, tagline);
 
+    const titleGarageBtn = createEl(
+      'button',
+      'cali-btn cali-btn--secondary cali-title-garage-cta',
+      'btn-title-garage',
+    );
+    titleGarageBtn.type = 'button';
+    const titleGarageLabel = createEl('span', 'cali-title-garage-label');
+    titleGarageLabel.textContent = `[G] ${LOCALE_CALI.garage.title}`;
+    const titleGarageSummary = createEl('span', 'cali-title-garage-summary');
+    titleGarageBtn.append(titleGarageLabel, titleGarageSummary);
+    this.onClick(titleGarageBtn, () => this.callbacks.onToggleGarage?.());
+
     const missionGrid = createEl('div', 'cali-mission-grid');
     const mission1 = this.createMissionCard('mission_1_bulevar', 'btn-mission-1', true);
     const mission2 = this.createMissionCard('mission_2_cristo_rey', 'btn-mission-2', false);
+    const mission3 = this.createMissionCard('mission_3_pique_bulevar', 'btn-mission-3', false);
     const freeRoam = this.createMissionCard('free_roam', 'btn-free-roam', false);
-    missionGrid.append(mission1.button, mission2.button, freeRoam.button);
+    missionGrid.append(mission1.button, mission2.button, mission3.button, freeRoam.button);
 
     const controlsPanel = createEl('aside', 'cali-panel cali-controls-card');
     const controlsHeading = createEl('h2', 'cali-controls-title');
@@ -695,8 +809,8 @@ export class HudController {
     }
     controlsPanel.append(controlsHeading, controlsList);
 
-    section.append(hero, missionGrid, controlsPanel);
-    return { section, mission1, mission2, freeRoam };
+    section.append(hero, titleGarageBtn, missionGrid, controlsPanel);
+    return { section, titleGarageSummary, mission1, mission2, mission3, freeRoam };
   }
 
   private createMissionCard(
@@ -767,12 +881,14 @@ export class HudController {
     evadeBar: HTMLElement;
     evadeBarTrack: HTMLElement;
     evadeBarFill: HTMLElement;
+    racePosBadge: HTMLElement;
     cashValue: HTMLElement;
     timerValue: HTMLElement;
     timeToggleButton: HTMLButtonElement;
     cameraButton: HTMLButtonElement;
     minimapCanvas: HTMLCanvasElement;
     vehiclePrompt: HTMLElement;
+    driftComboBadge: HTMLElement;
     driftBadge: HTMLElement;
     dialogueBox: HTMLElement;
     dialogueSpeaker: HTMLElement;
@@ -898,13 +1014,25 @@ export class HudController {
     evadeBar.append(evadeText, evadeBarTrack);
 
     const telemetryRow = createEl('div', 'cali-telemetry-row');
+    const racePosBadge = createEl('span', 'cali-mono cali-race-pos', 'hud-race-pos');
+    racePosBadge.hidden = true;
     const cashValue = createEl('span', 'cali-mono cali-cash', 'hud-cash');
     const timerValue = createEl('span', 'cali-mono cali-timer', 'hud-timer');
-    telemetryRow.append(cashValue, timerValue);
+    telemetryRow.append(racePosBadge, cashValue, timerValue);
 
     statusPanel.append(wantedContainer, bustWarning, evadeBar, telemetryRow);
 
     const quickActions = createEl('div', 'cali-quick-actions');
+    const garageButton = createEl(
+      'button',
+      'cali-btn cali-btn--ghost cali-btn--compact cali-garage-pill',
+      'btn-garage',
+    );
+    garageButton.type = 'button';
+    garageButton.textContent = LOCALE_CALI.hud.garageHint;
+    garageButton.setAttribute('aria-label', LOCALE_CALI.garage.title);
+    this.onClick(garageButton, () => this.callbacks.onToggleGarage?.());
+
     const timeToggleButton = createEl(
       'button',
       'cali-btn cali-btn--ghost cali-btn--compact',
@@ -925,7 +1053,7 @@ export class HudController {
     pauseButton.type = 'button';
     pauseButton.textContent = LOCALE_CALI.hud.pauseHint;
     this.onClick(pauseButton, () => this.callbacks.onTogglePause());
-    quickActions.append(timeToggleButton, cameraButton, pauseButton);
+    quickActions.append(garageButton, timeToggleButton, cameraButton, pauseButton);
 
     topRight.append(statusPanel, quickActions);
 
@@ -939,10 +1067,12 @@ export class HudController {
     minimapFrame.appendChild(minimapCanvas);
     bottomLeft.appendChild(minimapFrame);
 
-    // Zone 4: Bottom-Center (Context Prompt + Drift + Dialogue Toast)
+    // Zone 4: Bottom-Center (Context Prompt + Drift Combo + Drift + Dialogue Toast)
     const bottomCenter = createEl('div', 'cali-hud-zone cali-hud-bottom-center');
     const vehiclePrompt = createEl('div', 'cali-prompt-pill', 'hud-vehicle-prompt');
     vehiclePrompt.hidden = true;
+    const driftComboBadge = createEl('div', 'cali-badge cali-drift-combo', 'hud-drift-combo');
+    driftComboBadge.hidden = true;
     const driftBadge = createEl('div', 'cali-badge cali-drift-badge', 'hud-drift');
     driftBadge.hidden = true;
 
@@ -952,7 +1082,7 @@ export class HudController {
     const dialogueSpeaker = createEl('span', 'cali-dialogue-speaker');
     const dialogueText = createEl('p', 'cali-dialogue-text');
     dialogueBox.append(dialogueSpeaker, dialogueText);
-    bottomCenter.append(driftBadge, vehiclePrompt, dialogueBox);
+    bottomCenter.append(driftComboBadge, driftBadge, vehiclePrompt, dialogueBox);
 
     // Zone 5: Bottom-Right (Speedometer + Nitro + Radio FM + Hints)
     const bottomRight = createEl('div', 'cali-hud-zone cali-hud-bottom-right');
@@ -1003,7 +1133,13 @@ export class HudController {
     audioRow.append(radioButton, voicesButton, muteButton);
 
     const hints = createEl('div', 'cali-hud-hints', 'hud-hints');
-    const hintTexts = [LOCALE_CALI.hud.radioHint, LOCALE_CALI.hud.cameraHint, LOCALE_CALI.hud.pauseHint];
+    const hintTexts = [
+      LOCALE_CALI.hud.hornHint,
+      LOCALE_CALI.hud.garageHint,
+      LOCALE_CALI.hud.radioHint,
+      LOCALE_CALI.hud.cameraHint,
+      LOCALE_CALI.hud.pauseHint,
+    ];
     for (const text of hintTexts) {
       const span = createEl('span', 'cali-keycap');
       span.textContent = text;
@@ -1039,12 +1175,14 @@ export class HudController {
       evadeBar,
       evadeBarTrack,
       evadeBarFill,
+      racePosBadge,
       cashValue,
       timerValue,
       timeToggleButton,
       cameraButton,
       minimapCanvas,
       vehiclePrompt,
+      driftComboBadge,
       driftBadge,
       dialogueBox,
       dialogueSpeaker,
@@ -1268,6 +1406,150 @@ export class HudController {
     overlay.appendChild(modal);
 
     return { overlay, cash, m1Time, m2Time, landmarks };
+  }
+
+  private buildGarageOverlay(): {
+    overlay: HTMLElement;
+    carButtons: ReadonlyMap<PlayerCarKind, HTMLButtonElement>;
+    paintButtons: readonly GaragePaintButtonRef[];
+    avatarButtons: ReadonlyMap<CharacterAvatarId, HTMLButtonElement>;
+    outfitButtons: ReadonlyMap<CaliOutfitId, HTMLButtonElement>;
+  } {
+    const copy = LOCALE_CALI.garage;
+    const overlay = createEl('div', 'cali-overlay cali-overlay--garage', 'garage-panel');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', copy.title);
+    overlay.hidden = true;
+
+    const modal = createEl('div', 'cali-panel cali-modal cali-modal--garage');
+    const title = createEl('h2', 'cali-modal-title');
+    title.textContent = copy.title;
+    const subtitle = createEl('p', 'cali-modal-subtitle');
+    subtitle.textContent = copy.subtitle;
+
+    // 1. 4 Fast Colombian Cars
+    const carsGroup = createEl('div', 'cali-garage-group');
+    carsGroup.setAttribute('role', 'group');
+    const carButtons = new Map<PlayerCarKind, HTMLButtonElement>();
+    for (const carKind of GARAGE_CAR_ORDER) {
+      const btn = createEl('button', 'cali-btn cali-garage-option', `garage-car-${carKind}`);
+      btn.type = 'button';
+      btn.textContent = copy.cars[carKind];
+      btn.setAttribute('aria-pressed', 'false');
+      this.onClick(btn, () => this.selectGaragePatch({ carKind }));
+      carButtons.set(carKind, btn);
+      carsGroup.appendChild(btn);
+    }
+
+    // 2. Cali Paint & Neon Swatches
+    const paintsGroup = createEl('div', 'cali-garage-group cali-garage-group--paints');
+    paintsGroup.setAttribute('role', 'group');
+    const paintButtons: GaragePaintButtonRef[] = [];
+    copy.paints.forEach((preset, index) => {
+      const btn = createEl('button', 'cali-btn cali-garage-swatch', `garage-paint-${index}`);
+      btn.type = 'button';
+      btn.setAttribute('aria-pressed', 'false');
+      const dot = createEl('span', 'cali-garage-swatch-dot');
+      dot.dataset.paintId = preset.id;
+      dot.setAttribute('aria-hidden', 'true');
+      const label = createEl('span', 'cali-garage-swatch-label');
+      label.textContent = preset.label;
+      btn.append(dot, label);
+      this.onClick(btn, () =>
+        this.selectGaragePatch({ paintHex: preset.paintHex, neonHex: preset.neonHex }),
+      );
+      paintButtons.push({ button: btn, paintHex: preset.paintHex, neonHex: preset.neonHex });
+      paintsGroup.appendChild(btn);
+    });
+
+    // 3. 2 Protagonists
+    const avatarsGroup = createEl('div', 'cali-garage-group cali-garage-group--avatars');
+    avatarsGroup.setAttribute('role', 'group');
+    const avatarButtons = new Map<CharacterAvatarId, HTMLButtonElement>();
+    for (const avatar of GARAGE_AVATAR_ORDER) {
+      const btn = createEl('button', 'cali-btn cali-garage-option', `garage-avatar-${avatar}`);
+      btn.type = 'button';
+      btn.textContent = copy.avatars[avatar];
+      btn.setAttribute('aria-pressed', 'false');
+      this.onClick(btn, () => this.selectGaragePatch({ avatar }));
+      avatarButtons.set(avatar, btn);
+      avatarsGroup.appendChild(btn);
+    }
+
+    // 4. 5 Cali Outfits / Jerseys
+    const outfitsGroup = createEl('div', 'cali-garage-group cali-garage-group--outfits');
+    outfitsGroup.setAttribute('role', 'group');
+    const outfitButtons = new Map<CaliOutfitId, HTMLButtonElement>();
+    for (const outfit of GARAGE_OUTFIT_ORDER) {
+      const btn = createEl('button', 'cali-btn cali-garage-option', `garage-outfit-${outfit}`);
+      btn.type = 'button';
+      btn.textContent = copy.outfits[outfit];
+      btn.setAttribute('aria-pressed', 'false');
+      this.onClick(btn, () => this.selectGaragePatch({ outfit }));
+      outfitButtons.set(outfit, btn);
+      outfitsGroup.appendChild(btn);
+    }
+
+    const actions = createEl('div', 'cali-modal-actions');
+    const closeBtn = this.makeButton(
+      `${copy.applyCta} · ${copy.closeCta}`,
+      'cali-btn cali-btn--primary',
+      'btn-garage-close',
+      () => {
+        if (this.callbacks.onToggleGarage) {
+          this.callbacks.onToggleGarage();
+        } else {
+          this.setGarageOpen(false);
+        }
+      },
+    );
+    actions.appendChild(closeBtn);
+
+    modal.append(title, subtitle, carsGroup, paintsGroup, avatarsGroup, outfitsGroup, actions);
+    overlay.appendChild(modal);
+
+    return { overlay, carButtons, paintButtons, avatarButtons, outfitButtons };
+  }
+
+  private selectGaragePatch(patch: Partial<GarageConfig>): void {
+    const next: GarageConfig = {
+      ...this.garageConfig,
+      ...patch,
+    };
+    this.garageConfig = next;
+    this.syncGarageSelectionUi();
+    this.callbacks.onUpdateGarage?.({ ...next });
+  }
+
+  private syncGarageSelectionUi(): void {
+    const carLabel = LOCALE_CALI.garage.cars[this.garageConfig.carKind];
+    const avatarLabel = LOCALE_CALI.speakers[this.garageConfig.avatar];
+    setText(this.titleGarageSummary, `${carLabel} · ${avatarLabel}`);
+
+    for (const [carKind, btn] of this.garageCarButtons) {
+      const selected = carKind === this.garageConfig.carKind;
+      btn.dataset.selected = selected ? 'true' : 'false';
+      btn.setAttribute('aria-pressed', String(selected));
+    }
+
+    for (const entry of this.garagePaintButtons) {
+      const selected = entry.paintHex === this.garageConfig.paintHex;
+      entry.button.dataset.selected = selected ? 'true' : 'false';
+      entry.button.setAttribute('aria-pressed', String(selected));
+    }
+
+    for (const [avatar, btn] of this.garageAvatarButtons) {
+      const selected = avatar === this.garageConfig.avatar;
+      btn.dataset.selected = selected ? 'true' : 'false';
+      btn.setAttribute('aria-pressed', String(selected));
+    }
+
+    for (const [outfit, btn] of this.garageOutfitButtons) {
+      const selected = outfit === this.garageConfig.outfit;
+      btn.dataset.selected = selected ? 'true' : 'false';
+      btn.setAttribute('aria-pressed', String(selected));
+    }
   }
 
   private buildWebglErrorOverlay(): HTMLElement {
