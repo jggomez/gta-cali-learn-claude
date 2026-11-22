@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CALI_MAP } from '../../../src/config/caliMap';
+import {
+  buildCaliWorld,
+  setWorldNightLighting,
+} from '../../../src/world/caliLandmarks';
 import {
   bindRenderTargetDisposal,
   createAsphaltTextures,
@@ -15,6 +20,7 @@ import { ParticleSystem, SkidMarkPool } from '../../../src/world/particles';
 import {
   createCinematicGradeShader,
   createPostProcessing,
+  setBloomTimeOfDay,
   setGradeTimeOfDay,
   type PostProcessingRig,
 } from '../../../src/world/sceneSetup';
@@ -25,6 +31,10 @@ import {
   createValeriaPlayerMesh,
   retargetMixamoClips,
 } from '../../../src/world/vehicleMeshes';
+import {
+  disposeObjectTree,
+  resolveAtmosphereConfig,
+} from '../../../src/world/worldRenderer';
 
 function createMockCanvasDocument(): {
   readonly createElement: (tag: string) => unknown;
@@ -747,6 +757,106 @@ describe('CinematicGradePass and post-processing grading', () => {
       false,
     );
     expect(rig).toBeNull();
+  });
+
+  it('uses restrained daytime bloom and highlight-safe warm golden-hour grading while preserving night bloom', () => {
+    const shader = createCinematicGradeShader();
+    expect(shader.fragmentShader).not.toContain('curvedLdr /');
+    expect(shader.fragmentShader).toContain('0.22');
+    expect(shader.fragmentShader).toContain('vec3(1.015, 0.985, 0.935)');
+    expect(shader.fragmentShader).toContain('vec3(1.055, 0.975, 0.885)');
+
+    const mockBloomRig: PostProcessingRig = {
+      composer: {} as PostProcessingRig['composer'],
+      bloomPass: {
+        threshold: 0,
+        strength: 0,
+        radius: 0,
+      } as PostProcessingRig['bloomPass'],
+      resize: () => {},
+      render: () => {},
+      dispose: () => {},
+    };
+
+    setBloomTimeOfDay(mockBloomRig, 'golden_hour', false);
+    expect(mockBloomRig.bloomPass.threshold).toBeCloseTo(1.35, 3);
+    expect(mockBloomRig.bloomPass.strength).toBeCloseTo(0.14, 3);
+    expect(mockBloomRig.bloomPass.radius).toBeCloseTo(0.28, 3);
+
+    setBloomTimeOfDay(mockBloomRig, 'golden_hour', true);
+    expect(mockBloomRig.bloomPass.strength).toBeCloseTo(0.08, 3);
+
+    setBloomTimeOfDay(mockBloomRig, 'night', false);
+    expect(mockBloomRig.bloomPass.threshold).toBeCloseTo(0.78, 3);
+    expect(mockBloomRig.bloomPass.strength).toBeCloseTo(0.62, 3);
+    expect(mockBloomRig.bloomPass.radius).toBeCloseTo(0.48, 3);
+
+    setBloomTimeOfDay(mockBloomRig, 'night', true);
+    expect(mockBloomRig.bloomPass.strength).toBeCloseTo(0.3, 3);
+  });
+
+  it('renders storefront warm bays as dark tinted glass by day and glowing amber glass by night', () => {
+    const { group: worldGroup, waterMesh } = buildCaliWorld(CALI_MAP);
+    const warmBayMaterials = new Set<THREE.MeshStandardMaterial>();
+
+    worldGroup.traverse((node) => {
+      if (!node.name.startsWith('building_awning_')) {
+        return;
+      }
+      for (const child of node.children) {
+        if (
+          child instanceof THREE.Mesh &&
+          Math.abs(child.position.y + 1.65) < 0.01 &&
+          child.material instanceof THREE.MeshStandardMaterial &&
+          !(child.material instanceof THREE.MeshPhysicalMaterial)
+        ) {
+          warmBayMaterials.add(child.material);
+        }
+      }
+    });
+
+    expect(warmBayMaterials.size).toBe(1);
+    const warmBayMat = [...warmBayMaterials][0];
+    expect(warmBayMat).toBeDefined();
+    if (warmBayMat) {
+      expect(warmBayMat.color.getHex()).toBe(0x1b2735);
+      expect(warmBayMat.emissive.getHex()).toBe(0x000000);
+      expect(warmBayMat.emissiveIntensity).toBe(0);
+      expect(warmBayMat.roughness).toBeCloseTo(0.11, 3);
+      expect(warmBayMat.metalness).toBeCloseTo(0.45, 3);
+      expect(warmBayMat.envMapIntensity).toBeCloseTo(1.45, 3);
+
+      setWorldNightLighting(worldGroup, waterMesh, 'night');
+      expect(warmBayMat.emissive.getHex()).toBe(0xffb85c);
+      expect(warmBayMat.emissiveIntensity).toBeCloseTo(1.55, 3);
+
+      setWorldNightLighting(worldGroup, waterMesh, 'golden_hour');
+      expect(warmBayMat.emissive.getHex()).toBe(0x000000);
+      expect(warmBayMat.emissiveIntensity).toBe(0);
+    }
+
+    disposeObjectTree(worldGroup);
+  });
+
+  it('resolves golden-hour HDRI, fallback, and night atmosphere settings cleanly without washout', () => {
+    const dayHdri = resolveAtmosphereConfig('golden_hour', true);
+    expect(dayHdri.toneMappingExposure).toBeCloseTo(0.94, 3);
+    expect(dayHdri.backgroundIntensity).toBeCloseTo(0.72, 3);
+    expect(dayHdri.environmentIntensity).toBeCloseTo(0.98, 3);
+    expect(dayHdri.fogColorHex).toBe(0xc9916a);
+    expect(dayHdri.fogDensity).toBeCloseTo(0.00105, 5);
+
+    const dayFallback = resolveAtmosphereConfig('golden_hour', false);
+    expect(dayFallback.toneMappingExposure).toBeCloseTo(0.94, 3);
+    expect(dayFallback.backgroundIntensity).toBeCloseTo(0.72, 3);
+    expect(dayFallback.environmentIntensity).toBeCloseTo(0.82, 3);
+
+    const nightHdri = resolveAtmosphereConfig('night', true);
+    expect(nightHdri.toneMappingExposure).toBeCloseTo(1.12, 3);
+    expect(nightHdri.backgroundIntensity).toBeCloseTo(1.0, 3);
+    expect(nightHdri.environmentIntensity).toBeCloseTo(0.24, 3);
+    expect(nightHdri.fogColorHex).toBe(0x090d1f);
+    expect(nightHdri.fogDensity).toBeCloseTo(0.0023, 5);
   });
 });
 

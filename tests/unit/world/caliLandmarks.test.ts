@@ -1082,8 +1082,9 @@ describe('starlit night lighting, sculpted Ferrari liveries, curved buses/chivas
     expect(mockBloomRig.bloomPass.strength).toBeCloseTo(0.3, 2);
 
     setBloomTimeOfDay(mockBloomRig, 'golden_hour', false);
-    expect(mockBloomRig.bloomPass.threshold).toBeCloseTo(1.05, 2);
-    expect(mockBloomRig.bloomPass.strength).toBeCloseTo(0.24, 2);
+    expect(mockBloomRig.bloomPass.threshold).toBeCloseTo(1.35, 2);
+    expect(mockBloomRig.bloomPass.strength).toBeCloseTo(0.14, 2);
+    expect(mockBloomRig.bloomPass.radius).toBeCloseTo(0.28, 2);
 
     const { group: worldGroup, waterMesh } = buildCaliWorld(CALI_MAP);
     const waterMat = waterMesh.material as THREE.ShaderMaterial;

@@ -102,6 +102,17 @@ const CRISTO_REY_PLAYER_DANCE_DISTANCE_SQ =
 const SUMMIT_DANCER_SKIN_TONE_HEX = 0xb97c5b;
 const BOOST_GRADE_RISE_RATE = 8.5;
 const BOOST_GRADE_FALL_RATE = 4.5;
+const DAY_TONE_MAPPING_EXPOSURE = 0.94;
+const NIGHT_TONE_MAPPING_EXPOSURE = 1.12;
+const DAY_BACKGROUND_INTENSITY = 0.72;
+const NIGHT_BACKGROUND_INTENSITY = 1.0;
+const DAY_HDRI_ENVIRONMENT_INTENSITY = 0.98;
+const DAY_FALLBACK_ENVIRONMENT_INTENSITY = 0.82;
+const NIGHT_ENVIRONMENT_INTENSITY = 0.24;
+const DAY_FOG_COLOR_HEX = 0xc9916a;
+const DAY_FOG_DENSITY = 0.00105;
+const NIGHT_FOG_COLOR_HEX = 0x090d1f;
+const NIGHT_FOG_DENSITY = 0.0023;
 const FLOATING_ARROW_BASE_Y = 8.0;
 const GPS_CHEVRON_DISTANCES = [10, 22, 34, 46, 58] as const;
 const GPS_CHEVRON_ELEVATION_OFFSET = 0.35;
@@ -110,6 +121,40 @@ const MISSION_PROP_KEYS: readonly MissionPropKey[] = [
   'mateo_speakers',
   'summit_stage',
 ];
+
+export interface AtmosphereConfig {
+  readonly toneMappingExposure: number;
+  readonly backgroundIntensity: number;
+  readonly environmentIntensity: number;
+  readonly fogColorHex: number;
+  readonly fogDensity: number;
+}
+
+/**
+ * Resolves exposure, sky background intensity, IBL environment intensity, and exponential fog
+ * for golden-hour daytime vs starlit night Cali, ensuring consistent initial, HDRI-loaded, and toggled states.
+ */
+export function resolveAtmosphereConfig(
+  timeOfDay: TimeOfDay,
+  hasHdriEnvironment: boolean,
+): AtmosphereConfig {
+  const isNight = timeOfDay === 'night';
+  return {
+    toneMappingExposure: isNight
+      ? NIGHT_TONE_MAPPING_EXPOSURE
+      : DAY_TONE_MAPPING_EXPOSURE,
+    backgroundIntensity: isNight
+      ? NIGHT_BACKGROUND_INTENSITY
+      : DAY_BACKGROUND_INTENSITY,
+    environmentIntensity: isNight
+      ? NIGHT_ENVIRONMENT_INTENSITY
+      : hasHdriEnvironment
+        ? DAY_HDRI_ENVIRONMENT_INTENSITY
+        : DAY_FALLBACK_ENVIRONMENT_INTENSITY,
+    fogColorHex: isNight ? NIGHT_FOG_COLOR_HEX : DAY_FOG_COLOR_HEX,
+    fogDensity: isNight ? NIGHT_FOG_DENSITY : DAY_FOG_DENSITY,
+  };
+}
 
 export interface GpsRoutePose {
   readonly x: number;
@@ -503,9 +548,10 @@ export class WorldRenderer {
         ? Math.min(window.devicePixelRatio, 2)
         : 1;
     this.renderer.setPixelRatio(pixelRatio);
+    const initialAtmosphere = resolveAtmosphereConfig('golden_hour', false);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.06;
+    this.renderer.toneMappingExposure = initialAtmosphere.toneMappingExposure;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -517,12 +563,16 @@ export class WorldRenderer {
     this.renderer.setSize(initialWidth, initialHeight, false);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0xc49576, 0.00145);
+    this.scene.backgroundIntensity = initialAtmosphere.backgroundIntensity;
+    this.scene.fog = new THREE.FogExp2(
+      initialAtmosphere.fogColorHex,
+      initialAtmosphere.fogDensity,
+    );
 
     this.environmentMap = createSunsetEnvironmentMap(this.renderer);
     if (this.environmentMap) {
       this.scene.environment = this.environmentMap;
-      this.scene.environmentIntensity = 0.85;
+      this.scene.environmentIntensity = initialAtmosphere.environmentIntensity;
     }
 
     this.camera = new THREE.PerspectiveCamera(
@@ -625,17 +675,7 @@ export class WorldRenderer {
     const isNight = timeOfDay === 'night';
 
     setSkyDomeTimeOfDay(this.skyDome, timeOfDay);
-    this.skyDome.visible = isNight || !this.hdriEnvTexture;
-    this.scene.background = isNight ? null : this.hdriEnvTexture;
-    this.scene.environmentIntensity = isNight
-      ? 0.24
-      : this.hdriEnvTexture
-        ? 1.15
-        : 0.85;
-    this.scene.fog = isNight
-      ? new THREE.FogExp2(0x090d1f, 0.0023)
-      : new THREE.FogExp2(0xc49576, 0.00145);
-    this.renderer.toneMappingExposure = isNight ? 1.12 : 1.06;
+    this.applyAtmosphereForTimeOfDay(timeOfDay);
 
     setLightingTimeOfDay(this.lightingGroup, timeOfDay);
     if (this.postProcessing) {
@@ -655,6 +695,24 @@ export class WorldRenderer {
     for (const entry of this.vehiclePool.values()) {
       this.applyVehicleHeadlightTimeOfDay(entry.mesh, isNight);
     }
+  }
+
+  private applyAtmosphereForTimeOfDay(timeOfDay: TimeOfDay): void {
+    const isNight = timeOfDay === 'night';
+    const atmosphere = resolveAtmosphereConfig(
+      timeOfDay,
+      this.hdriEnvTexture !== null,
+    );
+
+    this.skyDome.visible = isNight || !this.hdriEnvTexture;
+    this.scene.background = isNight ? null : this.hdriEnvTexture;
+    this.scene.backgroundIntensity = atmosphere.backgroundIntensity;
+    this.scene.environmentIntensity = atmosphere.environmentIntensity;
+    this.scene.fog = new THREE.FogExp2(
+      atmosphere.fogColorHex,
+      atmosphere.fogDensity,
+    );
+    this.renderer.toneMappingExposure = atmosphere.toneMappingExposure;
   }
 
   public applyCameraLook(
@@ -912,10 +970,7 @@ export class WorldRenderer {
       this.hdriEnvTexture = envTex;
       this.scene.environment = envTex;
       this.scene.backgroundBlurriness = 0.015;
-      const isNight = this.currentTimeOfDay === 'night';
-      this.scene.background = isNight ? null : envTex;
-      this.scene.environmentIntensity = isNight ? 0.24 : 1.15;
-      this.skyDome.visible = isNight;
+      this.applyAtmosphereForTimeOfDay(this.currentTimeOfDay);
 
       if (this.environmentMap) {
         this.environmentMap.dispose();

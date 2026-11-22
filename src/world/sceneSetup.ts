@@ -22,10 +22,10 @@ const MOON_DIRECTION = new THREE.Vector3(-0.78, 0.38, -0.22).normalize();
 const SUN_SHADOW_OFFSET = new THREE.Vector3(-152, 76, -24);
 const SHADOW_FRUSTUM_HALF = 72;
 
-const BLOOM_THRESHOLD_DAY = 1.05;
-const BLOOM_RADIUS_DAY = 0.35;
-const BLOOM_STRENGTH_DAY_FULL = 0.24;
-const BLOOM_STRENGTH_DAY_REDUCED = 0.14;
+const BLOOM_THRESHOLD_DAY = 1.35;
+const BLOOM_RADIUS_DAY = 0.28;
+const BLOOM_STRENGTH_DAY_FULL = 0.14;
+const BLOOM_STRENGTH_DAY_REDUCED = 0.08;
 
 const BLOOM_THRESHOLD_NIGHT = 0.78;
 const BLOOM_RADIUS_NIGHT = 0.48;
@@ -591,7 +591,7 @@ void main() {
   float highlightMask = smoothstep(0.35, 1.35, luma);
   float shadowMask = 1.0 - smoothstep(0.0, 0.45, luma);
 
-  vec3 dayTint = mix(vec3(1.005, 0.992, 0.972), vec3(1.038, 0.995, 0.935), highlightMask);
+  vec3 dayTint = mix(vec3(1.015, 0.985, 0.935), vec3(1.055, 0.975, 0.885), highlightMask);
   vec3 nightTint = mix(vec3(0.91, 0.95, 1.06), vec3(1.03, 1.0, 1.04), highlightMask);
   col *= mix(dayTint, nightTint, night);
 
@@ -603,12 +603,13 @@ void main() {
   float gradedLuma = dot(col, vec3(0.2126, 0.7152, 0.0722));
   col = max(mix(vec3(gradedLuma), col, sat), vec3(0.0));
 
-  // HDR-safe subtle filmic S-curve contrast that anchors 0.0 blacks and preserves bright highlights
-  vec3 ldr = col / (vec3(1.0) + col);
-  vec3 sCurve = ldr * ldr * (3.0 - 2.0 * ldr);
-  float curveMix = clamp((uContrast + boost * 0.06) - 1.0, 0.0, 0.32);
-  vec3 curvedLdr = mix(ldr, sCurve, curveMix * 1.45);
-  col = curvedLdr / max(vec3(1.0) - curvedLdr, vec3(0.0005));
+  // Highlight-safe filmic contrast around linear mid-grey (0.22) that deepens shadows/midtones
+  // while smoothly rolling off to 1.0 above bright highlights so HDR sky never blows out
+  float contrastDelta = clamp((uContrast + boost * 0.06) - 1.0, 0.0, 0.32) * 1.45;
+  float peakChannel = max(col.r, max(col.g, col.b));
+  float highlightProtect = 1.0 - smoothstep(0.50, 1.10, max(gradedLuma, peakChannel * 0.85));
+  vec3 safeRatio = max(col, vec3(0.0001)) / vec3(0.22);
+  col *= pow(safeRatio, vec3(contrastDelta * highlightProtect));
 
   // Soft radial cinema vignette (tightens subtly during nitro boost)
   vec2 centered = vUv - vec2(0.5);

@@ -1662,14 +1662,19 @@ function createBuildingSharedMaterials(): BuildingSharedMaterials {
     ) as THREE.MeshPhysicalMaterial,
     storefrontWarmBayMat: tagNightEmissive(
       new THREE.MeshStandardMaterial({
-        color: 0xffdfab,
-        emissive: 0xffb85c,
-        emissiveIntensity: 0.36,
-        roughness: 0.12,
+        color: 0x1b2735,
+        emissive: 0x000000,
+        emissiveIntensity: 0,
+        roughness: 0.11,
         metalness: 0.45,
-        envMapIntensity: 1.35,
+        envMapIntensity: 1.45,
       }),
-      { dayIntensity: 0.36, nightIntensity: 1.72 },
+      {
+        dayIntensity: 0,
+        nightIntensity: 1.55,
+        dayEmissiveHex: 0x000000,
+        nightEmissiveHex: 0xffb85c,
+      },
     ),
     reflectiveGlassMat: tagNightEmissive(
       new THREE.MeshPhysicalMaterial({
