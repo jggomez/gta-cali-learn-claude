@@ -335,6 +335,30 @@ export interface PostProcessingRig {
   dispose(): void;
 }
 
+/**
+ * GTAO that reuses the depth buffer written by the main RenderPass instead of re-rendering the
+ * whole city into its own normal/depth G-buffer, so enabling AO does not double the draw calls.
+ * Normals are reconstructed from depth inside the GTAO shader.
+ */
+class SceneDepthGTAOPass extends GTAOPass {
+  public override render(
+    renderer: THREE.WebGLRenderer,
+    writeBuffer: THREE.WebGLRenderTarget,
+    readBuffer: THREE.WebGLRenderTarget,
+    deltaTime: number,
+    maskActive: boolean,
+  ): void {
+    const sceneDepth = readBuffer.depthTexture;
+    if (sceneDepth) {
+      const gtaoDepth = this.gtaoMaterial.uniforms['tDepth'];
+      const denoiseDepth = this.pdMaterial.uniforms['tDepth'];
+      if (gtaoDepth) gtaoDepth.value = sceneDepth;
+      if (denoiseDepth) denoiseDepth.value = sceneDepth;
+    }
+    super.render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+  }
+}
+
 function finiteOr(value: number, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
 }
@@ -816,6 +840,12 @@ export function createPostProcessing(
     const pixelRatio = Math.min(renderer.getPixelRatio(), 2);
 
     const composer = new EffectComposer(renderer);
+    // Expose scene depth from the ping-pong buffers so GTAO can reuse it without a G-buffer pass
+    const sceneDepthTextures = [composer.renderTarget1, composer.renderTarget2].map((target) => {
+      const depthTexture = new THREE.DepthTexture(1, 1);
+      target.depthTexture = depthTexture;
+      return depthTexture;
+    });
     composer.setPixelRatio(pixelRatio);
     composer.setSize(safeWidth, safeHeight);
 
@@ -844,7 +874,8 @@ export function createPostProcessing(
     const ensureAoPass = (): GTAOPass => {
       if (!aoPass) {
         const pr = renderer.getPixelRatio();
-        aoPass = new GTAOPass(scene, camera, lastWidth * pr, lastHeight * pr);
+        aoPass = new SceneDepthGTAOPass(scene, camera, lastWidth * pr, lastHeight * pr);
+        aoPass.setGBuffer(sceneDepthTextures[0]);
         aoPass.blendIntensity = AO_BLEND_INTENSITY;
         aoPass.updateGtaoMaterial({
           radius: AO_RADIUS_METERS,
@@ -907,6 +938,9 @@ export function createPostProcessing(
       },
       dispose(): void {
         aoPass?.dispose();
+        for (const depthTexture of sceneDepthTextures) {
+          depthTexture.dispose();
+        }
         bloomPass.dispose();
         gradePass.dispose();
         smaaPass?.dispose();
