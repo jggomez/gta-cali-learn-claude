@@ -4818,6 +4818,27 @@ function sortSkeletonTopologically(skeleton: THREE.Skeleton): void {
   skeleton.boneInverses = entries.map((entry) => entry.inverse);
 }
 
+/**
+ * Rebuilds (on a retarget-only skeleton clone) the inverse bind matrices from the node rest pose,
+ * expressed in the space of the skeleton root's non-bone parent. `Skeleton.pose()` — called by
+ * SkeletonUtils.retarget every frame — assigns `inverse(boneInverse)` directly as the root bone's
+ * local matrix, so rigs whose GLB inverse binds live in another space (valeria.glb's +90° X,
+ * 0.01-scaled "Character" root) otherwise collapse and fold the retargeted body in half.
+ * Fresh matrices are allocated because cloned skeletons share the template's Matrix4 instances.
+ */
+function alignBoneInversesToNodeRestPose(skeleton: THREE.Skeleton): void {
+  const rootBone = skeleton.bones.find((bone) => !(bone.parent instanceof THREE.Bone));
+  const rootParent = rootBone?.parent;
+  if (!rootParent) {
+    return;
+  }
+  rootParent.updateMatrixWorld(true);
+  const parentWorldInverse = rootParent.matrixWorld.clone().invert();
+  skeleton.boneInverses = skeleton.bones.map((bone) =>
+    parentWorldInverse.clone().multiply(bone.matrixWorld).invert(),
+  );
+}
+
 function parseKeyframeTrackName(
   trackName: string,
 ): { readonly boneName: string; readonly property: string } | null {
@@ -5062,6 +5083,7 @@ export function retargetMixamoClips(
   }
 
   sortSkeletonTopologically(targetSkinned.skeleton);
+  alignBoneInversesToNodeRestPose(targetSkinned.skeleton);
   targetSkinned.skeleton.pose();
   targetClone.updateMatrixWorld(true);
 

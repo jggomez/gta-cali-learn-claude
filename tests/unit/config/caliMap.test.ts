@@ -19,6 +19,9 @@ import {
   getDistrictAt,
   getLandmarkById,
   getTerrainElevation,
+  getWalkableGroundHeight,
+  SIDEWALK_SLAB_BLOCKS,
+  SIDEWALK_SLAB_HEIGHT_METERS,
   isPointInRiver,
   isPointOnBridge,
 } from '../../../src/config/caliMap';
@@ -566,5 +569,18 @@ describe('CALI_MAP geometry and spatial invariants', () => {
         ).toBe(false);
       }
     }
+  });
+});
+
+describe('getWalkableGroundHeight (raised sidewalk slabs)', () => {
+  it('lifts feet onto the 0.28m concrete sidewalk slabs and promenade decks', () => {
+    expect(SIDEWALK_SLAB_HEIGHT_METERS).toBeCloseTo(0.28, 5);
+    expect(SIDEWALK_SLAB_BLOCKS.length).toBeGreaterThanOrEqual(14);
+    // Bulevar del Río promenade deck
+    expect(getWalkableGroundHeight(12, 20)).toBeCloseTo(0.28, 5);
+    // Asphalt road surface stays at terrain level
+    expect(getWalkableGroundHeight(-5, 20)).toBeCloseTo(0, 5);
+    // Off-slab terrain still follows the Cristo Rey hill
+    expect(getWalkableGroundHeight(-160, -24)).toBeCloseTo(getTerrainElevation(-160, -24), 5);
   });
 });

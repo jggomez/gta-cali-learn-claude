@@ -65,6 +65,51 @@ export function getTerrainElevation(x: number, z: number): number {
   return cristoHill + sanAntonioTerrace;
 }
 
+export interface SidewalkSlabBlock {
+  readonly id: string;
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+}
+
+/** Height of the raised concrete sidewalk slabs and Bulevar del Río promenade decks. */
+export const SIDEWALK_SLAB_HEIGHT_METERS = 0.28;
+
+/** Raised sidewalk slab footprints shared by the 3D world builder and on-foot grounding. */
+export const SIDEWALK_SLAB_BLOCKS: readonly SidewalkSlabBlock[] = [
+  // Flat city blocks neatly framing building colliders clear of every road & river edge
+  { id: 'block_centro_nw', minX: -59, maxX: -13, minZ: -103, maxZ: -33 },
+  { id: 'block_bulevar_adj', minX: -59, maxX: -13, minZ: -15, maxZ: 28 },
+  { id: 'block_san_antonio_fringe', minX: -59, maxX: -13, minZ: 44, maxZ: 68 },
+  { id: 'block_penon_sw', minX: -59, maxX: -13, minZ: 86, maxZ: 157 },
+  { id: 'block_americas_n', minX: -64, maxX: -20, minZ: -160, maxZ: -122 },
+  { id: 'block_granada_ne', minX: 104, maxX: 166, minZ: -60, maxZ: 12 },
+  { id: 'block_oriente_w', minX: 66, maxX: 88, minZ: 28, maxZ: 68 },
+  { id: 'block_oriente_e', minX: 104, maxX: 166, minZ: 28, maxZ: 68 },
+  { id: 'block_versalles_w', minX: 66, maxX: 88, minZ: -116, maxZ: -76 },
+  { id: 'block_san_fernando', minX: 66, maxX: 88, minZ: 86, maxZ: 157 },
+  { id: 'block_versalles_e', minX: 104, maxX: 166, minZ: -116, maxZ: -76 },
+  // Bulevar del Río continuous riverside promenade decks
+  { id: 'promenade_bulevar_mid', minX: 4.5, maxX: 22.8, minZ: -15, maxZ: 65 },
+  { id: 'promenade_bulevar_north', minX: 4.5, maxX: 22.8, minZ: -103, maxZ: -35 },
+  { id: 'promenade_bulevar_south', minX: 4.5, maxX: 22.8, minZ: 89, maxZ: 157 },
+];
+
+/**
+ * Height of the surface a person stands on: terrain elevation, raised onto any sidewalk slab
+ * so on-foot characters never sink their feet into the concrete.
+ */
+export function getWalkableGroundHeight(x: number, z: number): number {
+  const terrain = getTerrainElevation(x, z);
+  for (const block of SIDEWALK_SLAB_BLOCKS) {
+    if (x >= block.minX && x <= block.maxX && z >= block.minZ && z <= block.maxZ) {
+      return Math.max(terrain, SIDEWALK_SLAB_HEIGHT_METERS);
+    }
+  }
+  return terrain;
+}
+
 export const RIVER_CORRIDOR: RiverCorridor = {
   id: 'rio_cali',
   name: 'Río Cali',

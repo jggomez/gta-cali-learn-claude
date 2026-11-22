@@ -14,6 +14,7 @@ import {
   DEFAULT_GARAGE_CONFIG,
   ROADBLOCK_ZONES,
   getTerrainElevation,
+  getWalkableGroundHeight,
 } from '../config/caliMap';
 import type {
   CaliMapConfig,
@@ -40,6 +41,7 @@ import {
   updateTrafficLightPhase,
   type CaliWorldBuildResult,
 } from './caliLandmarks';
+import { resolveLocomotionPlayback } from './calenoPeople';
 import { ParticleSystem, SkidMarkPool } from './particles';
 import {
   bindRenderTargetDisposal,
@@ -100,7 +102,6 @@ const BOOST_PITCH_OFFSET_RAD = -0.035;
 const BACKFIRE_AIRBORNE_THRESHOLD_METERS = 0.15;
 const BACKFIRE_HIGH_RPM_SPEED_MPS = 10;
 const BACKFIRE_HIGH_RPM_ACCEL_MPS2 = 5.5;
-const CHARACTER_RUN_SPEED_THRESHOLD_MPS = 5.2;
 const CHARACTER_CROSSFADE_SECONDS = 0.22;
 const PEDESTRIAN_CULL_DISTANCE_METERS = 95;
 const PEDESTRIAN_CULL_DISTANCE_SQ =
@@ -657,6 +658,7 @@ export class WorldRenderer {
   private characterMixer: THREE.AnimationMixer | null = null;
   private characterActions: RiggedCharacterActions = {};
   private activeCharacterState: CharacterLocomotionState = 'idle';
+  private playerGroundY: number | null = null;
   private mateoMixer: THREE.AnimationMixer | null = null;
   private mateoIsRigged = false;
   private summitDancerGroup: THREE.Group | null = null;
@@ -1548,10 +1550,17 @@ export class WorldRenderer {
     const isOnFoot = player.mode === 'on_foot';
     this.playerMesh.visible = isOnFoot;
     if (!isOnFoot) {
+      this.playerGroundY = null;
       return;
     }
 
-    this.playerMesh.position.set(player.x, player.y, player.z);
+    // Stand on raised sidewalks instead of sinking into them; ease the curb step up/down.
+    const groundY = Math.max(player.y, getWalkableGroundHeight(player.x, player.z));
+    this.playerGroundY =
+      this.playerGroundY === null || Math.abs(groundY - this.playerGroundY) > 1
+        ? groundY
+        : this.playerGroundY + (groundY - this.playerGroundY) * Math.min(1, dt * 18);
+    this.playerMesh.position.set(player.x, this.playerGroundY, player.z);
     this.playerMesh.rotation.y = player.heading;
 
     const absSpeed = Math.abs(player.speedMps);
@@ -1565,13 +1574,10 @@ export class WorldRenderer {
           player.z,
           CRISTO_REY_PLAYER_DANCE_DISTANCE_SQ,
         );
+      const gait = resolveLocomotionPlayback(player.speedMps, player.isSprinting);
       const targetState: CharacterLocomotionState = shouldDanceAtCristoRey
         ? 'dance'
-        : absSpeed <= 0.35
-          ? 'idle'
-          : player.isSprinting || absSpeed > CHARACTER_RUN_SPEED_THRESHOLD_MPS
-            ? 'run'
-            : 'walk';
+        : gait.state;
 
       if (targetState !== this.activeCharacterState) {
         const prevAction = this.characterActions[this.activeCharacterState];
@@ -1591,6 +1597,12 @@ export class WorldRenderer {
           prevAction.fadeOut(CHARACTER_CROSSFADE_SECONDS);
           this.activeCharacterState = targetState;
         }
+      }
+
+      // Match stride cadence to the simulated ground speed so feet stay planted (no sliding).
+      const activeAction = this.characterActions[this.activeCharacterState];
+      if (activeAction && this.activeCharacterState !== 'dance') {
+        activeAction.timeScale = gait.timeScale;
       }
 
       this.characterMixer.update(this.reducedMotion ? 0 : dt);
@@ -2076,7 +2088,7 @@ export class WorldRenderer {
         this.pedestrianPool.set(ped.id, entry);
       }
 
-      entry.group.position.set(ped.x, ped.y, ped.z);
+      entry.group.position.set(ped.x, Math.max(ped.y, getWalkableGroundHeight(ped.x, ped.z)), ped.z);
       entry.group.rotation.y = ped.heading;
 
       // Distance culling beyond 95m preserves 60fps & smooth SwiftShader frame budgets

@@ -10,7 +10,11 @@
  */
 
 import * as THREE from 'three';
-import { getTerrainElevation } from '../config/caliMap';
+import {
+  SIDEWALK_SLAB_BLOCKS,
+  SIDEWALK_SLAB_HEIGHT_METERS,
+  getTerrainElevation,
+} from '../config/caliMap';
 import type {
   AabbCollider,
   BridgeSpan,
@@ -132,14 +136,6 @@ interface CrosswalkSpec {
   readonly z: number;
   readonly spanWidth: number;
   readonly acrossAxis: 'ns_road' | 'ew_road';
-}
-
-interface SidewalkBlockSpec {
-  readonly id: string;
-  readonly minX: number;
-  readonly maxX: number;
-  readonly minZ: number;
-  readonly maxZ: number;
 }
 
 interface TrafficIntersectionSpec {
@@ -1158,24 +1154,7 @@ function buildCrosswalksGroup(map: CaliMapConfig): THREE.Group {
   return group;
 }
 
-const URBAN_SIDEWALK_BLOCKS: readonly SidewalkBlockSpec[] = [
-  // Flat city blocks neatly framing building colliders clear of every road & river edge
-  { id: 'block_centro_nw', minX: -59, maxX: -13, minZ: -103, maxZ: -33 },
-  { id: 'block_bulevar_adj', minX: -59, maxX: -13, minZ: -15, maxZ: 28 },
-  { id: 'block_san_antonio_fringe', minX: -59, maxX: -13, minZ: 44, maxZ: 68 },
-  { id: 'block_penon_sw', minX: -59, maxX: -13, minZ: 86, maxZ: 157 },
-  { id: 'block_americas_n', minX: -64, maxX: -20, minZ: -160, maxZ: -122 },
-  { id: 'block_granada_ne', minX: 104, maxX: 166, minZ: -60, maxZ: 12 },
-  { id: 'block_oriente_w', minX: 66, maxX: 88, minZ: 28, maxZ: 68 },
-  { id: 'block_oriente_e', minX: 104, maxX: 166, minZ: 28, maxZ: 68 },
-  { id: 'block_versalles_w', minX: 66, maxX: 88, minZ: -116, maxZ: -76 },
-  { id: 'block_san_fernando', minX: 66, maxX: 88, minZ: 86, maxZ: 157 },
-  { id: 'block_versalles_e', minX: 104, maxX: 166, minZ: -116, maxZ: -76 },
-  // Bulevar del Río continuous riverside promenade decks
-  { id: 'promenade_bulevar_mid', minX: 4.5, maxX: 22.8, minZ: -15, maxZ: 65 },
-  { id: 'promenade_bulevar_north', minX: 4.5, maxX: 22.8, minZ: -103, maxZ: -35 },
-  { id: 'promenade_bulevar_south', minX: 4.5, maxX: 22.8, minZ: 89, maxZ: 157 },
-];
+const URBAN_SIDEWALK_BLOCKS = SIDEWALK_SLAB_BLOCKS;
 
 function buildSidewalksGroup(
   map: CaliMapConfig,
@@ -1195,7 +1174,7 @@ function buildSidewalksGroup(
   });
   sidewalkMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
 
-  const slabHeight = 0.28;
+  const slabHeight = SIDEWALK_SLAB_HEIGHT_METERS;
   for (const block of URBAN_SIDEWALK_BLOCKS) {
     const width = block.maxX - block.minX;
     const depth = block.maxZ - block.minZ;
