@@ -1,10 +1,17 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
+import type { VehicleKind } from '../../../src/types/game';
 import { SkidMarkPool } from '../../../src/world/particles';
+import { createVehicleMesh } from '../../../src/world/vehicleMeshes';
 import {
   computeRearTireWorldPositions,
+  computeVehiclePitchRad,
   disposeObjectTree,
+  resolveExhaustBackfire,
+  resolveHeadlightHeight,
   sampleGpsRoutePose,
+  shouldRebuildVehicleMesh,
+  shouldUseFerrariModel,
 } from '../../../src/world/worldRenderer';
 
 describe('computeRearTireWorldPositions', () => {
@@ -252,5 +259,234 @@ describe('disposeObjectTree', () => {
     expect(sunLight.shadow.map).toBeNull();
     expect(sunLight.shadow.mapPass).toBeNull();
     expect(lightDisposeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('disposes sculpted Colombian vehicle mesh trees (geometries, materials, lights) cleanly on runtime swap', () => {
+    const policeSuv = createVehicleMesh('police', 0xf4f7fb, 0x0b6b3a);
+    const r4Turbo = createVehicleMesh('renault4_turbo', 0xe63946, 0xf8fafc, 0x00f0ff);
+
+    for (const vehicleGroup of [policeSuv, r4Turbo]) {
+      const geometries = new Set<THREE.BufferGeometry>();
+      const materials = new Set<THREE.Material>();
+      const lights = new Set<THREE.Light>();
+
+      vehicleGroup.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          geometries.add(node.geometry);
+          const mats = Array.isArray(node.material) ? node.material : [node.material];
+          for (const mat of mats) {
+            if (mat) {
+              materials.add(mat);
+            }
+          }
+        } else if (node instanceof THREE.Light) {
+          lights.add(node);
+        }
+      });
+
+      const geoSpies = [...geometries].map((geo) => vi.spyOn(geo, 'dispose'));
+      const matSpies = [...materials].map((mat) => vi.spyOn(mat, 'dispose'));
+      const lightSpies = [...lights].map((light) => vi.spyOn(light, 'dispose'));
+
+      disposeObjectTree(vehicleGroup);
+
+      expect(geoSpies.length).toBeGreaterThan(0);
+      expect(matSpies.length).toBeGreaterThan(0);
+      for (const spy of geoSpies) {
+        expect(spy).toHaveBeenCalledTimes(1);
+      }
+      for (const spy of matSpies) {
+        expect(spy).toHaveBeenCalledTimes(1);
+      }
+      for (const spy of lightSpies) {
+        expect(spy).toHaveBeenCalledTimes(1);
+      }
+    }
+  });
+});
+
+describe('shouldUseFerrariModel & shouldRebuildVehicleMesh', () => {
+  it('mounts Ferrari GLB strictly for banshee and retires Police and Taxi Ferraris', () => {
+    const allKinds: readonly VehicleKind[] = [
+      'renault4_turbo',
+      'spark_gt_turbo',
+      'willys_v8',
+      'banshee',
+      'police',
+      'taxi',
+      'mio_bus',
+      'chiva',
+    ];
+
+    for (const kind of allKinds) {
+      expect(shouldUseFerrariModel(kind, false)).toBe(false);
+      expect(shouldUseFerrariModel(kind, true)).toBe(kind === 'banshee');
+    }
+  });
+
+  it('detects missing entries and kind, paint color, neon underglow, and banshee GLB transitions', () => {
+    const baseEntry = {
+      kind: 'renault4_turbo' as VehicleKind,
+      colorHex: 0xe63946,
+      neonHex: 0x00f0ff as number | undefined,
+      usesFerrariModel: false,
+    };
+    const baseSnapshot = {
+      kind: 'renault4_turbo' as VehicleKind,
+      colorHex: 0xe63946,
+      neonHex: 0x00f0ff as number | undefined,
+    };
+
+    expect(shouldRebuildVehicleMesh(undefined, baseSnapshot)).toBe(true);
+    expect(shouldRebuildVehicleMesh(baseEntry, baseSnapshot, true)).toBe(false);
+
+    // Garage car swap
+    expect(
+      shouldRebuildVehicleMesh(baseEntry, { ...baseSnapshot, kind: 'willys_v8' }),
+    ).toBe(true);
+
+    // Garage or Pay 'n' Spray live repaint
+    expect(
+      shouldRebuildVehicleMesh(baseEntry, { ...baseSnapshot, colorHex: 0x10b981 }),
+    ).toBe(true);
+
+    // Neon underglow changed or cleared
+    expect(
+      shouldRebuildVehicleMesh(baseEntry, { ...baseSnapshot, neonHex: 0xff2e93 }),
+    ).toBe(true);
+    expect(
+      shouldRebuildVehicleMesh(baseEntry, { ...baseSnapshot, neonHex: undefined }),
+    ).toBe(true);
+
+    // Banshee upgrades when Ferrari GLB finishes loading
+    const bansheeEntry = {
+      kind: 'banshee' as VehicleKind,
+      colorHex: 0xb80e24,
+      neonHex: 0x00f0ff,
+      usesFerrariModel: false,
+    };
+    const bansheeSnapshot = {
+      kind: 'banshee' as VehicleKind,
+      colorHex: 0xb80e24,
+      neonHex: 0x00f0ff,
+    };
+    expect(shouldRebuildVehicleMesh(bansheeEntry, bansheeSnapshot, false)).toBe(false);
+    expect(shouldRebuildVehicleMesh(bansheeEntry, bansheeSnapshot, true)).toBe(true);
+
+    // Police SUV and Taxi Zapatico NEVER rebuild into Ferrari GLB when template loads
+    for (const nonFerrariKind of ['police', 'taxi'] as const) {
+      expect(
+        shouldRebuildVehicleMesh(
+          {
+            kind: nonFerrariKind,
+            colorHex: 0xf4f7fb,
+            neonHex: undefined,
+            usesFerrariModel: false,
+          },
+          {
+            kind: nonFerrariKind,
+            colorHex: 0xf4f7fb,
+            neonHex: undefined,
+          },
+          true,
+        ),
+      ).toBe(false);
+    }
+  });
+});
+
+describe('resolveHeadlightHeight', () => {
+  it('returns calibrated headlight mount heights for all 8 Cali vehicle kinds', () => {
+    const expectedHeights: Readonly<Record<VehicleKind, number>> = {
+      renault4_turbo: 0.68,
+      spark_gt_turbo: 0.62,
+      willys_v8: 0.84,
+      police: 0.86,
+      taxi: 0.64,
+      banshee: 0.58,
+      mio_bus: 0.98,
+      chiva: 1.04,
+    };
+
+    for (const [kind, height] of Object.entries(expectedHeights) as [
+      VehicleKind,
+      number,
+    ][]) {
+      expect(resolveHeadlightHeight(kind)).toBeCloseTo(height, 4);
+    }
+  });
+});
+
+describe('computeVehiclePitchRad', () => {
+  it('follows terrain slope and boost squat when grounded and pitches nose up proportionally when airborne', () => {
+    expect(computeVehiclePitchRad(0, 0, false)).toBeCloseTo(0, 5);
+    expect(computeVehiclePitchRad(0.08, 0, false)).toBeCloseTo(0, 5);
+    expect(computeVehiclePitchRad(0, -0.15, false)).toBeCloseTo(-0.15, 5);
+    expect(computeVehiclePitchRad(0, -0.15, true)).toBeCloseTo(-0.185, 5);
+
+    const lowJumpPitch = computeVehiclePitchRad(0.4, 0, false);
+    const highJumpPitch = computeVehiclePitchRad(2.2, 0, false);
+    const extremeJumpPitch = computeVehiclePitchRad(12.0, 0, false);
+
+    // Negative X rotation lifts vehicle +Z nose upward
+    expect(lowJumpPitch).toBeLessThan(0);
+    expect(highJumpPitch).toBeLessThan(lowJumpPitch);
+    expect(extremeJumpPitch).toBeGreaterThanOrEqual(-0.35);
+
+    // Guards non-finite inputs safely
+    expect(Number.isFinite(computeVehiclePitchRad(Number.NaN, Number.NaN, false))).toBe(
+      true,
+    );
+  });
+});
+
+describe('resolveExhaustBackfire', () => {
+  it('triggers on stunt launch, nitro boost, and high-RPM acceleration bursts while rate-limiting', () => {
+    const calm = resolveExhaustBackfire(
+      { isBoosting: false, speedMps: 8, airborneHeight: 0 },
+      1.0,
+      0,
+      false,
+    );
+    expect(calm).toBeNull();
+
+    // Nitro boost triggers when cooldown is ready and respects cooldown while active
+    const boostPop = resolveExhaustBackfire(
+      { isBoosting: true, speedMps: 18, airborneHeight: 0 },
+      4.0,
+      0,
+      false,
+    );
+    expect(boostPop).not.toBeNull();
+    expect(boostPop?.intensity).toBeGreaterThan(1.0);
+    expect(boostPop?.cooldownSeconds).toBeGreaterThan(0);
+
+    const rateLimited = resolveExhaustBackfire(
+      { isBoosting: true, speedMps: 18, airborneHeight: 0 },
+      4.0,
+      0.1,
+      false,
+    );
+    expect(rateLimited).toBeNull();
+
+    // High-RPM acceleration burst
+    const highRpm = resolveExhaustBackfire(
+      { isBoosting: false, speedMps: 15, airborneHeight: 0 },
+      7.2,
+      0,
+      false,
+    );
+    expect(highRpm).not.toBeNull();
+    expect(highRpm?.intensity).toBeGreaterThan(0.5);
+
+    // Stunt jump takeoff fires immediately even during cooldown
+    const stuntTakeoff = resolveExhaustBackfire(
+      { isBoosting: false, speedMps: 24, airborneHeight: 0.3 },
+      0,
+      0.12,
+      false,
+    );
+    expect(stuntTakeoff).not.toBeNull();
+    expect(stuntTakeoff?.intensity).toBeGreaterThanOrEqual(1.3);
   });
 });

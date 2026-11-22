@@ -2,17 +2,23 @@
  * Pure presentation WebGL renderer for GTA VI: Cali (La Sucursal del Cielo).
  * Consumes immutable WorldSnapshot and MissionSnapshot objects without mutating simulation state.
  * Wires local HDRI golden-hour PMREM reflections & sky, 1K photographic PBR city textures,
- * real Ferrari 458 Italia & rigged Morena Calena Valeria + diverse civilian character GLBs,
- * Cristo Rey SambaDance summit dancer, pooled asphalt drift skid marks, 2048px player-tracking
- * soft shadows, HDR UnrealBloom + CinematicGrade post-processing, GTA V free-orbit camera look,
- * dynamic headlights & siren lights, braking taillights, GLSL water/sky fallback, and GPU particles.
+ * sculpted Colombian vehicles (Renault 4 Turbo, Spark GT, Willys V8, Policía Nacional SUV,
+ * Taxi Zapatico, MIO Bus, Chiva) + Ferrari 458 Banshee, realistic Caleño (caleno.glb) and
+ * Valeria (valeria.glb) characters with zero sci-fi soldiers, working traffic lights, 3-star
+ * retén policial roadblocks & officers, exhaust backfire flames, pooled skid marks, and post-FX.
  */
 
 import * as THREE from 'three';
-import { CALI_MAP, getTerrainElevation } from '../config/caliMap';
+import {
+  CALI_MAP,
+  DEFAULT_GARAGE_CONFIG,
+  ROADBLOCK_ZONES,
+  getTerrainElevation,
+} from '../config/caliMap';
 import type {
   CaliMapConfig,
   CameraMode,
+  GarageConfig,
   MissionSnapshot,
   PedestrianSnapshot,
   TimeOfDay,
@@ -29,7 +35,10 @@ import {
 import {
   applyPhotographicAssets,
   buildCaliWorld,
+  setRoadblockVisible,
   setWorldNightLighting,
+  updateTrafficLightPhase,
+  type CaliWorldBuildResult,
 } from './caliLandmarks';
 import { ParticleSystem, SkidMarkPool } from './particles';
 import {
@@ -54,6 +63,7 @@ import {
   type PostProcessingRig,
 } from './sceneSetup';
 import {
+  createCalenoCharacterRig,
   createCivilianPedestrianRig,
   createFerrariLiveryMesh,
   createGpsChevronMesh,
@@ -61,10 +71,8 @@ import {
   createObjectiveBeacon,
   createPedestrianMesh,
   createPlayerMesh,
-  createRiggedCharacterMesh,
   createValeriaPlayerMesh,
   createVehicleMesh,
-  type FerrariLiveryKind,
   type HeadlightConeMaterials,
   type MissionPropKey,
   type RiggedCharacterActions,
@@ -85,6 +93,13 @@ const REAR_TIRE_TRACK_RATIO = 0.82;
 const REAR_TIRE_AXLE_RATIO = 0.62;
 const COLLISION_SPARK_THRESHOLD = 0.14;
 const COLLISION_SPARK_COOLDOWN_SECONDS = 0.09;
+const AIRBORNE_PITCH_THRESHOLD_METERS = 0.08;
+const AIRBORNE_PITCH_MAX_RAD = 0.28;
+const TERRAIN_SLOPE_MAX_RAD = 0.32;
+const BOOST_PITCH_OFFSET_RAD = -0.035;
+const BACKFIRE_AIRBORNE_THRESHOLD_METERS = 0.15;
+const BACKFIRE_HIGH_RPM_SPEED_MPS = 10;
+const BACKFIRE_HIGH_RPM_ACCEL_MPS2 = 5.5;
 const CHARACTER_RUN_SPEED_THRESHOLD_MPS = 5.2;
 const CHARACTER_CROSSFADE_SECONDS = 0.22;
 const PEDESTRIAN_CULL_DISTANCE_METERS = 95;
@@ -272,33 +287,175 @@ function hashPedestrianPhase(id: string): number {
   return (hashPedestrianSeed(id) % 628) / 100;
 }
 
-function isFerrariLiveryKind(kind: VehicleKind): kind is FerrariLiveryKind {
-  return kind === 'banshee' || kind === 'police' || kind === 'taxi';
+export interface VehicleVisualSignature {
+  readonly kind: VehicleKind;
+  readonly colorHex: number;
+  readonly neonHex?: number | undefined;
+  readonly accentHex?: number | undefined;
+  readonly usesFerrariModel?: boolean;
 }
 
-function getHeadlightMountHeight(kind: VehicleKind): number {
-  switch (kind) {
-    case 'mio_bus':
-    case 'chiva':
-      return 1.25;
-    case 'willys_v8':
-      return 1.06;
-    case 'renault4_turbo':
-    case 'spark_gt_turbo':
-    case 'taxi':
-    case 'police':
-      return 1.02;
-    case 'banshee':
-      return 0.88;
+export interface VehicleRenderEntry {
+  readonly kind: VehicleKind;
+  readonly colorHex: number;
+  readonly accentHex: number | undefined;
+  readonly neonHex: number | undefined;
+  readonly usesFerrariModel: boolean;
+  readonly group: THREE.Group;
+}
+
+export interface ExhaustBackfireDecision {
+  readonly intensity: number;
+  readonly cooldownSeconds: number;
+}
+
+/**
+ * Only the exotic 'banshee' mounts the Ferrari 458 Italia GLB; all authentic Colombian vehicles
+ * (Renault 4 Turbo, Spark GT, Willys V8, Policía Nacional SUV, Taxi Zapatico, MIO Bus, Chiva)
+ * mount their bespoke sculpted clearcoat PBR meshes.
+ */
+export function shouldUseFerrariModel(
+  kind: VehicleKind,
+  hasFerrariTemplate: boolean,
+): boolean {
+  return kind === 'banshee' && hasFerrariTemplate;
+}
+
+/**
+ * Determines whether a pooled vehicle mesh must be disposed and rebuilt due to a runtime
+ * car swap (Garaje [G]), live repaint (Garaje or Pay 'n' Spray), neon change, or Ferrari GLB load.
+ */
+export function shouldRebuildVehicleMesh(
+  entry: VehicleVisualSignature | undefined,
+  snapshot: Pick<VehicleSnapshot, 'kind' | 'colorHex' | 'neonHex' | 'accentHex'>,
+  hasFerrariTemplate?: boolean,
+): boolean {
+  if (!entry) {
+    return true;
   }
+  if (
+    entry.kind !== snapshot.kind ||
+    entry.colorHex !== snapshot.colorHex ||
+    entry.neonHex !== snapshot.neonHex
+  ) {
+    return true;
+  }
+  if (
+    entry.accentHex !== undefined &&
+    snapshot.accentHex !== undefined &&
+    entry.accentHex !== snapshot.accentHex
+  ) {
+    return true;
+  }
+  if (hasFerrariTemplate !== undefined && entry.usesFerrariModel !== undefined) {
+    const wantsFerrari = shouldUseFerrariModel(snapshot.kind, hasFerrariTemplate);
+    if (entry.usesFerrariModel !== wantsFerrari) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Returns the calibrated headlight emitter height (meters above ground) for each Cali vehicle kind.
+ */
+export function resolveHeadlightHeight(kind: VehicleKind): number {
+  switch (kind) {
+    case 'renault4_turbo':
+      return 0.68;
+    case 'spark_gt_turbo':
+      return 0.62;
+    case 'willys_v8':
+      return 0.84;
+    case 'police':
+      return 0.86;
+    case 'taxi':
+      return 0.64;
+    case 'banshee':
+      return 0.58;
+    case 'mio_bus':
+      return 0.98;
+    case 'chiva':
+      return 1.04;
+  }
+}
+
+/**
+ * Computes vehicle local X pitch (negative = nose up) for GTA Stunt Jump airborne arcs,
+ * terrain slopes on landing, and subtle nitro boost squat.
+ */
+export function computeVehiclePitchRad(
+  airborneHeight: number | undefined,
+  terrainSlopeRad: number,
+  isBoosting: boolean,
+): number {
+  const safeAirborne =
+    airborneHeight !== undefined && Number.isFinite(airborneHeight)
+      ? Math.max(0, airborneHeight)
+      : 0;
+  const safeSlope = Number.isFinite(terrainSlopeRad)
+    ? THREE.MathUtils.clamp(
+        terrainSlopeRad,
+        -TERRAIN_SLOPE_MAX_RAD,
+        TERRAIN_SLOPE_MAX_RAD,
+      )
+    : 0;
+  const boostOffset = isBoosting ? BOOST_PITCH_OFFSET_RAD : 0;
+
+  if (safeAirborne > AIRBORNE_PITCH_THRESHOLD_METERS) {
+    const airbornePitch = -Math.min(
+      AIRBORNE_PITCH_MAX_RAD,
+      (safeAirborne - AIRBORNE_PITCH_THRESHOLD_METERS) * 0.085 + 0.05,
+    );
+    return airbornePitch + boostOffset;
+  }
+
+  return safeSlope + boostOffset;
+}
+
+/**
+ * Evaluates whether the player's tailpipe should fire an exhaust backfire flame pop
+ * on stunt launch, nitro boost, or high-RPM acceleration bursts while enforcing rate limits.
+ */
+export function resolveExhaustBackfire(
+  vehicle: Pick<VehicleSnapshot, 'isBoosting' | 'speedMps' | 'airborneHeight'>,
+  accelMps2: number,
+  cooldownRemaining: number,
+  wasAirborne: boolean,
+): ExhaustBackfireDecision | null {
+  const airborneHeight =
+    vehicle.airborneHeight !== undefined && Number.isFinite(vehicle.airborneHeight)
+      ? vehicle.airborneHeight
+      : 0;
+  const isAirborne = airborneHeight > BACKFIRE_AIRBORNE_THRESHOLD_METERS;
+
+  if (isAirborne && !wasAirborne) {
+    return { intensity: 1.45, cooldownSeconds: 0.24 };
+  }
+  if (cooldownRemaining > 0) {
+    return null;
+  }
+  if (vehicle.isBoosting) {
+    return { intensity: 1.25, cooldownSeconds: 0.16 };
+  }
+  if (isAirborne) {
+    return { intensity: 1.1, cooldownSeconds: 0.28 };
+  }
+  if (
+    vehicle.speedMps > BACKFIRE_HIGH_RPM_SPEED_MPS &&
+    Number.isFinite(accelMps2) &&
+    accelMps2 > BACKFIRE_HIGH_RPM_ACCEL_MPS2
+  ) {
+    return { intensity: 0.9, cooldownSeconds: 0.28 };
+  }
+  return null;
 }
 
 type CharacterLocomotionState = 'idle' | 'walk' | 'run' | 'dance';
 
-interface PooledVehicleEntry {
-  readonly kind: VehicleKind;
-  readonly usesFerrariModel: boolean;
-  readonly mesh: THREE.Group;
+interface RoadblockOfficerEntry {
+  readonly group: THREE.Group;
+  readonly mixer: THREE.AnimationMixer;
 }
 
 interface VehicleSkidState {
@@ -330,11 +487,12 @@ function disposeAnimationMixer(mixer: THREE.AnimationMixer | null): void {
 
 /**
  * Disposes a single rigged character clone safely while the shared GLB template stays active:
- * disposes its unique contact shadow tree and cloned materials without disposing shared GLB
- * BufferGeometries or Textures still referenced by other active characters.
+ * disposes its unique contact shadow tree, per-instance CanvasTexture jerseys, and cloned materials
+ * without disposing shared GLB BufferGeometries or Textures still referenced by other characters.
  */
 function disposeRiggedCharacterGroup(root: THREE.Group): void {
   const clonedMaterials = new Set<THREE.Material>();
+  const ownedCanvasTextures = new Set<THREE.CanvasTexture>();
 
   root.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) {
@@ -348,10 +506,19 @@ function disposeRiggedCharacterGroup(root: THREE.Group): void {
     for (const mat of mats) {
       if (mat) {
         clonedMaterials.add(mat);
+        if (
+          mat instanceof THREE.MeshStandardMaterial &&
+          mat.map instanceof THREE.CanvasTexture
+        ) {
+          ownedCanvasTextures.add(mat.map);
+        }
       }
     }
   });
 
+  for (const texture of ownedCanvasTextures) {
+    texture.dispose();
+  }
   for (const mat of clonedMaterials) {
     mat.dispose();
   }
@@ -471,6 +638,7 @@ export class WorldRenderer {
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly map: CaliMapConfig;
+  private readonly caliWorld: CaliWorldBuildResult;
   private readonly worldGroup: THREE.Group;
   private readonly skyDome: THREE.Mesh;
   private readonly lightingGroup: THREE.Group;
@@ -480,6 +648,8 @@ export class WorldRenderer {
   private ferrariTemplate: THREE.Group | null = null;
   private characterAsset: LoadedCharacterAsset | null = null;
   private valeriaAsset: LoadedCharacterAsset | null = null;
+  private calenoAsset: LoadedCharacterAsset | null = null;
+  private garageAppearance: GarageConfig = DEFAULT_GARAGE_CONFIG;
   private readonly postProcessing: PostProcessingRig | null;
   private readonly waterMesh: THREE.Mesh;
   private playerMesh: THREE.Group;
@@ -491,6 +661,7 @@ export class WorldRenderer {
   private mateoIsRigged = false;
   private summitDancerGroup: THREE.Group | null = null;
   private summitDancerMixer: THREE.AnimationMixer | null = null;
+  private readonly roadblockOfficers: RoadblockOfficerEntry[] = [];
   private readonly objectiveBeacon: THREE.Group;
   private readonly missionProps: Record<MissionPropKey, THREE.Group>;
   private readonly gpsChevrons: readonly THREE.Group[];
@@ -498,7 +669,7 @@ export class WorldRenderer {
   private readonly skidMarks: SkidMarkPool;
   private readonly headlightSpot: THREE.SpotLight;
   private readonly headlightTarget: THREE.Object3D;
-  private readonly vehiclePool = new Map<string, PooledVehicleEntry>();
+  private readonly vehiclePool = new Map<string, VehicleRenderEntry>();
   private readonly pedestrianPool = new Map<string, PooledPedestrianEntry>();
   private readonly prevSpeeds = new Map<string, number>();
   private readonly vehicleSkidState = new Map<string, VehicleSkidState>();
@@ -512,6 +683,8 @@ export class WorldRenderer {
   private elapsedSeconds = 0;
   private orbitAngle = 0;
   private sparkCooldown = 0;
+  private backfireCooldown = 0;
+  private wasPlayerAirborne = false;
   private lastBeaconColorHex = -1;
   private worldAssetsLoaded = false;
   private disposed = false;
@@ -593,6 +766,7 @@ export class WorldRenderer {
     this.scene.add(this.lightingGroup);
 
     const builtWorld = buildCaliWorld(this.map);
+    this.caliWorld = builtWorld;
     this.worldGroup = builtWorld.group;
     this.waterMesh = builtWorld.waterMesh;
     this.scene.add(this.worldGroup);
@@ -697,7 +871,20 @@ export class WorldRenderer {
     this.headlightSpot.distance = isNight ? 68 : 45;
 
     for (const entry of this.vehiclePool.values()) {
-      this.applyVehicleHeadlightTimeOfDay(entry.mesh, isNight);
+      this.applyVehicleHeadlightTimeOfDay(entry.group, isNight);
+    }
+  }
+
+  public setGarageAppearance(garage: GarageConfig): void {
+    if (this.disposed) {
+      return;
+    }
+    const appearanceChanged =
+      this.garageAppearance.avatar !== garage.avatar ||
+      this.garageAppearance.outfit !== garage.outfit;
+    this.garageAppearance = { ...garage };
+    if (appearanceChanged) {
+      this.rebuildPlayerRig();
     }
   }
 
@@ -746,6 +933,7 @@ export class WorldRenderer {
     this.elapsedSeconds += safeDt;
     this.orbitAngle += safeDt * (cameraMode === 'victory_orbit' ? 0.5 : 0.35);
     this.sparkCooldown = Math.max(0, this.sparkCooldown - safeDt);
+    this.backfireCooldown = Math.max(0, this.backfireCooldown - safeDt);
 
     const targetBoostMix = world.player.isBoosting ? 1 : 0;
     const boostLerpRate =
@@ -776,9 +964,28 @@ export class WorldRenderer {
     }
     updateShadowFocus(this.lightingGroup, world.player.x, world.player.z);
 
+    updateTrafficLightPhase(
+      this.caliWorld,
+      world.trafficLightPhase ?? 'ns_green',
+    );
+    const roadblockActive = Boolean(world.roadblockActive);
+    setRoadblockVisible(
+      this.caliWorld,
+      roadblockActive,
+      this.reducedMotion ? 0 : world.timeSeconds,
+    );
+    if (roadblockActive && !this.reducedMotion) {
+      for (const officer of this.roadblockOfficers) {
+        officer.mixer.update(safeDt);
+      }
+    }
+
+    const activePlayerVehicleId =
+      world.player.mode === 'driving' ? world.player.vehicleId : null;
+
     this.animateWater(safeDt, animTime);
     this.syncPlayer(world, mission, safeDt);
-    this.syncVehicles(world.vehicles, safeDt);
+    this.syncVehicles(world.vehicles, activePlayerVehicleId, safeDt);
     this.syncPedestrians(world.pedestrians, world.player.x, world.player.z, safeDt);
     this.syncPlayerHeadlight(world);
     this.syncCollisionSparks(world);
@@ -866,10 +1073,18 @@ export class WorldRenderer {
     }
 
     this.disposeSummitDancer();
+    this.disposeRoadblockOfficers();
 
     for (const entry of this.pedestrianPool.values()) {
       this.disposePedestrianEntry(entry);
     }
+    this.pedestrianPool.clear();
+
+    for (const entry of this.vehiclePool.values()) {
+      this.scene.remove(entry.group);
+      disposeObjectTree(entry.group);
+    }
+    this.vehiclePool.clear();
 
     this.scene.remove(this.particles.group);
     this.particles.dispose();
@@ -891,12 +1106,12 @@ export class WorldRenderer {
     this.ferrariTemplate = null;
     this.characterAsset = null;
     this.valeriaAsset = null;
+    this.calenoAsset = null;
 
     disposeObjectTree(this.scene);
-    this.vehiclePool.clear();
-    this.pedestrianPool.clear();
     this.prevSpeeds.clear();
     this.vehicleSkidState.clear();
+    this.wasPlayerAirborne = false;
     this.renderer.dispose();
   }
 
@@ -938,21 +1153,21 @@ export class WorldRenderer {
 
     this.characterAsset = assets.character;
     this.valeriaAsset = assets.valeria;
+    this.calenoAsset = assets.caleno;
 
-    if (assets.valeria) {
-      this.upgradePlayerToRiggedRig(
-        createValeriaPlayerMesh(assets.valeria, assets.character),
+    this.rebuildPlayerRig();
+
+    if (assets.valeria || assets.caleno) {
+      this.upgradePooledPedestriansToRigged(
+        assets.valeria,
+        assets.caleno,
+        assets.character,
       );
-    } else if (assets.character) {
-      this.upgradePlayerToRiggedRig(createRiggedCharacterMesh(assets.character));
     }
 
-    if (assets.valeria || assets.character) {
-      this.upgradePooledPedestriansToRigged(assets.valeria, assets.character);
-    }
-
-    if (assets.character) {
-      this.upgradeMateoToRiggedCharacter(assets.character);
+    if (assets.caleno) {
+      this.upgradeMateoToRiggedCharacter(assets.caleno, assets.character);
+      this.mountRoadblockOfficers(assets.caleno, assets.character);
     }
 
     if (assets.valeria) {
@@ -1008,24 +1223,52 @@ export class WorldRenderer {
   private upgradePooledVehiclesToFerrari(ferrariTemplate: THREE.Group): void {
     const isNight = this.currentTimeOfDay === 'night';
     for (const [id, entry] of this.vehiclePool.entries()) {
-      if (!isFerrariLiveryKind(entry.kind) || entry.usesFerrariModel) {
+      if (entry.kind !== 'banshee' || entry.usesFerrariModel) {
         continue;
       }
-      const ferrariMesh = createFerrariLiveryMesh(ferrariTemplate, entry.kind);
-      ferrariMesh.position.copy(entry.mesh.position);
-      ferrariMesh.rotation.copy(entry.mesh.rotation);
-      ferrariMesh.visible = entry.mesh.visible;
-      this.applyVehicleHeadlightTimeOfDay(ferrariMesh, isNight);
+      const ferrariGroup = createFerrariLiveryMesh(
+        ferrariTemplate,
+        'banshee',
+        entry.colorHex,
+        entry.neonHex,
+      );
+      ferrariGroup.position.copy(entry.group.position);
+      ferrariGroup.rotation.copy(entry.group.rotation);
+      ferrariGroup.visible = entry.group.visible;
+      this.applyVehicleHeadlightTimeOfDay(ferrariGroup, isNight);
 
-      this.scene.remove(entry.mesh);
-      disposeObjectTree(entry.mesh);
-      this.scene.add(ferrariMesh);
+      this.scene.remove(entry.group);
+      disposeObjectTree(entry.group);
+      this.scene.add(ferrariGroup);
       this.vehiclePool.set(id, {
         kind: entry.kind,
+        colorHex: entry.colorHex,
+        accentHex: entry.accentHex,
+        neonHex: entry.neonHex,
         usesFerrariModel: true,
-        mesh: ferrariMesh,
+        group: ferrariGroup,
       });
     }
+  }
+
+  private rebuildPlayerRig(): void {
+    let rig: RiggedCharacterRig | null = null;
+    if (this.garageAppearance.avatar === 'mateo' && this.calenoAsset) {
+      rig = createCalenoCharacterRig(this.calenoAsset, this.characterAsset, {
+        outfit: this.garageAppearance.outfit,
+        showBeard: true,
+        showHeadwear: true,
+      });
+    } else if (this.garageAppearance.avatar === 'valeria' && this.valeriaAsset) {
+      rig = createValeriaPlayerMesh(this.valeriaAsset, this.characterAsset, {
+        outfit: this.garageAppearance.outfit,
+      });
+    }
+
+    if (!rig) {
+      return;
+    }
+    this.upgradePlayerToRiggedRig(rig);
   }
 
   private upgradePlayerToRiggedRig(rig: RiggedCharacterRig): void {
@@ -1057,10 +1300,12 @@ export class WorldRenderer {
     shirtColorHex: number,
     pantsColorHex: number,
     valeriaAsset: LoadedCharacterAsset | null,
+    calenoAsset: LoadedCharacterAsset | null,
     characterAsset: LoadedCharacterAsset | null,
   ): PooledPedestrianEntry | null {
     const rig = createCivilianPedestrianRig(
       valeriaAsset,
+      calenoAsset,
       characterAsset,
       variantIndex,
       shirtColorHex,
@@ -1101,9 +1346,10 @@ export class WorldRenderer {
 
   private upgradePooledPedestriansToRigged(
     valeriaAsset: LoadedCharacterAsset | null,
+    calenoAsset: LoadedCharacterAsset | null,
     characterAsset: LoadedCharacterAsset | null,
   ): void {
-    if (!valeriaAsset && !characterAsset) {
+    if (!valeriaAsset && !calenoAsset) {
       return;
     }
 
@@ -1114,6 +1360,7 @@ export class WorldRenderer {
         entry.shirtColorHex,
         entry.pantsColorHex,
         valeriaAsset,
+        calenoAsset,
         characterAsset,
       );
       if (!riggedEntry) {
@@ -1131,13 +1378,16 @@ export class WorldRenderer {
   }
 
   private upgradeMateoToRiggedCharacter(
-    characterAsset: LoadedCharacterAsset,
+    calenoAsset: LoadedCharacterAsset,
+    characterAsset: LoadedCharacterAsset | null,
   ): void {
     const mateoSpeakers = this.missionProps.mateo_speakers;
     const previousMateo = mateoSpeakers.getObjectByName('npc_mateo');
 
-    const rig = createRiggedCharacterMesh(characterAsset, {
-      tintHex: 0xffb800,
+    const rig = createCalenoCharacterRig(calenoAsset, characterAsset, {
+      outfit: 'escarlata',
+      showBeard: true,
+      showHeadwear: true,
     });
     rig.group.name = 'npc_mateo';
     if (previousMateo) {
@@ -1158,6 +1408,67 @@ export class WorldRenderer {
     mateoSpeakers.add(rig.group);
     this.mateoMixer = rig.mixer;
     this.mateoIsRigged = true;
+  }
+
+  private mountRoadblockOfficers(
+    calenoAsset: LoadedCharacterAsset,
+    characterAsset: LoadedCharacterAsset | null,
+  ): void {
+    this.disposeRoadblockOfficers();
+
+    const roadblockGroup = this.caliWorld.roadblockGroup;
+    if (!roadblockGroup) {
+      return;
+    }
+
+    const zones = this.map.roadblockZones ?? ROADBLOCK_ZONES;
+    zones.forEach((zone, index) => {
+      const rig = createCalenoCharacterRig(calenoAsset, characterAsset, {
+        outfit: 'police_uniform',
+        showBeard: false,
+        showHeadwear: true,
+      });
+      rig.group.name = `officer_${zone.id}`;
+
+      const zoneNode = roadblockGroup.getObjectByName(`roadblock_${zone.id}`);
+      const surfaceY =
+        zoneNode?.position.y ??
+        sampleObjectiveGroundY(zone.x, zone.z, this.map) + 0.04;
+
+      const span = Math.max(3.6, zone.halfWidth * 0.58);
+      const sideOffset = span + 1.45;
+      const forwardOffset = 1.25;
+      const sideX = Math.cos(zone.heading);
+      const sideZ = -Math.sin(zone.heading);
+      const fwdX = Math.sin(zone.heading);
+      const fwdZ = Math.cos(zone.heading);
+
+      rig.group.position.set(
+        zone.x + sideX * sideOffset + fwdX * forwardOffset,
+        surfaceY,
+        zone.z + sideZ * sideOffset + fwdZ * forwardOffset,
+      );
+      rig.group.rotation.y = zone.heading + Math.PI - 0.35;
+
+      if (!this.reducedMotion) {
+        rig.mixer.update(index * 0.65);
+      }
+
+      roadblockGroup.add(rig.group);
+      this.roadblockOfficers.push({
+        group: rig.group,
+        mixer: rig.mixer,
+      });
+    });
+  }
+
+  private disposeRoadblockOfficers(): void {
+    for (const officer of this.roadblockOfficers) {
+      disposeAnimationMixer(officer.mixer);
+      officer.group.parent?.remove(officer.group);
+      disposeRiggedCharacterGroup(officer.group);
+    }
+    this.roadblockOfficers.length = 0;
   }
 
   private mountSummitDancer(
@@ -1328,7 +1639,7 @@ export class WorldRenderer {
     const noseOffset = activeVehicle.halfLength + 0.25;
 
     const lampX = activeVehicle.x + forwardX * noseOffset;
-    const lampY = activeVehicle.y + getHeadlightMountHeight(activeVehicle.kind);
+    const lampY = activeVehicle.y + resolveHeadlightHeight(activeVehicle.kind);
     const lampZ = activeVehicle.z + forwardZ * noseOffset;
 
     const targetX = activeVehicle.x + forwardX * HEADLIGHT_LOOK_AHEAD_METERS;
@@ -1376,44 +1687,59 @@ export class WorldRenderer {
 
   private syncVehicles(
     vehicles: readonly VehicleSnapshot[],
+    activePlayerVehicleId: string | null,
     dt: number,
   ): void {
     const activeIds = new Set<string>();
+    const hasFerrariTemplate = this.ferrariTemplate !== null;
+    let sawPlayerVehicle = false;
 
     for (const vehicle of vehicles) {
       activeIds.add(vehicle.id);
       let entry = this.vehiclePool.get(vehicle.id);
 
-      const shouldUseFerrari =
-        isFerrariLiveryKind(vehicle.kind) && this.ferrariTemplate !== null;
+      const usesFerrariModel = shouldUseFerrariModel(
+        vehicle.kind,
+        hasFerrariTemplate,
+      );
       if (
         !entry ||
-        entry.kind !== vehicle.kind ||
-        entry.usesFerrariModel !== shouldUseFerrari
+        shouldRebuildVehicleMesh(entry, vehicle, hasFerrariTemplate)
       ) {
+        const previousRotation = entry ? entry.group.rotation.clone() : null;
         if (entry) {
-          this.scene.remove(entry.mesh);
-          disposeObjectTree(entry.mesh);
+          this.scene.remove(entry.group);
+          disposeObjectTree(entry.group);
         }
-        const createdMesh =
-          shouldUseFerrari &&
-          this.ferrariTemplate &&
-          isFerrariLiveryKind(vehicle.kind)
-            ? createFerrariLiveryMesh(this.ferrariTemplate, vehicle.kind)
+        const createdGroup =
+          usesFerrariModel && this.ferrariTemplate
+            ? createFerrariLiveryMesh(
+                this.ferrariTemplate,
+                'banshee',
+                vehicle.colorHex,
+                vehicle.neonHex,
+              )
             : createVehicleMesh(
                 vehicle.kind,
                 vehicle.colorHex,
                 vehicle.accentHex,
+                vehicle.neonHex,
               );
+        if (previousRotation) {
+          createdGroup.rotation.copy(previousRotation);
+        }
         this.applyVehicleHeadlightTimeOfDay(
-          createdMesh,
+          createdGroup,
           this.currentTimeOfDay === 'night',
         );
-        this.scene.add(createdMesh);
+        this.scene.add(createdGroup);
         entry = {
           kind: vehicle.kind,
-          usesFerrariModel: shouldUseFerrari,
-          mesh: createdMesh,
+          colorHex: vehicle.colorHex,
+          accentHex: vehicle.accentHex,
+          neonHex: vehicle.neonHex,
+          usesFerrariModel,
+          group: createdGroup,
         };
         this.vehiclePool.set(vehicle.id, entry);
       }
@@ -1426,16 +1752,45 @@ export class WorldRenderer {
         (prevSpeed > 2.5 && accelMps2 < BRAKE_DECEL_THRESHOLD_MPS2);
       this.prevSpeeds.set(vehicle.id, vehicle.speedMps);
 
-      this.updateVehicleTransform(entry.mesh, vehicle, dt, isBrakingOrReversing);
+      this.updateVehicleTransform(entry.group, vehicle, dt, isBrakingOrReversing);
       this.emitVehicleParticles(vehicle);
       this.emitVehicleSkidMarks(vehicle, dt);
+
+      if (
+        activePlayerVehicleId !== null &&
+        vehicle.id === activePlayerVehicleId
+      ) {
+        sawPlayerVehicle = true;
+        const backfire = resolveExhaustBackfire(
+          vehicle,
+          accelMps2,
+          this.backfireCooldown,
+          this.wasPlayerAirborne,
+        );
+        this.wasPlayerAirborne =
+          (vehicle.airborneHeight ?? 0) > BACKFIRE_AIRBORNE_THRESHOLD_METERS;
+        if (!this.reducedMotion && backfire) {
+          this.particles.emitExhaustBackfire(
+            vehicle.x,
+            vehicle.y,
+            vehicle.z,
+            vehicle.heading,
+            backfire.intensity,
+          );
+          this.backfireCooldown = backfire.cooldownSeconds;
+        }
+      }
+    }
+
+    if (!sawPlayerVehicle) {
+      this.wasPlayerAirborne = false;
     }
 
     // Remove & dispose vehicles that are no longer present in the snapshot
     for (const [id, entry] of this.vehiclePool.entries()) {
       if (!activeIds.has(id)) {
-        this.scene.remove(entry.mesh);
-        disposeObjectTree(entry.mesh);
+        this.scene.remove(entry.group);
+        disposeObjectTree(entry.group);
         this.vehiclePool.delete(id);
         this.prevSpeeds.delete(id);
         this.vehicleSkidState.delete(id);
@@ -1531,6 +1886,23 @@ export class WorldRenderer {
     }
   }
 
+  private sampleVehicleTerrainSlopeRad(vehicle: VehicleSnapshot): number {
+    const forwardX = Math.sin(vehicle.heading);
+    const forwardZ = Math.cos(vehicle.heading);
+    const sampleSpan = Math.max(1.2, vehicle.halfLength);
+    const frontY = sampleObjectiveGroundY(
+      vehicle.x + forwardX * sampleSpan,
+      vehicle.z + forwardZ * sampleSpan,
+      this.map,
+    );
+    const rearY = sampleObjectiveGroundY(
+      vehicle.x - forwardX * sampleSpan,
+      vehicle.z - forwardZ * sampleSpan,
+      this.map,
+    );
+    return -Math.atan2(frontY - rearY, sampleSpan * 2);
+  }
+
   private updateVehicleTransform(
     mesh: THREE.Group,
     vehicle: VehicleSnapshot,
@@ -1538,13 +1910,25 @@ export class WorldRenderer {
     isBrakingOrReversing: boolean,
   ): void {
     mesh.position.set(vehicle.x, vehicle.y, vehicle.z);
+    mesh.rotation.order = 'YXZ';
     mesh.rotation.y = vehicle.heading;
 
-    // Subtle arcade body roll when drifting / steering and squat on nitro boost
+    // Subtle arcade body roll when drifting, terrain-following slope when grounded,
+    // and proportional nose-up GTA Stunt Jump pitch when airborne
     const driftRoll = vehicle.isDrifting ? -vehicle.steerAngle * 0.24 : 0;
-    const boostPitch = vehicle.isBoosting ? -0.035 : 0;
-    mesh.rotation.z = THREE.MathUtils.lerp(mesh.rotation.z, driftRoll, 0.22);
-    mesh.rotation.x = THREE.MathUtils.lerp(mesh.rotation.x, boostPitch, 0.2);
+    const terrainSlopeRad =
+      (vehicle.airborneHeight ?? 0) > AIRBORNE_PITCH_THRESHOLD_METERS
+        ? 0
+        : this.sampleVehicleTerrainSlopeRad(vehicle);
+    const targetPitch = computeVehiclePitchRad(
+      vehicle.airborneHeight,
+      terrainSlopeRad,
+      vehicle.isBoosting,
+    );
+    const rollAlpha = 1 - Math.exp(-14 * dt);
+    const pitchAlpha = 1 - Math.exp(-12 * dt);
+    mesh.rotation.z = THREE.MathUtils.lerp(mesh.rotation.z, driftRoll, rollAlpha);
+    mesh.rotation.x = THREE.MathUtils.lerp(mesh.rotation.x, targetPitch, pitchAlpha);
 
     const wheels = mesh.userData.wheels as THREE.Object3D[] | undefined;
     if (wheels) {
@@ -1666,13 +2050,14 @@ export class WorldRenderer {
       let entry = this.pedestrianPool.get(ped.id);
       if (!entry) {
         const riggedEntry =
-          this.valeriaAsset || this.characterAsset
+          this.valeriaAsset || this.calenoAsset
             ? this.createRiggedPedestrianEntry(
                 ped.id,
                 index,
                 ped.shirtColorHex,
                 ped.pantsColorHex,
                 this.valeriaAsset,
+                this.calenoAsset,
                 this.characterAsset,
               )
             : null;
