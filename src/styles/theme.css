@@ -1477,6 +1477,15 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
+/* 13 cars + motos: compact scrollable grid so the Garaje still fits a 375px viewport */
+.cali-garage-group--cars {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  max-height: min(260px, 38dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: var(--space-xs);
+}
+
 .cali-garage-group--avatars {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1951,6 +1960,10 @@ body {
 
   .cali-garage-group--avatars {
     grid-template-columns: 1fr;
+  }
+
+  .cali-garage-group--cars {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .cali-title-garage-cta {

@@ -98,7 +98,32 @@ interface VehicleEngineCurve {
   readonly thresholdsKmh: readonly [number, number, number, number, number, number];
   readonly minHz: number;
   readonly maxHz: number;
+  /** Single-cylinder 2-stroke "ring-ding" motos (Yamaha RX115 / DT125). */
+  readonly isTwoStroke?: boolean;
 }
+
+/** Oscillator recipe for the procedural engine: waveform pair + sub/upper harmonic ratio. */
+export interface EngineVoice {
+  readonly isTwoStroke: boolean;
+  readonly primaryWaveform: OscillatorType;
+  readonly harmonicWaveform: OscillatorType;
+  /** Harmonic oscillator frequency as a multiple of the fundamental (0.5 = sub, 2 = upper). */
+  readonly harmonicRatio: number;
+}
+
+const FOUR_STROKE_VOICE: EngineVoice = {
+  isTwoStroke: false,
+  primaryWaveform: 'sawtooth',
+  harmonicWaveform: 'triangle',
+  harmonicRatio: 0.5,
+};
+
+const TWO_STROKE_VOICE: EngineVoice = {
+  isTwoStroke: true,
+  primaryWaveform: 'square',
+  harmonicWaveform: 'sawtooth',
+  harmonicRatio: 2,
+};
 
 interface StoppableAudioNode extends AudioNodeLike {
   stop(when?: number): void;
@@ -133,9 +158,12 @@ const CROWD_MURMUR_MAX_GAIN = 0.026;
 const CROWD_MURMUR_FILTER_HZ = 420;
 const CROWD_MURMUR_SATURATION_PEDS = 8;
 
-const TURBOCHARGED_VEHICLES: ReadonlySet<VehicleKind> = new Set([
+const TURBOCHARGED_VEHICLES: ReadonlySet<VehicleKind> = new Set<VehicleKind>([
   'renault4_turbo',
   'spark_gt_turbo',
+  'chevrolet_sprint_turbo',
+  'chevette_turbo',
+  'mazda_323_coupe',
 ]);
 
 // Playful 6-note Colombian Chiva "La Cucaracha" airhorn motif (C5-C5-C5-F5-A5-F5)
@@ -193,7 +221,62 @@ const VEHICLE_ENGINE_CURVES: Readonly<Record<VehicleKind, VehicleEngineCurve>> =
     minHz: 34,
     maxHz: 100,
   },
+  mazda_323_coupe: {
+    thresholdsKmh: [0, 38, 76, 118, 162, 210],
+    minHz: 78,
+    maxHz: 300,
+  },
+  renault_18_gtx: {
+    thresholdsKmh: [0, 40, 80, 124, 168, 212],
+    minHz: 70,
+    maxHz: 268,
+  },
+  chevrolet_sprint_turbo: {
+    thresholdsKmh: [0, 34, 70, 110, 154, 206],
+    minHz: 92,
+    maxHz: 338,
+  },
+  chevrolet_monza: {
+    thresholdsKmh: [0, 40, 82, 126, 170, 210],
+    minHz: 62,
+    maxHz: 240,
+  },
+  nissan_sentra_b13: {
+    thresholdsKmh: [0, 38, 78, 120, 164, 214],
+    minHz: 74,
+    maxHz: 290,
+  },
+  chevette_turbo: {
+    thresholdsKmh: [0, 36, 74, 116, 160, 206],
+    minHz: 66,
+    maxHz: 276,
+  },
+  renault_twingo: {
+    thresholdsKmh: [0, 34, 68, 104, 142, 184],
+    minHz: 88,
+    maxHz: 320,
+  },
+  yamaha_rx115: {
+    thresholdsKmh: [0, 22, 45, 72, 102, 140],
+    minHz: 150,
+    maxHz: 540,
+    isTwoStroke: true,
+  },
+  yamaha_dt125: {
+    thresholdsKmh: [0, 20, 42, 68, 96, 132],
+    minHz: 138,
+    maxHz: 500,
+    isTwoStroke: true,
+  },
 };
+
+export function isTurbochargedVehicle(kind: VehicleKind): boolean {
+  return TURBOCHARGED_VEHICLES.has(kind);
+}
+
+export function resolveEngineVoice(kind: VehicleKind): EngineVoice {
+  return VEHICLE_ENGINE_CURVES[kind].isTwoStroke ? TWO_STROKE_VOICE : FOUR_STROKE_VOICE;
+}
 
 const INACTIVE_SIREN_TELEMETRY: PoliceSirenTelemetry = {
   active: false,
@@ -657,6 +740,13 @@ export class AudioEngine {
       return;
     }
 
+    if (resolveEngineVoice(vehicleKind).isTwoStroke) {
+      // Shrill single-note moto "pito" (Cali motorizados beep-beep)
+      this.scheduleFilteredTone('square', 620, 0.12, 0.08, 2400, 1.0, now);
+      this.scheduleFilteredTone('square', 620, 0.12, 0.08, 2400, 1.0, now + 0.16);
+      return;
+    }
+
     // Realistic dual-harmonic Colombian street car horn (415 Hz + 522 Hz)
     this.scheduleFilteredTone('square', 415, 0.22, 0.095, 1650, 1.0, now);
     this.scheduleFilteredTone('sawtooth', 522, 0.22, 0.09, 1650, 1.0, now);
@@ -877,16 +967,23 @@ export class AudioEngine {
       telemetry.gear !== this.lastEngineGear
     ) {
       this.triggerExhaustPop(now);
-      if (telemetry.gear > this.lastEngineGear && TURBOCHARGED_VEHICLES.has(vehicleKind)) {
+      if (telemetry.gear > this.lastEngineGear && isTurbochargedVehicle(vehicleKind)) {
         this.triggerTurboBlowOffValve(now);
       }
     }
     this.lastEngineGear = telemetry.gear;
     this.lastVehicleId = world.player.vehicleId;
 
+    const voice = resolveEngineVoice(vehicleKind);
+    if (this.enginePrimaryOsc.type !== voice.primaryWaveform) {
+      this.enginePrimaryOsc.type = voice.primaryWaveform;
+    }
+    if (this.engineSubOsc.type !== voice.harmonicWaveform) {
+      this.engineSubOsc.type = voice.harmonicWaveform;
+    }
     const boostPitchMult = world.player.isBoosting ? 1.12 : 1.0;
     const primaryHz = telemetry.fundamentalHz * boostPitchMult;
-    const subHz = primaryHz * 0.5;
+    const subHz = primaryHz * voice.harmonicRatio;
     this.enginePrimaryOsc.frequency.setValueAtTime(primaryHz, now);
     this.engineSubOsc.frequency.setValueAtTime(subHz, now);
 
