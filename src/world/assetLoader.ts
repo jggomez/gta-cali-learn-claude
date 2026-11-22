@@ -15,6 +15,7 @@ export const ASSET_PATHS = {
   models: {
     ferrari: '/models/ferrari.glb',
     character: '/models/character.glb',
+    valeria: '/models/valeria.glb',
   },
   textures: {
     asphalt: {
@@ -104,6 +105,7 @@ export interface LoadedWorldAssets {
   readonly hdriTexture: THREE.DataTexture | null;
   readonly ferrari: THREE.Group | null;
   readonly character: LoadedCharacterAsset | null;
+  readonly valeria: LoadedCharacterAsset | null;
   readonly textures: LoadedWorldTextureSets;
   dispose(): void;
 }
@@ -232,6 +234,17 @@ function unwrapSettled<T>(result: PromiseSettledResult<T>): T | null {
   return result.status === 'fulfilled' ? result.value : null;
 }
 
+function toLoadedCharacterAsset(
+  gltf: GltfLoadResult | null,
+): LoadedCharacterAsset | null {
+  return gltf
+    ? {
+        scene: gltf.scene,
+        animations: gltf.animations,
+      }
+    : null;
+}
+
 async function safeInvoke<T>(loader: () => Promise<T>): Promise<T> {
   return loader();
 }
@@ -316,6 +329,7 @@ export async function loadWorldAssets(
       hdriResult,
       ferrariResult,
       characterResult,
+      valeriaResult,
       asphaltResult,
       sidewalkResult,
       terrainResult,
@@ -330,6 +344,7 @@ export async function loadWorldAssets(
       safeInvoke(() => activeDeps.loadHdri(ASSET_PATHS.hdri)),
       safeInvoke(() => activeDeps.loadGltf(ASSET_PATHS.models.ferrari)),
       safeInvoke(() => activeDeps.loadGltf(ASSET_PATHS.models.character)),
+      safeInvoke(() => activeDeps.loadGltf(ASSET_PATHS.models.valeria)),
       loadPbrTextureSet(ASSET_PATHS.textures.asphalt, activeDeps.loadTexture),
       loadPbrTextureSet(ASSET_PATHS.textures.sidewalk, activeDeps.loadTexture),
       loadPbrTextureSet(ASSET_PATHS.textures.terrain, activeDeps.loadTexture),
@@ -349,15 +364,9 @@ export async function loadWorldAssets(
     }
 
     const ferrariGltf = unwrapSettled(ferrariResult);
-    const characterGltf = unwrapSettled(characterResult);
-
     const ferrari = ferrariGltf ? ferrariGltf.scene : null;
-    const character: LoadedCharacterAsset | null = characterGltf
-      ? {
-          scene: characterGltf.scene,
-          animations: characterGltf.animations,
-        }
-      : null;
+    const character = toLoadedCharacterAsset(unwrapSettled(characterResult));
+    const valeria = toLoadedCharacterAsset(unwrapSettled(valeriaResult));
 
     const textures: LoadedWorldTextureSets = {
       asphalt: unwrapSettled(asphaltResult),
@@ -378,6 +387,7 @@ export async function loadWorldAssets(
       hdriTexture,
       ferrari,
       character,
+      valeria,
       textures,
       dispose(): void {
         if (disposed) {
@@ -387,6 +397,7 @@ export async function loadWorldAssets(
         disposeWorldAssets(hdriTexture, textures, [
           ferrari,
           character?.scene ?? null,
+          valeria?.scene ?? null,
         ]);
       },
     };

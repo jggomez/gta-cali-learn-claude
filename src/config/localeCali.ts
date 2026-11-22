@@ -50,6 +50,7 @@ export const LOCALE_CALI = {
     { keys: 'Shift', action: 'Nitro / Correr' },
     { keys: 'F', action: 'Subir o bajar del carro' },
     { keys: 'R', action: 'Cambiar emisora FM' },
+    { keys: 'V', action: 'Activar / silenciar voces' },
     { keys: 'C', action: 'Cambiar cámara' },
     { keys: 'T', action: 'Cambiar Día / Noche' },
     { keys: 'Esc', action: 'Pausa' },
@@ -343,10 +344,35 @@ export const LOCALE_CALI = {
     driftLabel: 'DERRAPE',
     landmarksLabel: 'Íconos',
     audioMutedBadge: 'Silencio',
+    voicesOnLabel: '[V] Voces: ON',
+    voicesOffLabel: '[V] Voces: OFF',
+    voicesHint: '[V] Voces',
     radioHint: '[R] Radio',
     pauseHint: '[Esc] Pausa',
     cameraHint: '[C] Cámara',
     timeToggleHint: '[T] Día/Noche',
+  },
+
+  voiceLines: {
+    pedestrianFlee: [
+      '¡Oís, ve, cuidado!',
+      '¡Epa, mirá por dónde vas!',
+      '¡Frena pues, parce!',
+      '¡Ave María, casi me levantas!',
+      '¡Pilas que voy pasando!',
+    ] as readonly string[],
+    pedestrianAdmire: [
+      '¡Qué chimba de carro, ve!',
+      '¡Písalo pues, parcera!',
+      '¡Mirá ese Ferrari en Cali!',
+      '¡Qué nave tan brava, oís!',
+    ] as readonly string[],
+    policeMegaphone: [
+      '¡Alto ahí, Policía Nacional! ¡Orille el vehículo!',
+      '¡Central, sospechoso en fuga por las calles de Cali!',
+      '¡Deténgase de inmediato, no tiene salida!',
+      '¡Atención unidades, cierren los puentes del Río Cali!',
+    ] as readonly string[],
   },
 
   overlays: {

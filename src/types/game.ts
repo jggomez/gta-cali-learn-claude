@@ -326,6 +326,7 @@ export interface AudioState {
   readonly station: RadioStationId;
   readonly stationLabel: string;
   readonly muted: boolean;
+  readonly voicesEnabled?: boolean;
   readonly masterVolume: number;
   readonly unlocked: boolean;
 }
@@ -338,6 +339,7 @@ export interface StorageRecords {
   readonly totalCashCop: number;
   readonly preferredStation: RadioStationId;
   readonly muted: boolean;
+  readonly voicesEnabled?: boolean;
 }
 
 export interface GameDebugSnapshot {

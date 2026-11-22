@@ -65,8 +65,23 @@ function collectAllDeclaredPaths(): string[] {
     ASSET_PATHS.hdri,
     ASSET_PATHS.models.ferrari,
     ASSET_PATHS.models.character,
+    ASSET_PATHS.models.valeria,
     ...texturePaths,
   ];
+}
+
+interface GlbJsonChunk {
+  readonly nodes?: ReadonlyArray<{ readonly name?: string }>;
+  readonly animations?: ReadonlyArray<{ readonly name?: string }>;
+}
+
+function parseGlbJsonChunk(bytes: Uint8Array): GlbJsonChunk {
+  const headerView = new DataView(bytes.buffer, bytes.byteOffset, 20);
+  const jsonChunkLength = headerView.getUint32(12, true);
+  const jsonChunkType = headerView.getUint32(16, true);
+  expect(jsonChunkType).toBe(0x4e4f534a);
+  const jsonText = UTF8_DECODER.decode(bytes.slice(20, 20 + jsonChunkLength));
+  return JSON.parse(jsonText) as GlbJsonChunk;
 }
 
 describe('ASSET_PATHS local offline asset pack', () => {
@@ -102,7 +117,11 @@ describe('ASSET_PATHS local offline asset pack', () => {
 
   it('includes valid binary glTF 2.0 (.glb) vehicle and character models', async () => {
     const fs = await loadNodeFs();
-    for (const glbPath of [ASSET_PATHS.models.ferrari, ASSET_PATHS.models.character]) {
+    for (const glbPath of [
+      ASSET_PATHS.models.ferrari,
+      ASSET_PATHS.models.character,
+      ASSET_PATHS.models.valeria,
+    ]) {
       const url = resolvePublicUrl(glbPath);
       expect(fs.existsSync(url), `missing ${glbPath}`).toBe(true);
       const bytes = fs.readFileSync(url);
@@ -115,6 +134,29 @@ describe('ASSET_PATHS local offline asset pack', () => {
         bytes.byteLength,
       );
     }
+  });
+
+  it('includes Valeria glTF model with Mixamo rig bones, SambaDance clip, and < 10 MB size', async () => {
+    const fs = await loadNodeFs();
+    const valeriaUrl = resolvePublicUrl('/models/valeria.glb');
+    expect(fs.existsSync(valeriaUrl), 'missing public/models/valeria.glb').toBe(true);
+
+    const bytes = fs.readFileSync(valeriaUrl);
+    expect(bytes.byteLength).toBeGreaterThan(1024);
+    expect(bytes.byteLength).toBeLessThan(MAX_ASSET_BYTES);
+    expect(UTF8_DECODER.decode(bytes.slice(0, 4))).toBe('glTF');
+
+    const glbJson = parseGlbJsonChunk(bytes);
+    const nodeNames = (glbJson.nodes ?? [])
+      .map((node) => node.name)
+      .filter((name): name is string => typeof name === 'string');
+    const mixamoBones = nodeNames.filter((name) => name.startsWith('mixamorig:'));
+    expect(mixamoBones.length).toBeGreaterThan(0);
+
+    const animationNames = (glbJson.animations ?? [])
+      .map((clip) => clip.name)
+      .filter((name): name is string => typeof name === 'string');
+    expect(animationNames).toContain('SambaDance');
   });
 
   it('includes all 10 photographic PBR 1K JPEG texture sets with valid JPEG magic headers', async () => {
@@ -157,6 +199,8 @@ describe('ASSET_PATHS local offline asset pack', () => {
     expect(fs.existsSync(licenseUrl)).toBe(true);
     const bytes = fs.readFileSync(licenseUrl);
     expect(bytes.byteLength).toBeGreaterThan(100);
+    const licenseText = UTF8_DECODER.decode(bytes);
+    expect(licenseText).toContain('models/valeria.glb');
   });
 });
 
@@ -167,6 +211,7 @@ describe('loadWorldAssets', () => {
     expect(assets.hdriTexture).toBeNull();
     expect(assets.ferrari).toBeNull();
     expect(assets.character).toBeNull();
+    expect(assets.valeria).toBeNull();
     expect(assets.textures.asphalt).toBeNull();
     expect(assets.textures.sidewalk).toBeNull();
     expect(assets.textures.terrain).toBeNull();
@@ -221,6 +266,7 @@ describe('loadWorldAssets', () => {
     const hdriTex = new THREE.DataTexture(new Uint8Array(4), 1, 1);
     trackTexture(hdriTex);
     const walkClip = new THREE.AnimationClip('Walk', 1, []);
+    const sambaClip = new THREE.AnimationClip('SambaDance', 1, []);
 
     const deps: AssetLoaderDeps = {
       configureDraco: (path: string) => {
@@ -231,6 +277,9 @@ describe('loadWorldAssets', () => {
       loadGltf: async (url: string) => {
         if (url === ASSET_PATHS.models.character) {
           return { scene: createModelGroup('character'), animations: [walkClip] };
+        }
+        if (url === ASSET_PATHS.models.valeria) {
+          return { scene: createModelGroup('valeria'), animations: [sambaClip] };
         }
         return { scene: createModelGroup(url), animations: [] };
       },
@@ -246,6 +295,7 @@ describe('loadWorldAssets', () => {
     expect(assets.hdriTexture?.mapping).toBe(THREE.EquirectangularReflectionMapping);
     expect(assets.ferrari).not.toBeNull();
     expect(assets.character?.animations).toEqual([walkClip]);
+    expect(assets.valeria?.animations).toEqual([sambaClip]);
 
     for (const set of [assets.textures.asphalt, assets.textures.palmBark, assets.textures.jacarandaLeaves]) {
       expect(set).not.toBeNull();
@@ -266,10 +316,10 @@ describe('loadWorldAssets', () => {
     const firstDisposeGeomCount = disposedGeometries.length;
     const firstDisposeMatCount = disposedMaterials.length;
 
-    // 1 HDRI + 30 PBR maps (10 sets * 3) + 2 model mesh textures = 33 textures
-    expect(firstDisposeTextureCount).toBe(33);
-    expect(firstDisposeGeomCount).toBe(2);
-    expect(firstDisposeMatCount).toBe(2);
+    // 1 HDRI + 30 PBR maps (10 sets * 3) + 3 model mesh textures = 34 textures
+    expect(firstDisposeTextureCount).toBe(34);
+    expect(firstDisposeGeomCount).toBe(3);
+    expect(firstDisposeMatCount).toBe(3);
 
     // Idempotent second dispose does not re-dispose resources
     assets.dispose();
@@ -315,6 +365,7 @@ describe('loadWorldAssets', () => {
     expect(assets.hdriTexture).toBeNull();
     expect(assets.ferrari).toBeNull();
     expect(assets.character).not.toBeNull();
+    expect(assets.valeria).not.toBeNull();
     expect(assets.textures.asphalt).toBeNull();
     expect(orphanedDisposes).toHaveBeenCalledTimes(2);
     expect(assets.textures.sidewalk).not.toBeNull();
