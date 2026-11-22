@@ -42,6 +42,7 @@ import {
   type CaliWorldBuildResult,
 } from './caliLandmarks';
 import { ParticleSystem, SkidMarkPool } from './particles';
+import type { QualityPreset } from '../game/qualityGovernor';
 import { RenderStatsRecorder } from './renderStats';
 import { batchStaticMeshes, updateDetailBatchCulling } from './staticBatcher';
 import {
@@ -58,6 +59,7 @@ import {
   setBloomTimeOfDay,
   setGradeTimeOfDay,
   setLightingTimeOfDay,
+  setShadowQuality,
   setSkyDomeTimeOfDay,
   updateCameraRig,
   updateShadowFocus,
@@ -686,6 +688,9 @@ export class WorldRenderer {
   private readonly renderStats: RenderStatsRecorder;
   private readonly detailBatches: readonly THREE.Mesh[];
   private detailDrawDistance = DEFAULT_DETAIL_DRAW_DISTANCE_METERS;
+  private pedestrianCullDistanceSq = PEDESTRIAN_CULL_DISTANCE_SQ;
+  private viewportWidth = 1;
+  private viewportHeight = 1;
 
   private currentTimeOfDay: TimeOfDay = 'golden_hour';
   private currentBoostMix = 0;
@@ -748,6 +753,8 @@ export class WorldRenderer {
       canvas.clientHeight || canvas.height || 720,
     );
     this.renderer.setSize(initialWidth, initialHeight, false);
+    this.viewportWidth = initialWidth;
+    this.viewportHeight = initialHeight;
 
     this.scene = new THREE.Scene();
     this.scene.backgroundIntensity = initialAtmosphere.backgroundIntensity;
@@ -1055,10 +1062,51 @@ export class WorldRenderer {
     const safeWidth = Math.max(1, Math.floor(width));
     const safeHeight = Math.max(1, Math.floor(height));
 
+    this.viewportWidth = safeWidth;
+    this.viewportHeight = safeHeight;
     this.camera.aspect = safeWidth / safeHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(safeWidth, safeHeight, false);
     this.postProcessing?.resize(safeWidth, safeHeight);
+  }
+
+  /** Applies a graphics preset: shadow resolution, bloom scale, SMAA, GTAO and draw distances. */
+  public setQuality(preset: QualityPreset): void {
+    if (this.disposed) {
+      return;
+    }
+    setShadowQuality(this.lightingGroup, preset.shadowMapSize);
+    this.postProcessing?.setQuality?.(preset);
+    this.detailDrawDistance = preset.detailDrawDistance;
+    this.pedestrianCullDistanceSq = preset.pedestrianDrawDistance * preset.pedestrianDrawDistance;
+  }
+
+  /** Changes the drawing-buffer pixel ratio (quality preset x dynamic resolution scale). */
+  public setPixelRatio(pixelRatio: number): void {
+    if (
+      this.disposed ||
+      !Number.isFinite(pixelRatio) ||
+      Math.abs(pixelRatio - this.renderer.getPixelRatio()) < 0.01
+    ) {
+      return;
+    }
+    this.renderer.setPixelRatio(pixelRatio);
+    this.renderer.setSize(this.viewportWidth, this.viewportHeight, false);
+    this.postProcessing?.resize(this.viewportWidth, this.viewportHeight);
+  }
+
+  public getPixelRatio(): number {
+    return this.renderer.getPixelRatio();
+  }
+
+  /** Unmasked GPU renderer string (used to spot software rasterizers), when the driver exposes it. */
+  public getGpuRendererName(): string | undefined {
+    const gl = this.renderer.getContext();
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    const name: unknown = debugInfo
+      ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
+      : gl.getParameter(gl.RENDERER);
+    return typeof name === 'string' ? name : undefined;
   }
 
   public getLandmarkCount(): number {
@@ -2112,7 +2160,7 @@ export class WorldRenderer {
       // Distance culling beyond 95m preserves 60fps & smooth SwiftShader frame budgets
       const dx = ped.x - focusX;
       const dz = ped.z - focusZ;
-      if (dx * dx + dz * dz > PEDESTRIAN_CULL_DISTANCE_SQ) {
+      if (dx * dx + dz * dz > this.pedestrianCullDistanceSq) {
         entry.group.visible = false;
         continue;
       }

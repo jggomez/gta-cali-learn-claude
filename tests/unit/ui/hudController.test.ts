@@ -504,6 +504,29 @@ describe('HudController', () => {
     hud.dispose();
   });
 
+  it('renders the [Q] graphics quality pill, updates its Spanish label, and invokes onCycleQuality', () => {
+    const onCycleQuality = vi.fn();
+    const hud = new HudController(
+      root as unknown as HTMLElement,
+      { ...createCallbacks(), onCycleQuality },
+      CALI_MAP,
+    );
+    const qualityBtn = root.findFirst((el) => el.dataset.testid === 'btn-quality');
+    expect(qualityBtn).not.toBeNull();
+
+    hud.setQualityLevel('high');
+    expect(qualityBtn?.textContent).toBe(`[Q] ${LOCALE_CALI.qualityLabels.high}`);
+    expect(qualityBtn?.dataset.quality).toBe('high');
+
+    hud.setQualityLevel('low');
+    expect(qualityBtn?.textContent).toBe(`[Q] ${LOCALE_CALI.qualityLabels.low}`);
+
+    qualityBtn?.click();
+    expect(onCycleQuality).toHaveBeenCalledTimes(1);
+
+    hud.dispose();
+  });
+
   it('sets countdown and urgent dataset attributes on the timer and shows timeUp vs busted failure copy', () => {
     const hud = new HudController(root as unknown as HTMLElement, createCallbacks(), CALI_MAP);
     const timerEl = root.findFirst((el) => el.dataset.testid === 'hud-timer');

@@ -11,6 +11,7 @@ import type {
   LandmarkId,
   MissionId,
   PlayerCarKind,
+  QualityLevel,
   RadioStationId,
   TimeOfDay,
   VehicleKind,
@@ -374,6 +375,13 @@ export const LOCALE_CALI = {
     victory_orbit: 'Cámara: Mirador',
   } as Readonly<Record<CameraMode, string>>,
 
+  qualityLabels: {
+    low: 'Calidad: Baja',
+    medium: 'Calidad: Media',
+    high: 'Calidad: Alta',
+    ultra: 'Calidad: Ultra',
+  } as Readonly<Record<QualityLevel, string>>,
+
   timeOfDayLabels: {
     golden_hour: 'Atardecer',
     night: 'Noche',
@@ -464,6 +472,7 @@ export const LOCALE_CALI = {
     pauseHint: '[Esc] Pausa',
     cameraHint: '[C] Cámara',
     timeToggleHint: '[T] Día/Noche',
+    qualityHint: '[Q] Calidad gráfica',
   },
 
   voiceLines: {

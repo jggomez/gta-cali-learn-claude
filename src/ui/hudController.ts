@@ -17,6 +17,7 @@ import type {
   MissionSnapshot,
   PlayerCarKind,
   PlayerSnapshot,
+  QualityLevel,
   WorldSnapshot,
 } from '../types/game';
 import { MinimapRenderer } from './minimapRenderer';
@@ -34,6 +35,7 @@ export interface HudCallbacks {
   onRetryWebgl(): void;
   onToggleTimeOfDay?: () => void;
   onToggleGarage?: () => void;
+  onCycleQuality?: () => void;
   onUpdateGarage?: (garage: GarageConfig) => void;
 }
 
@@ -227,6 +229,7 @@ export class HudController {
   private readonly timerValue: HTMLElement;
   private readonly timeToggleButton: HTMLButtonElement;
   private readonly cameraButton: HTMLButtonElement;
+  private readonly qualityButton: HTMLButtonElement;
 
   private readonly vehiclePrompt: HTMLElement;
   private readonly driftComboBadge: HTMLElement;
@@ -310,6 +313,7 @@ export class HudController {
     this.timerValue = hudParts.timerValue;
     this.timeToggleButton = hudParts.timeToggleButton;
     this.cameraButton = hudParts.cameraButton;
+    this.qualityButton = hudParts.qualityButton;
     this.vehiclePrompt = hudParts.vehiclePrompt;
     this.driftComboBadge = hudParts.driftComboBadge;
     this.driftBadge = hudParts.driftBadge;
@@ -381,6 +385,11 @@ export class HudController {
     if (open) {
       setHidden(this.pauseOverlay, true);
     }
+  }
+
+  public setQualityLevel(level: QualityLevel): void {
+    this.qualityButton.dataset.quality = level;
+    setText(this.qualityButton, `[Q] ${LOCALE_CALI.qualityLabels[level]}`);
   }
 
   public isGarageOpen(): boolean {
@@ -886,6 +895,7 @@ export class HudController {
     timerValue: HTMLElement;
     timeToggleButton: HTMLButtonElement;
     cameraButton: HTMLButtonElement;
+    qualityButton: HTMLButtonElement;
     minimapCanvas: HTMLCanvasElement;
     vehiclePrompt: HTMLElement;
     driftComboBadge: HTMLElement;
@@ -1053,7 +1063,16 @@ export class HudController {
     pauseButton.type = 'button';
     pauseButton.textContent = LOCALE_CALI.hud.pauseHint;
     this.onClick(pauseButton, () => this.callbacks.onTogglePause());
-    quickActions.append(garageButton, timeToggleButton, cameraButton, pauseButton);
+    const qualityButton = createEl(
+      'button',
+      'cali-btn cali-btn--ghost cali-btn--compact',
+      'btn-quality',
+    );
+    qualityButton.type = 'button';
+    qualityButton.setAttribute('aria-label', LOCALE_CALI.hud.qualityHint);
+    this.onClick(qualityButton, () => this.callbacks.onCycleQuality?.());
+
+    quickActions.append(garageButton, timeToggleButton, cameraButton, qualityButton, pauseButton);
 
     topRight.append(statusPanel, quickActions);
 
@@ -1180,6 +1199,7 @@ export class HudController {
       timerValue,
       timeToggleButton,
       cameraButton,
+      qualityButton,
       minimapCanvas,
       vehiclePrompt,
       driftComboBadge,

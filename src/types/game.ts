@@ -429,6 +429,8 @@ export interface StorageRecords {
   readonly garage?: GarageConfig;
 }
 
+export type QualityLevel = 'low' | 'medium' | 'high' | 'ultra';
+
 export interface RenderPerfStats {
   readonly drawCalls: number;
   readonly triangles: number;
@@ -439,6 +441,10 @@ export interface RenderPerfStats {
 
 export interface GamePerfSnapshot extends RenderPerfStats {
   readonly fps: number;
+  readonly quality: QualityLevel;
+  /** Dynamic resolution multiplier applied on top of the preset pixel ratio. */
+  readonly resolutionScale: number;
+  readonly pixelRatio: number;
 }
 
 export interface GameDebugSnapshot {
