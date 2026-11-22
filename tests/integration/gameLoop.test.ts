@@ -1313,6 +1313,111 @@ describe('GTA I - Cali - Colombia headless game loop integration', () => {
     }
   });
 
+  it('reuses the stepped world snapshot each frame, cycles [Q] quality presets, and exposes perf telemetry in GameApp', () => {
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+    const windowTarget = new SyntheticInputTarget();
+    let rafHandle = 0;
+    const rafCallbacks = new Map<number, FrameRequestCallback>();
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        innerWidth: 1280,
+        innerHeight: 720,
+        devicePixelRatio: 1,
+        localStorage: createMemoryStorage(),
+        addEventListener: windowTarget.addEventListener.bind(windowTarget),
+        removeEventListener: windowTarget.removeEventListener.bind(windowTarget),
+        requestAnimationFrame: (cb: FrameRequestCallback): number => {
+          rafHandle += 1;
+          rafCallbacks.set(rafHandle, cb);
+          return rafHandle;
+        },
+        cancelAnimationFrame: (id: number): void => {
+          rafCallbacks.delete(id);
+        },
+      },
+    });
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      writable: true,
+      value: {
+        activeElement: null,
+        pointerLockElement: null,
+        createElement: (tag: string) => new FakeDomNode(tag),
+      },
+    });
+
+    let frameTime = 0;
+    const tickFrame = (): void => {
+      frameTime += 16.67;
+      const entries = [...rafCallbacks.values()];
+      rafCallbacks.clear();
+      for (const cb of entries) {
+        cb(frameTime);
+      }
+    };
+
+    try {
+      const hudRoot = new FakeDomNode('div');
+      const app = new GameApp(
+        new FakeDomNode('canvas') as unknown as HTMLCanvasElement,
+        hudRoot as unknown as HTMLElement,
+        CALI_MAP,
+      );
+      app.start();
+      hudRoot.findFirst((el) => el.dataset.testid === 'btn-free-roam')?.click();
+      expect(app.getDebugSnapshot().mode).toBe('playing');
+      tickFrame();
+
+      const getSnapshotSpy = vi.spyOn(GameWorld.prototype, 'getSnapshot');
+      for (let i = 0; i < 10; i += 1) {
+        tickFrame();
+      }
+      // GameWorld.step builds the frame snapshot once; GameApp must not rebuild it again per frame
+      expect(getSnapshotSpy.mock.calls.length).toBeLessThanOrEqual(10);
+      getSnapshotSpy.mockRestore();
+
+      // Without WebGL in Node there is no renderer, yet the quality level still cycles and shows in the HUD
+      const qualityBtn = hudRoot.findFirst((el) => el.dataset.testid === 'btn-quality');
+      const initialLevel = app.getQualityLevel();
+      expect(qualityBtn?.dataset.quality).toBe(initialLevel);
+      windowTarget.emit('keydown', { code: 'KeyQ' });
+      windowTarget.emit('keyup', { code: 'KeyQ' });
+      expect(app.getQualityLevel()).not.toBe(initialLevel);
+      expect(qualityBtn?.dataset.quality).toBe(app.getQualityLevel());
+
+      app.dispose();
+    } finally {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        writable: true,
+        value: originalWindow,
+      });
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        writable: true,
+        value: originalDocument,
+      });
+    }
+  });
+
+  it('binds KeyQ to a non-repeating onCycleQuality graphics preset callback in InputManager', () => {
+    const target = new SyntheticInputTarget();
+    const onCycleQuality = vi.fn();
+    const inputManager = new InputManager({ onCycleQuality, isPlaying: () => false }, target);
+
+    target.emit('keydown', { code: 'KeyQ' });
+    target.emit('keydown', { code: 'KeyQ', repeat: true });
+    expect(onCycleQuality).toHaveBeenCalledTimes(1);
+    target.emit('keyup', { code: 'KeyQ' });
+    target.emit('keydown', { code: 'KeyQ' });
+    expect(onCycleQuality).toHaveBeenCalledTimes(2);
+
+    inputManager.dispose();
+  });
+
   it('binds KeyG to onToggleGarage and KeyH to hornPressed + non-repeat onHorn in InputManager', () => {
     const target = new SyntheticInputTarget();
     const onToggleGarage = vi.fn();

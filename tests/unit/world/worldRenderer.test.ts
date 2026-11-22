@@ -243,7 +243,8 @@ describe('disposeObjectTree', () => {
     disposeObjectTree(scene);
 
     expect(geoSpies.length).toBe(1);
-    expect(matSpies.length).toBe(8);
+    // Instanced SkidMarkPool shares a single material across every ribbon slot
+    expect(matSpies.length).toBe(1);
     for (const spy of geoSpies) {
       expect(spy).toHaveBeenCalledTimes(1);
     }

@@ -429,6 +429,24 @@ export interface StorageRecords {
   readonly garage?: GarageConfig;
 }
 
+export type QualityLevel = 'low' | 'medium' | 'high' | 'ultra';
+
+export interface RenderPerfStats {
+  readonly drawCalls: number;
+  readonly triangles: number;
+  readonly geometries: number;
+  readonly textures: number;
+  readonly programs: number;
+}
+
+export interface GamePerfSnapshot extends RenderPerfStats {
+  readonly fps: number;
+  readonly quality: QualityLevel;
+  /** Dynamic resolution multiplier applied on top of the preset pixel ratio. */
+  readonly resolutionScale: number;
+  readonly pixelRatio: number;
+}
+
 export interface GameDebugSnapshot {
   readonly mode: GameMode;
   readonly cameraMode: CameraMode;
@@ -438,4 +456,5 @@ export interface GameDebugSnapshot {
   readonly fps: number;
   readonly assetsLoaded?: boolean;
   readonly garage?: GarageConfig;
+  readonly perf?: GamePerfSnapshot;
 }

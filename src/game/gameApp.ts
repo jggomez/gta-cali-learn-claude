@@ -26,6 +26,17 @@ import { HudController } from '../ui/hudController';
 import { WebGLUnavailableError } from '../world/sceneSetup';
 import { WorldRenderer } from '../world/worldRenderer';
 import { InputManager } from './inputManager';
+import {
+  QUALITY_PRESETS,
+  createResolutionScalerState,
+  cycleQualityLevel,
+  detectInitialQuality,
+  resolveRenderPixelRatio,
+  stepResolutionScaler,
+  type DeviceProfile,
+  type QualityLevel,
+  type ResolutionScalerState,
+} from './qualityGovernor';
 
 declare global {
   interface Window {
@@ -94,6 +105,28 @@ function mapDialogueSpeakerToVoiceProfile(speaker: DialogueSpeaker): VoiceProfil
   }
 }
 
+const MOBILE_USER_AGENT_PATTERN = /Android|iPhone|iPad|iPod|Mobile/i;
+
+function readDevicePixelRatio(): number {
+  return typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio)
+    ? window.devicePixelRatio
+    : 1;
+}
+
+function readDeviceProfile(gpuRenderer: string | undefined): DeviceProfile {
+  const nav: (Navigator & { readonly deviceMemory?: number }) | undefined =
+    typeof navigator !== 'undefined' ? navigator : undefined;
+  return {
+    devicePixelRatio: readDevicePixelRatio(),
+    isMobile: MOBILE_USER_AGENT_PATTERN.test(nav?.userAgent ?? ''),
+    ...(typeof nav?.hardwareConcurrency === 'number'
+      ? { hardwareConcurrency: nav.hardwareConcurrency }
+      : {}),
+    ...(typeof nav?.deviceMemory === 'number' ? { deviceMemoryGb: nav.deviceMemory } : {}),
+    ...(gpuRenderer ? { gpuRenderer } : {}),
+  };
+}
+
 function distance2DSquared(ax: number, az: number, bx: number, bz: number): number {
   const dx = ax - bx;
   const dz = az - bz;
@@ -155,6 +188,10 @@ export class GameApp {
   private rafId: number | null = null;
   private lastFrameTimeMs: number | null = null;
   private smoothedFps = 60;
+  private qualityLevel: QualityLevel = 'medium';
+  private qualityDetected = false;
+  private resolutionScaler: ResolutionScalerState = createResolutionScalerState();
+  private cachedWorldSnapshot: Readonly<WorldSnapshot> | null = null;
   private running = false;
   private disposed = false;
 
@@ -218,6 +255,7 @@ export class GameApp {
         onTogglePause: () => this.togglePause(),
         onToggleTimeOfDay: () => this.toggleTimeOfDay(),
         onToggleGarage: () => this.toggleGarage(),
+        onCycleQuality: () => this.cycleQuality(),
         onUpdateGarage: (garage) => this.updateGarage(garage),
         onRetryWebgl: () => this.retryWebgl(),
       },
@@ -234,6 +272,7 @@ export class GameApp {
         onTogglePause: () => this.togglePause(),
         onToggleTimeOfDay: () => this.toggleTimeOfDay(),
         onToggleGarage: () => this.toggleGarage(),
+        onCycleQuality: () => this.cycleQuality(),
         onHorn: () => this.triggerHorn(),
         onAnyUserGesture: () => {
           this.audioEngine.unlock();
@@ -307,6 +346,7 @@ export class GameApp {
     this.audioEngine.unlock();
     const saved = this.missionDirector.saveGarageConfig(next);
     this.garageConfig = saved;
+    this.invalidateWorldSnapshot();
     this.world.applyGarageCar(saved.carKind, saved.paintHex, saved.neonHex);
     applyRendererGarageAppearance(this.worldRenderer, saved);
     this.hud.setGarageConfig(saved);
@@ -358,8 +398,69 @@ export class GameApp {
       audio: this.audioEngine.getState(),
       fps: Math.round(this.smoothedFps),
       garage: { ...this.garageConfig },
+      ...(this.worldRenderer
+        ? {
+            perf: {
+              fps: Math.round(this.smoothedFps),
+              quality: this.qualityLevel,
+              resolutionScale: this.resolutionScaler.scale,
+              pixelRatio: this.worldRenderer.getPixelRatio(),
+              ...this.worldRenderer.getRenderStats(),
+            },
+          }
+        : {}),
       ...(assetsLoaded !== undefined ? { assetsLoaded } : {}),
     };
+  }
+
+  public getQualityLevel(): QualityLevel {
+    return this.qualityLevel;
+  }
+
+  private cycleQuality(): void {
+    this.qualityLevel = cycleQualityLevel(this.qualityLevel);
+    this.resolutionScaler = createResolutionScalerState();
+    this.applyQuality();
+  }
+
+  private applyQuality(): void {
+    const preset = QUALITY_PRESETS[this.qualityLevel];
+    this.worldRenderer?.setQuality(preset);
+    this.applyRenderPixelRatio();
+    this.hud.setQualityLevel(this.qualityLevel);
+  }
+
+  private applyRenderPixelRatio(): void {
+    this.worldRenderer?.setPixelRatio(
+      resolveRenderPixelRatio(
+        QUALITY_PRESETS[this.qualityLevel],
+        readDevicePixelRatio(),
+        this.resolutionScaler.scale,
+      ),
+    );
+  }
+
+  private updateDynamicResolution(dt: number): void {
+    const next = stepResolutionScaler(this.resolutionScaler, this.smoothedFps, dt);
+    const scaleChanged = next.scale !== this.resolutionScaler.scale;
+    this.resolutionScaler = next;
+    if (scaleChanged) {
+      this.applyRenderPixelRatio();
+    }
+  }
+
+  private readWorldSnapshot(): Readonly<WorldSnapshot> {
+    this.cachedWorldSnapshot ??= this.world.getSnapshot();
+    return this.cachedWorldSnapshot;
+  }
+
+  private stepWorld(dt: number, input: InputState): Readonly<WorldSnapshot> {
+    this.cachedWorldSnapshot = this.world.step(dt, input);
+    return this.cachedWorldSnapshot;
+  }
+
+  private invalidateWorldSnapshot(): void {
+    this.cachedWorldSnapshot = null;
   }
 
   private initRenderer(): void {
@@ -370,15 +471,27 @@ export class GameApp {
       this.worldRenderer = new WorldRenderer(this.canvas, this.map);
       applyRendererGarageAppearance(this.worldRenderer, this.garageConfig);
       this.hud.hideWebglError();
+      this.detectQualityOnce(this.worldRenderer.getGpuRendererName());
+      this.applyQuality();
       this.resizeRenderer();
     } catch (error) {
       this.worldRenderer = null;
       if (error instanceof WebGLUnavailableError) {
+        this.detectQualityOnce(undefined);
+        this.hud.setQualityLevel(this.qualityLevel);
         this.hud.showWebglError();
         return;
       }
       throw error;
     }
+  }
+
+  private detectQualityOnce(gpuRenderer: string | undefined): void {
+    if (this.qualityDetected) {
+      return;
+    }
+    this.qualityDetected = true;
+    this.qualityLevel = detectInitialQuality(readDeviceProfile(gpuRenderer));
   }
 
   private retryWebgl(): void {
@@ -402,6 +515,7 @@ export class GameApp {
     this.garagePausedGameplay = false;
     this.hud.setGarageOpen(false);
     const start = this.map.missionStarts[missionId];
+    this.invalidateWorldSnapshot();
     this.world.reset({
       spawn: start.playerSpawn,
       carSpawn: start.carSpawn,
@@ -457,6 +571,7 @@ export class GameApp {
     this.garageOpen = false;
     this.garagePausedGameplay = false;
     this.hud.setGarageOpen(false);
+    this.invalidateWorldSnapshot();
     this.world.reset({
       startInVehicle: false,
       wantedStars: 0,
@@ -558,6 +673,9 @@ export class GameApp {
       this.smoothedFps = this.smoothedFps * 0.9 + instantFps * 0.1;
     }
 
+    if (this.missionDirector.getSnapshot().mode === 'playing') {
+      this.updateDynamicResolution(dt);
+    }
     this.stepFrame(dt);
     this.rafId = window.requestAnimationFrame(this.handleAnimationFrame);
   }
@@ -572,7 +690,7 @@ export class GameApp {
     }
 
     if (mode === 'title' || mode === 'victory') {
-      const worldSnap = this.world.step(dt, IDLE_INPUT);
+      const worldSnap = this.stepWorld(dt, IDLE_INPUT);
       this.audioEngine.update(
         {
           ...worldSnap,
@@ -587,11 +705,11 @@ export class GameApp {
 
     // Paused, Mission Passed, or Busted: freeze simulation progression cleanly
     this.silenceAudioForFrozenState();
-    this.renderSnapshots(this.world.getSnapshot(), initialMission, 0);
+    this.renderSnapshots(this.readWorldSnapshot(), initialMission, 0);
   }
 
   private stepPlayingFrame(dt: number, prevMission: Readonly<MissionSnapshot>): void {
-    const prevWorld = this.world.getSnapshot();
+    const prevWorld = this.readWorldSnapshot();
     const prevObjectiveStep = prevMission.activeObjective?.stepIndex ?? -1;
     const prevObjectiveId = prevMission.activeObjective?.id ?? null;
 
@@ -602,7 +720,7 @@ export class GameApp {
       cameraLook.pitchDelta,
       cameraLook.zoomDelta,
     );
-    let worldSnap = this.world.step(dt, input);
+    let worldSnap = this.stepWorld(dt, input);
     const missionSnap = this.missionDirector.update(worldSnap, dt);
 
     const nextObjectiveStep = missionSnap.activeObjective?.stepIndex ?? -1;
@@ -614,6 +732,7 @@ export class GameApp {
       prevObjectiveStep >= 0 &&
       nextObjectiveStep > prevObjectiveStep
     ) {
+      this.invalidateWorldSnapshot();
       this.world.refillNitro();
       worldMutated = true;
     }
@@ -623,17 +742,19 @@ export class GameApp {
       missionSnap.activeMission === 'mission_3_pique_bulevar' &&
       missionSnap.activeObjective
     ) {
+      this.invalidateWorldSnapshot();
       this.world.setPlayerRaceProgress(missionSnap.activeObjective.stepIndex);
       worldMutated = true;
     }
 
     if (worldSnap.wantedStars !== missionSnap.targetWantedStars) {
+      this.invalidateWorldSnapshot();
       this.world.setWantedStars(missionSnap.targetWantedStars);
       worldMutated = true;
     }
 
     if (worldMutated) {
-      worldSnap = this.world.getSnapshot();
+      worldSnap = this.readWorldSnapshot();
     }
 
     this.triggerSfxTransitions(prevWorld, worldSnap, prevMission, missionSnap, prevObjectiveStep, prevObjectiveId);
@@ -827,7 +948,7 @@ export class GameApp {
   }
 
   private silenceAudioForFrozenState(): void {
-    const snap = this.world.getSnapshot();
+    const snap = this.readWorldSnapshot();
     this.audioEngine.update(
       {
         ...snap,
@@ -846,7 +967,7 @@ export class GameApp {
   }
 
   private renderPresentState(dt: number): void {
-    this.renderSnapshots(this.world.getSnapshot(), this.missionDirector.getSnapshot(), dt);
+    this.renderSnapshots(this.readWorldSnapshot(), this.missionDirector.getSnapshot(), dt);
   }
 
   private renderSnapshots(

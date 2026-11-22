@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
@@ -21,6 +22,18 @@ const SUN_DIRECTION = new THREE.Vector3(-0.94, 0.16, -0.14).normalize();
 const MOON_DIRECTION = new THREE.Vector3(-0.78, 0.38, -0.22).normalize();
 const SUN_SHADOW_OFFSET = new THREE.Vector3(-152, 76, -24);
 const SHADOW_FRUSTUM_HALF = 72;
+const SHADOW_DEPTH_BIAS = -0.00025;
+const SHADOW_NORMAL_BIAS_TEXELS = 0.55;
+const SHADOW_LIGHT_Z_AXIS = SUN_SHADOW_OFFSET.clone().normalize();
+const SHADOW_LIGHT_X_AXIS = new THREE.Vector3(0, 1, 0)
+  .cross(SHADOW_LIGHT_Z_AXIS)
+  .normalize();
+const SHADOW_LIGHT_Y_AXIS = SHADOW_LIGHT_Z_AXIS.clone()
+  .cross(SHADOW_LIGHT_X_AXIS)
+  .normalize();
+const AO_RADIUS_METERS = 1.6;
+const AO_THICKNESS_METERS = 1.4;
+const AO_BLEND_INTENSITY = 0.85;
 
 const BLOOM_THRESHOLD_DAY = 1.35;
 const BLOOM_RADIUS_DAY = 0.28;
@@ -303,14 +316,47 @@ export interface CinematicGradeShaderConfig {
   readonly fragmentShader: string;
 }
 
+export interface PostProcessingQuality {
+  /** Fraction of the drawing buffer used by the bloom mip chain. */
+  readonly bloomResolutionScale: number;
+  readonly smaa: boolean;
+  /** Screen-space ground-truth ambient occlusion (GTAOPass). */
+  readonly ambientOcclusion: boolean;
+}
+
 export interface PostProcessingRig {
   readonly composer: EffectComposer;
   readonly bloomPass: UnrealBloomPass;
   readonly gradePass?: ShaderPass;
   readonly smaaPass?: SMAAPass;
   resize(width: number, height: number): void;
+  setQuality?(quality: PostProcessingQuality): void;
   render(): void;
   dispose(): void;
+}
+
+/**
+ * GTAO that reuses the depth buffer written by the main RenderPass instead of re-rendering the
+ * whole city into its own normal/depth G-buffer, so enabling AO does not double the draw calls.
+ * Normals are reconstructed from depth inside the GTAO shader.
+ */
+class SceneDepthGTAOPass extends GTAOPass {
+  public override render(
+    renderer: THREE.WebGLRenderer,
+    writeBuffer: THREE.WebGLRenderTarget,
+    readBuffer: THREE.WebGLRenderTarget,
+    deltaTime: number,
+    maskActive: boolean,
+  ): void {
+    const sceneDepth = readBuffer.depthTexture;
+    if (sceneDepth) {
+      const gtaoDepth = this.gtaoMaterial.uniforms['tDepth'];
+      const denoiseDepth = this.pdMaterial.uniforms['tDepth'];
+      if (gtaoDepth) gtaoDepth.value = sceneDepth;
+      if (denoiseDepth) denoiseDepth.value = sceneDepth;
+    }
+    super.render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+  }
 }
 
 function finiteOr(value: number, fallback: number): number {
@@ -472,7 +518,7 @@ export function createSunsetLighting(): THREE.Group {
   hemisphere.name = 'sunset_hemisphere_light';
   lightGroup.add(hemisphere);
 
-  const sunLight = new THREE.DirectionalLight(0xffe0b5, 2.85);
+  const sunLight = new THREE.DirectionalLight(0xffd39c, 3.0);
   sunLight.name = 'sunset_key_light';
   sunLight.position.copy(SUN_SHADOW_OFFSET);
   sunLight.castShadow = true;
@@ -483,9 +529,8 @@ export function createSunsetLighting(): THREE.Group {
   sunLight.shadow.camera.right = SHADOW_FRUSTUM_HALF;
   sunLight.shadow.camera.top = SHADOW_FRUSTUM_HALF;
   sunLight.shadow.camera.bottom = -SHADOW_FRUSTUM_HALF;
-  sunLight.shadow.bias = -0.0004;
-  sunLight.shadow.normalBias = 0.04;
   sunLight.shadow.radius = 2.5;
+  applyShadowBias(sunLight.shadow, 2048);
   lightGroup.add(sunLight);
   lightGroup.add(sunLight.target);
   lightGroup.userData.keyLight = sunLight;
@@ -512,8 +557,8 @@ export function setLightingTimeOfDay(
     lightingGroup.userData.keyLight ??
     lightingGroup.getObjectByName('sunset_key_light');
   if (keyLight instanceof THREE.DirectionalLight) {
-    keyLight.color.setHex(isNight ? 0x7da2ff : 0xffe0b5);
-    keyLight.intensity = isNight ? 0.65 : 2.85;
+    keyLight.color.setHex(isNight ? 0x7da2ff : 0xffd39c);
+    keyLight.intensity = isNight ? 0.65 : 3.0;
   }
 
   const hemisphere = lightingGroup.getObjectByName('sunset_hemisphere_light');
@@ -530,9 +575,65 @@ export function setLightingTimeOfDay(
   }
 }
 
+function applyShadowBias(shadow: THREE.DirectionalLightShadow, mapSize: number): void {
+  const texelMeters = (SHADOW_FRUSTUM_HALF * 2) / mapSize;
+  shadow.bias = SHADOW_DEPTH_BIAS;
+  shadow.normalBias = texelMeters * SHADOW_NORMAL_BIAS_TEXELS;
+}
+
 /**
- * Smoothly repositions the directional sun/moon light and its ±72m shadow frustum around the
- * active player focus coordinates for razor-sharp shadows across the entire Cali map.
+ * Resizes the sun shadow map for the active quality preset. Normal bias follows the texel size
+ * so low presets avoid acne and high presets avoid peter-panning.
+ */
+export function setShadowQuality(lightingGroup: THREE.Group, mapSize: number): void {
+  const keyLight =
+    lightingGroup.userData.keyLight ?? lightingGroup.getObjectByName('sunset_key_light');
+  if (!(keyLight instanceof THREE.DirectionalLight) || !(mapSize > 0)) {
+    return;
+  }
+  const shadow = keyLight.shadow;
+  if (shadow.mapSize.x === mapSize && shadow.mapSize.y === mapSize) {
+    return;
+  }
+  shadow.mapSize.set(mapSize, mapSize);
+  applyShadowBias(shadow, mapSize);
+  if (shadow.map) {
+    shadow.map.dispose();
+    shadow.map = null;
+  }
+}
+
+/**
+ * Snaps a shadow focus point to the sun shadow map texel grid in light space, so the
+ * orthographic shadow camera only ever moves by whole texels and shadow edges stop shimmering.
+ */
+export function computeShadowTexelSnappedFocus(
+  x: number,
+  y: number,
+  z: number,
+  mapSize: number,
+): { x: number; y: number; z: number } {
+  if (!(mapSize > 0)) {
+    return { x, y, z };
+  }
+  const texel = (SHADOW_FRUSTUM_HALF * 2) / mapSize;
+  const along = (axis: THREE.Vector3): number => x * axis.x + y * axis.y + z * axis.z;
+  const u = along(SHADOW_LIGHT_X_AXIS);
+  const v = along(SHADOW_LIGHT_Y_AXIS);
+  const w = along(SHADOW_LIGHT_Z_AXIS);
+  const du = Math.round(u / texel) * texel - u;
+  const dv = Math.round(v / texel) * texel - v;
+  const dw = Math.round(w / texel) * texel - w;
+  return {
+    x: x + du * SHADOW_LIGHT_X_AXIS.x + dv * SHADOW_LIGHT_Y_AXIS.x + dw * SHADOW_LIGHT_Z_AXIS.x,
+    y: y + du * SHADOW_LIGHT_X_AXIS.y + dv * SHADOW_LIGHT_Y_AXIS.y + dw * SHADOW_LIGHT_Z_AXIS.y,
+    z: z + du * SHADOW_LIGHT_X_AXIS.z + dv * SHADOW_LIGHT_Y_AXIS.z + dw * SHADOW_LIGHT_Z_AXIS.z,
+  };
+}
+
+/**
+ * Repositions the directional sun/moon light and its ±72m shadow frustum around the active
+ * player focus, snapped to whole shadow texels to keep shadow edges stable while moving.
  */
 export function updateShadowFocus(
   lightingGroup: THREE.Group,
@@ -550,11 +651,18 @@ export function updateShadowFocus(
   const safeZ = finiteOr(focusZ, 0);
   const focusY = finiteOr(getTerrainElevation(safeX, safeZ), 0);
 
-  keyLightCandidate.target.position.set(safeX, focusY, safeZ);
+  const snapped = computeShadowTexelSnappedFocus(
+    safeX,
+    focusY,
+    safeZ,
+    keyLightCandidate.shadow.mapSize.x,
+  );
+
+  keyLightCandidate.target.position.set(snapped.x, snapped.y, snapped.z);
   keyLightCandidate.position.set(
-    safeX + SUN_SHADOW_OFFSET.x,
-    focusY + SUN_SHADOW_OFFSET.y,
-    safeZ + SUN_SHADOW_OFFSET.z,
+    snapped.x + SUN_SHADOW_OFFSET.x,
+    snapped.y + SUN_SHADOW_OFFSET.y,
+    snapped.z + SUN_SHADOW_OFFSET.z,
   );
   keyLightCandidate.target.updateMatrixWorld();
   keyLightCandidate.updateMatrixWorld();
@@ -732,6 +840,12 @@ export function createPostProcessing(
     const pixelRatio = Math.min(renderer.getPixelRatio(), 2);
 
     const composer = new EffectComposer(renderer);
+    // Expose scene depth from the ping-pong buffers so GTAO can reuse it without a G-buffer pass
+    const sceneDepthTextures = [composer.renderTarget1, composer.renderTarget2].map((target) => {
+      const depthTexture = new THREE.DepthTexture(1, 1);
+      target.depthTexture = depthTexture;
+      return depthTexture;
+    });
     composer.setPixelRatio(pixelRatio);
     composer.setSize(safeWidth, safeHeight);
 
@@ -752,6 +866,36 @@ export function createPostProcessing(
     }
 
     const outputPass = new OutputPass();
+    let aoPass: GTAOPass | null = null;
+    let bloomResolutionScale = 0.5;
+    let lastWidth = safeWidth;
+    let lastHeight = safeHeight;
+
+    const ensureAoPass = (): GTAOPass => {
+      if (!aoPass) {
+        const pr = renderer.getPixelRatio();
+        aoPass = new SceneDepthGTAOPass(scene, camera, lastWidth * pr, lastHeight * pr);
+        aoPass.setGBuffer(sceneDepthTextures[0]);
+        aoPass.blendIntensity = AO_BLEND_INTENSITY;
+        aoPass.updateGtaoMaterial({
+          radius: AO_RADIUS_METERS,
+          thickness: AO_THICKNESS_METERS,
+          distanceExponent: 1.4,
+          scale: 1,
+          samples: 12,
+        });
+        composer.insertPass(aoPass, 1);
+      }
+      return aoPass;
+    };
+
+    const applyBloomResolution = (): void => {
+      const pr = renderer.getPixelRatio();
+      bloomPass.setSize(
+        Math.max(1, Math.round(lastWidth * pr * bloomResolutionScale)),
+        Math.max(1, Math.round(lastHeight * pr * bloomResolutionScale)),
+      );
+    };
 
     composer.addPass(renderPass);
     composer.addPass(bloomPass);
@@ -769,16 +913,34 @@ export function createPostProcessing(
       resize(nextWidth: number, nextHeight: number): void {
         const clampedW = Math.max(1, Math.floor(finiteOr(nextWidth, 1)));
         const clampedH = Math.max(1, Math.floor(finiteOr(nextHeight, 1)));
+        lastWidth = clampedW;
+        lastHeight = clampedH;
         const currentPixelRatio = Math.min(renderer.getPixelRatio(), 2);
         composer.setPixelRatio(currentPixelRatio);
         composer.setSize(clampedW, clampedH);
-        bloomPass.setSize(clampedW, clampedH);
+        applyBloomResolution();
         smaaPass?.setSize(clampedW * currentPixelRatio, clampedH * currentPixelRatio);
+      },
+      setQuality(quality: PostProcessingQuality): void {
+        bloomResolutionScale = Math.max(0.2, Math.min(1, finiteOr(quality.bloomResolutionScale, 0.5)));
+        applyBloomResolution();
+        if (smaaPass) {
+          smaaPass.enabled = quality.smaa;
+        }
+        if (quality.ambientOcclusion) {
+          ensureAoPass().enabled = true;
+        } else if (aoPass) {
+          aoPass.enabled = false;
+        }
       },
       render(): void {
         composer.render();
       },
       dispose(): void {
+        aoPass?.dispose();
+        for (const depthTexture of sceneDepthTextures) {
+          depthTexture.dispose();
+        }
         bloomPass.dispose();
         gradePass.dispose();
         smaaPass?.dispose();
@@ -788,6 +950,7 @@ export function createPostProcessing(
     };
 
     setGradeTimeOfDay(rig, 'golden_hour', reducedMotion, 0);
+    applyBloomResolution();
     return rig;
   } catch {
     return null;

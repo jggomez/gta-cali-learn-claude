@@ -25,6 +25,7 @@ import type {
   Vec2,
   VehicleKind,
   VehicleSnapshot,
+  RenderPerfStats,
   WorldSnapshot,
 } from '../types/game';
 import {
@@ -41,6 +42,9 @@ import {
   type CaliWorldBuildResult,
 } from './caliLandmarks';
 import { ParticleSystem, SkidMarkPool } from './particles';
+import type { QualityPreset } from '../game/qualityGovernor';
+import { RenderStatsRecorder } from './renderStats';
+import { batchStaticMeshes, updateDetailBatchCulling } from './staticBatcher';
 import {
   bindRenderTargetDisposal,
   createSunsetEnvironmentMap,
@@ -55,6 +59,7 @@ import {
   setBloomTimeOfDay,
   setGradeTimeOfDay,
   setLightingTimeOfDay,
+  setShadowQuality,
   setSkyDomeTimeOfDay,
   updateCameraRig,
   updateShadowFocus,
@@ -117,15 +122,20 @@ const CRISTO_REY_PLAYER_DANCE_DISTANCE_SQ =
 const SUMMIT_DANCER_SKIN_TONE_HEX = 0xb97c5b;
 const BOOST_GRADE_RISE_RATE = 8.5;
 const BOOST_GRADE_FALL_RATE = 4.5;
+const STATIC_BATCH_CELL_METERS = 64;
+const STATIC_DETAIL_RADIUS_METERS = 0.75;
+const DEFAULT_DETAIL_DRAW_DISTANCE_METERS = 140;
 const DAY_TONE_MAPPING_EXPOSURE = 0.94;
 const NIGHT_TONE_MAPPING_EXPOSURE = 1.12;
 const DAY_BACKGROUND_INTENSITY = 0.72;
+const DAY_LDR_SKY_BACKGROUND_INTENSITY = 0.96;
 const NIGHT_BACKGROUND_INTENSITY = 1.0;
 const DAY_HDRI_ENVIRONMENT_INTENSITY = 0.98;
 const DAY_FALLBACK_ENVIRONMENT_INTENSITY = 0.82;
 const NIGHT_ENVIRONMENT_INTENSITY = 0.24;
-const DAY_FOG_COLOR_HEX = 0xc9916a;
-const DAY_FOG_DENSITY = 0.00105;
+// Warm apricot aerial perspective of the 5 pm "brisa caleña" haze over the valley
+const DAY_FOG_COLOR_HEX = 0xd6a47a;
+const DAY_FOG_DENSITY = 0.0013;
 const NIGHT_FOG_COLOR_HEX = 0x090d1f;
 const NIGHT_FOG_DENSITY = 0.0023;
 const FLOATING_ARROW_BASE_Y = 8.0;
@@ -152,6 +162,7 @@ export interface AtmosphereConfig {
 export function resolveAtmosphereConfig(
   timeOfDay: TimeOfDay,
   hasHdriEnvironment: boolean,
+  hasTonemappedSkyBackground = false,
 ): AtmosphereConfig {
   const isNight = timeOfDay === 'night';
   return {
@@ -160,7 +171,9 @@ export function resolveAtmosphereConfig(
       : DAY_TONE_MAPPING_EXPOSURE,
     backgroundIntensity: isNight
       ? NIGHT_BACKGROUND_INTENSITY
-      : DAY_BACKGROUND_INTENSITY,
+      : hasTonemappedSkyBackground
+        ? DAY_LDR_SKY_BACKGROUND_INTENSITY
+        : DAY_BACKGROUND_INTENSITY,
     environmentIntensity: isNight
       ? NIGHT_ENVIRONMENT_INTENSITY
       : hasHdriEnvironment
@@ -644,6 +657,7 @@ export class WorldRenderer {
   private readonly lightingGroup: THREE.Group;
   private environmentMap: THREE.Texture | null;
   private hdriEnvTexture: THREE.Texture | null = null;
+  private skyBackgroundTexture: THREE.Texture | null = null;
   private loadedAssets: LoadedWorldAssets | null = null;
   private ferrariTemplate: THREE.Group | null = null;
   private characterAsset: LoadedCharacterAsset | null = null;
@@ -677,6 +691,12 @@ export class WorldRenderer {
   private readonly cristoReyPosition: Vec2;
   private readonly landmarkCount: number;
   private readonly reducedMotion: boolean;
+  private readonly renderStats: RenderStatsRecorder;
+  private readonly detailBatches: readonly THREE.Mesh[];
+  private detailDrawDistance = DEFAULT_DETAIL_DRAW_DISTANCE_METERS;
+  private pedestrianCullDistanceSq = PEDESTRIAN_CULL_DISTANCE_SQ;
+  private viewportWidth = 1;
+  private viewportHeight = 1;
 
   private currentTimeOfDay: TimeOfDay = 'golden_hour';
   private currentBoostMix = 0;
@@ -720,6 +740,7 @@ export class WorldRenderer {
     }
 
     this.renderer = renderer;
+    this.renderStats = new RenderStatsRecorder(this.renderer.info);
     const pixelRatio =
       typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio)
         ? Math.min(window.devicePixelRatio, 2)
@@ -738,6 +759,8 @@ export class WorldRenderer {
       canvas.clientHeight || canvas.height || 720,
     );
     this.renderer.setSize(initialWidth, initialHeight, false);
+    this.viewportWidth = initialWidth;
+    this.viewportHeight = initialHeight;
 
     this.scene = new THREE.Scene();
     this.scene.backgroundIntensity = initialAtmosphere.backgroundIntensity;
@@ -769,6 +792,14 @@ export class WorldRenderer {
     this.caliWorld = builtWorld;
     this.worldGroup = builtWorld.group;
     this.waterMesh = builtWorld.waterMesh;
+    this.detailBatches = batchStaticMeshes(this.worldGroup, {
+      cellSizeMeters: STATIC_BATCH_CELL_METERS,
+      detailRadiusMeters: STATIC_DETAIL_RADIUS_METERS,
+      exclude: [
+        builtWorld.waterMesh,
+        ...(builtWorld.roadblockGroup ? [builtWorld.roadblockGroup] : []),
+      ],
+    }).detailBatches;
     this.scene.add(this.worldGroup);
 
     let count = 0;
@@ -890,13 +921,15 @@ export class WorldRenderer {
 
   private applyAtmosphereForTimeOfDay(timeOfDay: TimeOfDay): void {
     const isNight = timeOfDay === 'night';
+    const skyBackground = this.skyBackgroundTexture ?? this.hdriEnvTexture;
     const atmosphere = resolveAtmosphereConfig(
       timeOfDay,
       this.hdriEnvTexture !== null,
+      this.skyBackgroundTexture !== null,
     );
 
-    this.skyDome.visible = isNight || !this.hdriEnvTexture;
-    this.scene.background = isNight ? null : this.hdriEnvTexture;
+    this.skyDome.visible = isNight || !skyBackground;
+    this.scene.background = isNight ? null : skyBackground;
     this.scene.backgroundIntensity = atmosphere.backgroundIntensity;
     this.scene.environmentIntensity = atmosphere.environmentIntensity;
     this.scene.fog = new THREE.FogExp2(
@@ -1007,12 +1040,24 @@ export class WorldRenderer {
     if (this.skyDome.visible) {
       this.skyDome.position.set(this.camera.position.x, 0, this.camera.position.z);
     }
+    updateDetailBatchCulling(
+      this.detailBatches,
+      this.camera.position.x,
+      this.camera.position.z,
+      this.detailDrawDistance,
+    );
 
+    this.renderStats.beginFrame();
     if (this.postProcessing) {
       this.postProcessing.render();
     } else {
       this.renderer.render(this.scene, this.camera);
     }
+    this.renderStats.endFrame();
+  }
+
+  public getRenderStats(): RenderPerfStats {
+    return this.renderStats.getStats();
   }
 
   public resize(width: number, height: number): void {
@@ -1025,10 +1070,51 @@ export class WorldRenderer {
     const safeWidth = Math.max(1, Math.floor(width));
     const safeHeight = Math.max(1, Math.floor(height));
 
+    this.viewportWidth = safeWidth;
+    this.viewportHeight = safeHeight;
     this.camera.aspect = safeWidth / safeHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(safeWidth, safeHeight, false);
     this.postProcessing?.resize(safeWidth, safeHeight);
+  }
+
+  /** Applies a graphics preset: shadow resolution, bloom scale, SMAA, GTAO and draw distances. */
+  public setQuality(preset: QualityPreset): void {
+    if (this.disposed) {
+      return;
+    }
+    setShadowQuality(this.lightingGroup, preset.shadowMapSize);
+    this.postProcessing?.setQuality?.(preset);
+    this.detailDrawDistance = preset.detailDrawDistance;
+    this.pedestrianCullDistanceSq = preset.pedestrianDrawDistance * preset.pedestrianDrawDistance;
+  }
+
+  /** Changes the drawing-buffer pixel ratio (quality preset x dynamic resolution scale). */
+  public setPixelRatio(pixelRatio: number): void {
+    if (
+      this.disposed ||
+      !Number.isFinite(pixelRatio) ||
+      Math.abs(pixelRatio - this.renderer.getPixelRatio()) < 0.01
+    ) {
+      return;
+    }
+    this.renderer.setPixelRatio(pixelRatio);
+    this.renderer.setSize(this.viewportWidth, this.viewportHeight, false);
+    this.postProcessing?.resize(this.viewportWidth, this.viewportHeight);
+  }
+
+  public getPixelRatio(): number {
+    return this.renderer.getPixelRatio();
+  }
+
+  /** Unmasked GPU renderer string (used to spot software rasterizers), when the driver exposes it. */
+  public getGpuRendererName(): string | undefined {
+    const gl = this.renderer.getContext();
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    const name: unknown = debugInfo
+      ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
+      : gl.getParameter(gl.RENDERER);
+    return typeof name === 'string' ? name : undefined;
   }
 
   public getLandmarkCount(): number {
@@ -1098,6 +1184,7 @@ export class WorldRenderer {
     this.scene.environment = null;
     this.hdriEnvTexture?.dispose();
     this.hdriEnvTexture = null;
+    this.skyBackgroundTexture = null;
     this.environmentMap?.dispose();
     this.environmentMap = null;
 
@@ -1117,7 +1204,9 @@ export class WorldRenderer {
 
   private async loadRealWorldAssets(): Promise<void> {
     try {
-      const assets = await loadWorldAssets();
+      const assets = await loadWorldAssets(undefined, {
+        maxAnisotropy: this.renderer.capabilities.getMaxAnisotropy(),
+      });
 
       if (this.disposed) {
         assets.dispose();
@@ -1137,8 +1226,11 @@ export class WorldRenderer {
   private applyLoadedAssets(assets: LoadedWorldAssets): void {
     this.loadedAssets = assets;
 
+    this.skyBackgroundTexture = assets.skyBackgroundTexture;
     if (assets.hdriTexture) {
       this.applyHdriEnvironment(assets.hdriTexture);
+    } else if (assets.skyBackgroundTexture) {
+      this.applyAtmosphereForTimeOfDay(this.currentTimeOfDay);
     }
 
     applyPhotographicAssets(this.worldGroup, assets.textures);
@@ -1188,7 +1280,8 @@ export class WorldRenderer {
 
       this.hdriEnvTexture = envTex;
       this.scene.environment = envTex;
-      this.scene.backgroundBlurriness = 0.015;
+      // Blurriness > 0 would route the 2K sky through a low-res PMREM, so keep it crisp
+      this.scene.backgroundBlurriness = this.skyBackgroundTexture ? 0 : 0.015;
       this.applyAtmosphereForTimeOfDay(this.currentTimeOfDay);
 
       if (this.environmentMap) {
@@ -2082,7 +2175,7 @@ export class WorldRenderer {
       // Distance culling beyond 95m preserves 60fps & smooth SwiftShader frame budgets
       const dx = ped.x - focusX;
       const dz = ped.z - focusZ;
-      if (dx * dx + dz * dz > PEDESTRIAN_CULL_DISTANCE_SQ) {
+      if (dx * dx + dz * dz > this.pedestrianCullDistanceSq) {
         entry.group.visible = false;
         continue;
       }

@@ -595,27 +595,56 @@ function createLocomotionClip(name: string, withScale = true): THREE.AnimationCl
 }
 
 describe('SkidMarkPool', () => {
-  it('pre-allocates hidden asphalt ribbon quads with polygonOffset and zero initial active count', () => {
+  function slotMatrix(pool: SkidMarkPool, slot: number): THREE.Matrix4 {
+    const matrix = new THREE.Matrix4();
+    pool.mesh.getMatrixAt(slot, matrix);
+    return matrix;
+  }
+
+  function slotQuaternion(pool: SkidMarkPool, slot: number): THREE.Quaternion {
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    slotMatrix(pool, slot).decompose(position, quaternion, scale);
+    return quaternion;
+  }
+
+  it('pre-allocates one hidden instanced asphalt ribbon draw call with polygonOffset and zero initial active count', () => {
     const pool = new SkidMarkPool({ capacity: 16 });
 
     expect(pool.group).toBeInstanceOf(THREE.Group);
     expect(pool.group.name).toBe('cali_skid_marks');
     expect(pool.getActiveCount()).toBe(0);
-    expect(pool.group.children.length).toBe(16);
-
-    const first = pool.group.children[0];
-    expect(first).toBeInstanceOf(THREE.Mesh);
-    if (first instanceof THREE.Mesh) {
-      expect(first.visible).toBe(false);
-      expect(first.geometry).toBeInstanceOf(THREE.PlaneGeometry);
-      expect(first.material).toBeInstanceOf(THREE.MeshBasicMaterial);
-      const mat = first.material as THREE.MeshBasicMaterial;
-      expect(mat.transparent).toBe(true);
-      expect(mat.depthWrite).toBe(false);
-      expect(mat.polygonOffset).toBe(true);
-      expect(mat.polygonOffsetFactor).toBe(-2);
-      expect(mat.polygonOffsetUnits).toBe(-2);
+    expect(pool.group.children.length).toBe(1);
+    expect(pool.mesh).toBeInstanceOf(THREE.InstancedMesh);
+    expect(pool.mesh.count).toBe(16);
+    expect(pool.mesh.visible).toBe(false);
+    expect(pool.mesh.geometry).toBeInstanceOf(THREE.PlaneGeometry);
+    expect(pool.mesh.geometry.getAttribute('instanceOpacity').count).toBe(16);
+    for (let slot = 0; slot < 16; slot += 1) {
+      expect(pool.isSlotVisible(slot)).toBe(false);
+      expect(pool.getSlotOpacity(slot)).toBe(0);
     }
+
+    const mat = pool.mesh.material as THREE.MeshBasicMaterial;
+    expect(mat).toBeInstanceOf(THREE.MeshBasicMaterial);
+    expect(mat.transparent).toBe(true);
+    expect(mat.depthWrite).toBe(false);
+    expect(mat.polygonOffset).toBe(true);
+    expect(mat.polygonOffsetFactor).toBe(-2);
+    expect(mat.polygonOffsetUnits).toBe(-2);
+
+    const shader = {
+      uniforms: {},
+      vertexShader: 'void main() {\n#include <begin_vertex>\n}',
+      fragmentShader: 'void main() {\n\tvec4 diffuseColor = vec4( diffuse, opacity );\n}',
+    };
+    mat.onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+      {} as THREE.WebGLRenderer,
+    );
+    expect(shader.vertexShader).toContain('attribute float instanceOpacity');
+    expect(shader.fragmentShader).toContain('opacity * vSkidOpacity');
 
     pool.dispose();
   });
@@ -625,25 +654,27 @@ describe('SkidMarkPool', () => {
 
     pool.emitPair(-0.8, 0.2, 1.0, 0.8, 0.2, 1.0, Math.PI * 0.25, 1.2, 0.65);
     expect(pool.getActiveCount()).toBe(2);
+    expect(pool.mesh.visible).toBe(true);
 
-    const leftStrip = pool.group.children[0] as THREE.Mesh;
-    const rightStrip = pool.group.children[1] as THREE.Mesh;
-    expect(leftStrip.visible).toBe(true);
-    expect(rightStrip.visible).toBe(true);
-    expect(leftStrip.position.y).toBeCloseTo(0.235, 3);
-    expect(rightStrip.position.y).toBeCloseTo(0.235, 3);
-    expect(leftStrip.rotation.order).toBe('YXZ');
-    expect(leftStrip.rotation.x).toBeCloseTo(-Math.PI / 2, 4);
-    expect(leftStrip.rotation.y).toBeCloseTo(Math.PI * 0.25, 4);
-    expect((leftStrip.material as THREE.MeshBasicMaterial).opacity).toBeCloseTo(0.65, 3);
+    expect(pool.isSlotVisible(0)).toBe(true);
+    expect(pool.isSlotVisible(1)).toBe(true);
+    const left = new THREE.Vector3().setFromMatrixPosition(slotMatrix(pool, 0));
+    const right = new THREE.Vector3().setFromMatrixPosition(slotMatrix(pool, 1));
+    expect(left.y).toBeCloseTo(0.235, 3);
+    expect(right.y).toBeCloseTo(0.235, 3);
+    const expected = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(-Math.PI / 2, Math.PI * 0.25, 0, 'YXZ'),
+    );
+    expect(Math.abs(slotQuaternion(pool, 0).dot(expected))).toBeCloseTo(1, 4);
+    expect(pool.getSlotOpacity(0)).toBeCloseTo(0.65, 3);
 
-    // Over-emit past capacity=6; activeCount and child count stay capped at 6
+    // Over-emit past capacity=6; activeCount stays capped at 6 inside a single draw call
     for (let i = 0; i < 10; i += 1) {
       pool.emitPair(-0.8, 0, i, 0.8, 0, i, 0);
       expect(pool.getActiveCount()).toBeLessThanOrEqual(6);
     }
     expect(pool.getActiveCount()).toBe(6);
-    expect(pool.group.children.length).toBe(6);
+    expect(pool.group.children.length).toBe(1);
 
     pool.dispose();
   });
@@ -651,8 +682,7 @@ describe('SkidMarkPool', () => {
   it('fades marks smoothly after 6s, expires them at 14s, and supports clear and idempotent dispose', () => {
     const pool = new SkidMarkPool({ capacity: 8 });
     pool.emitPair(-0.7, 0, 0, 0.7, 0, 0, 0, 1.0, 0.6);
-    const strip = pool.group.children[0] as THREE.Mesh;
-    const mat = strip.material as THREE.MeshBasicMaterial;
+    const mat = pool.mesh.material as THREE.MeshBasicMaterial;
 
     // Non-positive or invalid dt must be safe no-ops
     pool.update(0);
@@ -663,28 +693,29 @@ describe('SkidMarkPool', () => {
     // At 5.5s, mark is still active and unfaded
     pool.update(5.5);
     expect(pool.getActiveCount()).toBe(2);
-    expect(mat.opacity).toBeCloseTo(0.6, 3);
+    expect(pool.getSlotOpacity(0)).toBeCloseTo(0.6, 3);
 
     // At 10s (past 6s fade start, before 14s expiry), opacity has smoothly dropped
     pool.update(4.5);
     expect(pool.getActiveCount()).toBe(2);
-    expect(mat.opacity).toBeGreaterThan(0);
-    expect(mat.opacity).toBeLessThan(0.55);
+    expect(pool.getSlotOpacity(0)).toBeGreaterThan(0);
+    expect(pool.getSlotOpacity(0)).toBeLessThan(0.55);
 
     // Past 14s, marks hide and expire back to 0
     pool.update(4.5);
     expect(pool.getActiveCount()).toBe(0);
-    expect(strip.visible).toBe(false);
+    expect(pool.isSlotVisible(0)).toBe(false);
+    expect(pool.mesh.visible).toBe(false);
 
     // Re-emit then test clear()
     pool.emitPair(-0.7, 0, 2, 0.7, 0, 2, 0);
     expect(pool.getActiveCount()).toBe(2);
     pool.clear();
     expect(pool.getActiveCount()).toBe(0);
-    expect((pool.group.children[2] as THREE.Mesh).visible).toBe(false);
+    expect(pool.isSlotVisible(2)).toBe(false);
 
-    // Dispose cleans geometry and all materials, and ignores further emissions
-    const geoDisposeSpy = vi.spyOn(strip.geometry, 'dispose');
+    // Dispose cleans the shared geometry and material, and ignores further emissions
+    const geoDisposeSpy = vi.spyOn(pool.mesh.geometry, 'dispose');
     const matDisposeSpy = vi.spyOn(mat, 'dispose');
     pool.dispose();
     expect(geoDisposeSpy).toHaveBeenCalledTimes(1);
@@ -861,8 +892,9 @@ describe('CinematicGradePass and post-processing grading', () => {
     expect(dayHdri.toneMappingExposure).toBeCloseTo(0.94, 3);
     expect(dayHdri.backgroundIntensity).toBeCloseTo(0.72, 3);
     expect(dayHdri.environmentIntensity).toBeCloseTo(0.98, 3);
-    expect(dayHdri.fogColorHex).toBe(0xc9916a);
-    expect(dayHdri.fogDensity).toBeCloseTo(0.00105, 5);
+    // Warm 5 pm "brisa caleña" haze: apricot aerial perspective slightly denser than plain sunset fog
+    expect(dayHdri.fogColorHex).toBe(0xd6a47a);
+    expect(dayHdri.fogDensity).toBeCloseTo(0.0013, 5);
 
     const dayFallback = resolveAtmosphereConfig('golden_hour', false);
     expect(dayFallback.toneMappingExposure).toBeCloseTo(0.94, 3);
@@ -875,6 +907,12 @@ describe('CinematicGradePass and post-processing grading', () => {
     expect(nightHdri.environmentIntensity).toBeCloseTo(0.24, 3);
     expect(nightHdri.fogColorHex).toBe(0x090d1f);
     expect(nightHdri.fogDensity).toBeCloseTo(0.0023, 5);
+
+    // The 2K sky background is an already tonemapped sRGB JPEG, so it is shown near full intensity
+    const dayLdrSky = resolveAtmosphereConfig('golden_hour', true, true);
+    expect(dayLdrSky.backgroundIntensity).toBeGreaterThan(0.9);
+    expect(dayLdrSky.backgroundIntensity).toBeLessThanOrEqual(1);
+    expect(resolveAtmosphereConfig('night', true, true).backgroundIntensity).toBeCloseTo(1.0, 3);
   });
 });
 
