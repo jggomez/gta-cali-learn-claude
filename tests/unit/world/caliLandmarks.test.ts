@@ -492,10 +492,12 @@ describe('cinematic sky and shadow helpers', () => {
 
     updateShadowFocus(lighting, 74, -24);
 
-    expect(keyLight.target.position.x).toBeCloseTo(74, 3);
-    expect(keyLight.target.position.z).toBeCloseTo(-24, 3);
-    expect(keyLight.position.x).toBeCloseTo(initialLightX + 74, 3);
-    expect(keyLight.position.z).toBeCloseTo(initialLightZ - 24, 3);
+    // Focus is snapped to the shadow texel grid (144 m / 2048 px ~ 0.07 m) to stop shimmering
+    const texel = 144 / 2048;
+    expect(Math.abs(keyLight.target.position.x - 74)).toBeLessThan(texel * 1.5);
+    expect(Math.abs(keyLight.target.position.z + 24)).toBeLessThan(texel * 1.5);
+    expect(keyLight.position.x - keyLight.target.position.x).toBeCloseTo(initialLightX, 3);
+    expect(keyLight.position.z - keyLight.target.position.z).toBeCloseTo(initialLightZ, 3);
   });
 
   it('disposes lights (including shadow maps), meshes, points, lines, and PBR textures cleanly via disposeObjectTree', () => {
