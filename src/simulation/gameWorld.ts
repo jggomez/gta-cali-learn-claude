@@ -107,8 +107,6 @@ export function computeTrafficLightPhase(timeSeconds: number): TrafficLightPhase
 }
 
 const VEHICLE_ENTER_RADIUS = 6.5;
-const BANSHEE_PREFERENCE_RADIUS = 3.5;
-const VEHICLE_TIE_EPSILON = 0.25;
 const HIJACK_MIN_NITRO = 60;
 const BUST_RANGE_METERS = 6.8;
 const BUST_MAX_SPEED_KMH = 20;
@@ -494,17 +492,9 @@ export class GameWorld {
       return null;
     }
 
-    if (
-      bestBanshee &&
-      bestBanshee.id !== nearestAny.id &&
-      (Math.abs(bestBansheeDist - nearestAnyDist) <= VEHICLE_TIE_EPSILON ||
-        (bestBansheeDist <= BANSHEE_PREFERENCE_RADIUS &&
-          nearestAnyDist <= BANSHEE_PREFERENCE_RADIUS))
-    ) {
-      return bestBanshee;
-    }
-
-    return nearestAny;
+    // The player's own Garaje vehicle always wins while it is within reach, so a car passing by
+    // on the road never steals the [F] press the HUD prompt promised for the player's ride.
+    return bestBanshee ?? nearestAny;
   }
 
   private handleInteractToggle(): void {

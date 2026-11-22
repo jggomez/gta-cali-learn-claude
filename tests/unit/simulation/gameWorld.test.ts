@@ -253,6 +253,29 @@ describe('simulation/GameWorld', () => {
     expect(eastBankCruiser!.x).toBeLessThan(CALI_MAP.river.minX);
   });
 
+  it('prefers the player-owned Garaje vehicle over a closer passing car whenever it is within reach', () => {
+    const probe = new GameWorld(CALI_MAP).getSnapshot();
+    const taxi = probe.vehicles.find((v) => v.kind === 'taxi');
+    expect(taxi).toBeDefined();
+
+    // Park the player's own car ~9 m behind the taxi (outside the old 3.5 m tie radius), then stand between them, closer to the taxi.
+    const map: CaliMapConfig = {
+      ...CALI_MAP,
+      playerCarSpawn: { x: taxi!.x - 9.5, z: taxi!.z, heading: Math.PI / 2 },
+    };
+    const world = new GameWorld(map);
+    world.reset({
+      startInVehicle: false,
+      spawn: { x: taxi!.x - 2.6, z: taxi!.z, heading: Math.PI / 2 },
+    });
+
+    const before = world.getSnapshot();
+    expect(before.player.nearbyVehicleId).toBe('player_banshee');
+    const boarded = world.step(0.05, createInput({ interactPressed: true }));
+    expect(boarded.player.mode).toBe('driving');
+    expect(boarded.player.vehicleId).toBe('player_banshee');
+  });
+
   it('exposes nearbyVehicleKind, hijacks a nearby taxi, and leaves previously driven vehicles parked', () => {
     const world = new GameWorld(CALI_MAP);
     const initialSnap = world.getSnapshot();

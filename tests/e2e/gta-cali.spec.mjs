@@ -705,7 +705,7 @@ test.describe('GTA I - Cali - Colombia — Black-Box E2E Verification', () => {
         window.__GTA_CALI__?.mission.activeMission === 'free_roam' &&
         window.__GTA_CALI__?.garage.avatar === 'mateo' &&
         window.__GTA_CALI__?.garage.outfit === 'escarlata' &&
-        (window.__GTA_CALI__?.world.pedestrians?.length ?? 0) === 18,
+        (window.__GTA_CALI__?.world.pedestrians?.length ?? 0) >= 28,
       null,
       { timeout: 30_000 },
     );
@@ -721,7 +721,7 @@ test.describe('GTA I - Cali - Colombia — Black-Box E2E Verification', () => {
     expect(freeRoamSnap.landmarkId).toBe('la_ermita');
     expect(freeRoamSnap.stepIndex).toBe(0);
     expect(freeRoamSnap.totalSteps).toBe(6);
-    expect(freeRoamSnap.pedestrians).toBe(18);
+    expect(freeRoamSnap.pedestrians).toBeGreaterThanOrEqual(28);
     expect(freeRoamSnap.avatar).toBe('mateo');
     expect(freeRoamSnap.outfit).toBe('escarlata');
     run.dataCheck(

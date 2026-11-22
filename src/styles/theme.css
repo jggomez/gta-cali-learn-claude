@@ -1457,8 +1457,8 @@ body {
   background: rgba(10, 4, 22, 0.8);
 }
 
-.cali-modal--garage {
-  width: min(720px, 100%);
+.cali-modal.cali-modal--garage {
+  width: min(760px, 100%);
   max-height: calc(100dvh - 32px);
   overflow-y: auto;
   overflow-x: hidden;
@@ -1479,8 +1479,9 @@ body {
 
 /* 13 cars + motos: compact scrollable grid so the Garaje still fits a 375px viewport */
 .cali-garage-group--cars {
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  max-height: min(260px, 38dvh);
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  flex-shrink: 0;
+  max-height: min(260px, 42dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: var(--space-xs);

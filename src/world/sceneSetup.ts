@@ -15,6 +15,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { getTerrainElevation } from '../config/caliMap';
+import { isTwoWheelerKind } from '../simulation/physics';
 import type { CameraMode, TimeOfDay, WorldSnapshot } from '../types/game';
 
 const SKY_RADIUS = 540;
@@ -55,6 +56,8 @@ const GRADE_VIGNETTE_REDUCED = 0.08;
 
 const CHASE_CRUISE_FOV = 58;
 const CHASE_BOOST_FOV = 72;
+/** Motos sit ~40% closer in chase view so the rider and lean read clearly on screen. */
+export const MOTO_CHASE_DISTANCE_SCALE = 0.62;
 const FOV_UPDATE_EPSILON = 0.05;
 const IMPACT_SHAKE_THRESHOLD = 0.15;
 
@@ -967,6 +970,8 @@ interface CameraTargetPose {
   readonly isDriving: boolean;
   readonly isDrifting: boolean;
   readonly isBoosting: boolean;
+  /** True while riding a moto: tighter, lower chase framing for the smaller silhouette. */
+  readonly isTwoWheeler?: boolean;
 }
 
 interface CameraRigState {
@@ -998,6 +1003,7 @@ function resolveCameraTarget(world: WorldSnapshot): CameraTargetPose {
         isDriving: true,
         isDrifting: activeVehicle.isDrifting,
         isBoosting: activeVehicle.isBoosting,
+        isTwoWheeler: isTwoWheelerKind(activeVehicle.kind),
       };
     }
   }
@@ -1176,19 +1182,24 @@ export function updateCameraRig(
           )
         : 0;
 
+      const bikeScale = target.isTwoWheeler ? MOTO_CHASE_DISTANCE_SCALE : 1;
       const baseDist = target.isDriving
-        ? zoomDist
+        ? zoomDist * bikeScale
         : THREE.MathUtils.clamp(zoomDist * 0.65, 3.0, 7.2);
-      const speedPull = target.isDriving ? Math.min(1.6, absSpeed * 0.045) : 0;
+      const speedPull = target.isDriving ? Math.min(1.6, absSpeed * 0.045) * bikeScale : 0;
       const boostPull = target.isBoosting && !reducedMotion ? 1.15 : 0;
       const distance = baseDist + speedPull + boostPull;
+      if (target.isTwoWheeler) {
+        // Light motos change direction fast; follow tighter so the bike never drifts off-frame.
+        posSmoothRate = 12;
+      }
 
       const chaseHeading = target.heading + yawOffset;
       const orbitForwardX = Math.sin(chaseHeading);
       const orbitForwardZ = Math.cos(chaseHeading);
       const basePitch = target.isDriving ? 0.14 : 0.18;
       const totalPitch = THREE.MathUtils.clamp(basePitch + pitchOffset, -0.02, 0.92);
-      const pivotY = target.isDriving ? 1.18 : 1.38;
+      const pivotY = target.isTwoWheeler ? 1.3 : target.isDriving ? 1.18 : 1.38;
       const horizDist = distance * Math.cos(totalPitch);
       const height = pivotY + distance * Math.sin(totalPitch);
 

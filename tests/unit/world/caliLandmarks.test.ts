@@ -377,6 +377,25 @@ describe('updateCameraRig', () => {
     expect(JSON.stringify(world)).toBe(snapshotBefore);
   });
 
+  it('frames motos tighter than cars in chase view (rider stays readable on screen)', () => {
+    const base = createSampleWorld();
+    const activeId = base.player.vehicleId;
+    expect(activeId).not.toBeNull();
+    const settledDistance = (kind: 'yamaha_rx115' | 'renault4_turbo'): number => {
+      const world = {
+        ...base,
+        vehicles: base.vehicles.map((v) => (v.id === activeId ? { ...v, kind } : v)),
+      };
+      const vehicle = world.vehicles.find((v) => v.id === activeId)!;
+      const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.4, 900);
+      for (let i = 0; i < 240; i += 1) {
+        updateCameraRig(camera, world, 'chase', 0.016, 0);
+      }
+      return Math.hypot(camera.position.x - vehicle.x, camera.position.z - vehicle.z);
+    };
+    expect(settledDistance('yamaha_rx115')).toBeLessThan(settledDistance('renault4_turbo') * 0.8);
+  });
+
   it('handles on-foot mode and zero/non-finite dt safely', () => {
     const onFootWorld = createSampleWorld({
       player: {
