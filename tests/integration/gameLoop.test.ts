@@ -264,7 +264,8 @@ describe('GTA VI: Cali headless game loop integration', () => {
 
     expect(atBulevar.mission.mode).toBe('playing');
     expect(atBulevar.mission.activeObjective?.id).toBe('m1_ermita_finish');
-    expect(atBulevar.world.wantedStars).toBe(2);
+    expect(atBulevar.world.wantedStars).toBeGreaterThanOrEqual(2);
+    expect(atBulevar.world.wantedStars).toBeLessThanOrEqual(3);
 
     // Step 3 -> Mission Passed: Head north to Calle 13, cross Puente La Ermita to Iglesia La Ermita
     const atErmita = driveRoute(
@@ -335,12 +336,14 @@ describe('GTA VI: Cali headless game loop integration', () => {
     );
 
     expect(atEstadio.mission.mode).toBe('playing');
-    expect(atEstadio.mission.activeObjective?.id).toBe('m2_cristo_rey_summit');
+    expect(atEstadio.mission.activeObjective?.id).toBe('m2_cristo_rey_ramp');
+    expect(atEstadio.mission.activeObjective?.stepIndex).toBe(2);
+    expect(atEstadio.mission.activeObjective?.totalSteps).toBe(4);
     expect(atEstadio.mission.targetWantedStars).toBe(3);
     expect(atEstadio.world.wantedStars).toBe(3);
 
-    // Step 2 -> Victory: Return west over Puente Bulevar Sur, north on Circunvalar, up Cerro Los Cristales ramp
-    const atCristoRey = driveRoute(
+    // Step 2 -> Step 3: Return west over Puente Bulevar Sur and north on Av. Circunvalar to ramp entry
+    const atRamp = driveRoute(
       ctx,
       [
         { x: 96, z: 77 },
@@ -348,10 +351,25 @@ describe('GTA VI: Cali headless game loop integration', () => {
         { x: 20, z: 77 },
         { x: -68, z: 77 },
         { x: -68, z: -24 },
+      ],
+      { arrivalRadius: 15, maxSteps: 4200 },
+    );
+
+    expect(atRamp.mission.mode).toBe('playing');
+    expect(atRamp.mission.activeObjective?.id).toBe('m2_cristo_rey_summit');
+    expect(atRamp.mission.activeObjective?.stepIndex).toBe(3);
+    expect(atRamp.mission.activeObjective?.totalSteps).toBe(4);
+    expect(atRamp.mission.activeObjective?.propKind).toBe('summit_stage');
+    expect(atRamp.world.wantedStars).toBe(3);
+
+    // Step 3 -> Victory: Climb Cerro Los Cristales ramp to Mirador de Cristo Rey
+    const atCristoRey = driveRoute(
+      ctx,
+      [
         { x: -120, z: -24 },
         { x: -176, z: -24 },
       ],
-      { arrivalRadius: 13, maxSteps: 5400 },
+      { arrivalRadius: 13, maxSteps: 2400 },
     );
 
     expect(atCristoRey.mission.mode).toBe('victory');

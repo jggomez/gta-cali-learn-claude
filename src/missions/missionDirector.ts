@@ -5,8 +5,15 @@
 
 import { CALI_MAP } from '../config/caliMap';
 import { LOCALE_CALI } from '../config/localeCali';
+import {
+  computeGpsRoute,
+  computeNextTurnBearing,
+  computeRouteDistanceMeters,
+} from '../config/roadGraph';
 import type {
+  BannerAccent,
   CaliMapConfig,
+  CheckpointBanner,
   DialogueSpeaker,
   DialogueToast,
   GameMode,
@@ -15,6 +22,7 @@ import type {
   MissionSnapshot,
   MissionWaypoint,
   ObjectiveKind,
+  ObjectivePropKind,
   ObjectiveSnapshot,
   RadioStationId,
   StorageRecords,
@@ -52,6 +60,7 @@ const CHECKPOINT_DIALOGUE_SECONDS = 7;
 const COMPLETE_DIALOGUE_SECONDS = 8.5;
 const LANDMARK_DIALOGUE_SECONDS = 5;
 const RIVER_WARNING_COOLDOWN_SECONDS = 8;
+const BANNER_DURATION_SECONDS = 3.6;
 
 const BEACON_CYAN = 0x00f0ff;
 const BEACON_MAGENTA = 0xff2e93;
@@ -283,9 +292,12 @@ export class MissionDirector {
   private activeMission: MissionId = 'mission_1_bulevar';
   private stepIndex = 0;
   private activeObjective: ObjectiveSnapshot | null = null;
+  private missionFloorStars: WantedLevel = 0;
   private targetWantedStars: WantedLevel = 0;
+  private lastFreeRoamWantedStars: WantedLevel = 0;
   private records: StorageRecords;
   private dialogue: DialogueToast | null = null;
+  private banner: CheckpointBanner | null = null;
   private tickerIndex = 0;
   private tickerElapsed = 0;
   private rewardCop = 0;
@@ -304,7 +316,10 @@ export class MissionDirector {
     this.activeMission = missionId;
     this.mode = 'playing';
     this.stepIndex = 0;
+    this.missionFloorStars = 0;
     this.targetWantedStars = 0;
+    this.lastFreeRoamWantedStars = 0;
+    this.banner = null;
     this.rewardCop = 0;
     this.elapsedSeconds = 0;
     this.lastCompletedTimeSeconds = null;
@@ -313,6 +328,7 @@ export class MissionDirector {
 
     if (missionId === 'mission_1_bulevar') {
       this.setDialogue('m1Intro', LOCALE_CALI.dialogues.m1Intro, INTRO_DIALOGUE_SECONDS);
+      this.setBanner('m1Start', LOCALE_CALI.banners.m1Start, 'cyan');
       this.activeObjective = this.createEnterVehicleObjective(
         'm1_enter_vehicle',
         LOCALE_CALI.objectives.mission1.enterVehicleLabel,
@@ -322,11 +338,12 @@ export class MissionDirector {
       );
     } else if (missionId === 'mission_2_cristo_rey') {
       this.setDialogue('m2Intro', LOCALE_CALI.dialogues.m2Intro, INTRO_DIALOGUE_SECONDS);
+      this.setBanner('m2Start', LOCALE_CALI.banners.m2Start, 'gold');
       this.activeObjective = this.createEnterVehicleObjective(
         'm2_enter_vehicle',
         LOCALE_CALI.objectives.mission2.enterVehicleLabel,
         LOCALE_CALI.objectives.mission2.enterVehicleDetail,
-        3,
+        4,
         { x: this.map.playerCarSpawn.x, z: this.map.playerCarSpawn.z },
       );
     } else {
@@ -349,8 +366,11 @@ export class MissionDirector {
   public returnToTitle(): Readonly<MissionSnapshot> {
     this.mode = 'title';
     this.activeObjective = null;
+    this.missionFloorStars = 0;
     this.targetWantedStars = 0;
+    this.lastFreeRoamWantedStars = 0;
     this.dialogue = null;
+    this.banner = null;
     this.rewardCop = 0;
     this.lastCompletedTimeSeconds = null;
     this.isNewRecord = false;
@@ -374,22 +394,36 @@ export class MissionDirector {
     this.elapsedSeconds += safeDt;
 
     this.tickDialogue(safeDt);
+    this.tickBanner(safeDt);
     this.tickViralTicker(safeDt);
     this.checkLandmarkDiscoveries(world);
     this.checkRiverWarning(world, safeDt);
 
     if (this.activeMission !== 'free_roam' && world.isBusted) {
       this.mode = 'busted';
+      this.missionFloorStars = 0;
       this.targetWantedStars = 0;
+      this.banner = null;
       return this.getSnapshot();
     }
 
     if (this.activeMission === 'mission_1_bulevar') {
       this.updateMission1(world);
+      if (this.mode === 'playing') {
+        this.targetWantedStars = Math.max(this.missionFloorStars, world.wantedStars) as WantedLevel;
+      }
     } else if (this.activeMission === 'mission_2_cristo_rey') {
       this.updateMission2(world);
+      if (this.mode === 'playing') {
+        this.targetWantedStars = Math.max(this.missionFloorStars, world.wantedStars) as WantedLevel;
+      }
     } else {
+      this.updateFreeRoamPolice(world);
       this.activeObjective = this.createFreeRoamObjective();
+    }
+
+    if (this.mode === 'playing') {
+      this.enrichActiveObjectiveNavigation(world);
     }
 
     return this.getSnapshot();
@@ -403,12 +437,21 @@ export class MissionDirector {
       mode: this.mode,
       activeMission: this.activeMission,
       missionTitle: LOCALE_CALI.missions[this.activeMission].title,
-      activeObjective: this.activeObjective ? { ...this.activeObjective } : null,
+      activeObjective: this.activeObjective
+        ? {
+            ...this.activeObjective,
+            target: this.activeObjective.target ? { ...this.activeObjective.target } : null,
+            gpsRoute: this.activeObjective.gpsRoute
+              ? this.activeObjective.gpsRoute.map((point) => ({ ...point }))
+              : undefined,
+          }
+        : null,
       targetWantedStars: this.targetWantedStars,
       completedMissions: [...this.records.completedMissions],
       bestTimes: { ...this.records.bestTimes },
       discoveredLandmarks: [...this.records.discoveredLandmarks],
       dialogue: this.dialogue ? { ...this.dialogue } : null,
+      banner: this.banner ? { ...this.banner } : null,
       viralTicker,
       rewardCop: this.rewardCop,
       cashCop: this.records.totalCashCop,
@@ -439,6 +482,7 @@ export class MissionDirector {
           1,
           4,
           BEACON_MAGENTA,
+          'vinyl_briefcase',
         );
       }
       return;
@@ -447,8 +491,9 @@ export class MissionDirector {
     if (this.stepIndex === 1) {
       if (this.isInsideWaypoint(world, waypoints.mission1Pickup)) {
         this.stepIndex = 2;
-        this.targetWantedStars = 2;
+        this.missionFloorStars = 2;
         this.setDialogue('m1Pickup', LOCALE_CALI.dialogues.m1Pickup, CHECKPOINT_DIALOGUE_SECONDS);
+        this.setBanner('m1Pickup', LOCALE_CALI.banners.m1Pickup, 'police');
         this.activeObjective = this.createWaypointObjective(
           waypoints.mission1Escape,
           'reach_point',
@@ -457,6 +502,7 @@ export class MissionDirector {
           2,
           4,
           BEACON_GOLD,
+          'none',
         );
       }
       return;
@@ -466,6 +512,7 @@ export class MissionDirector {
       if (this.isInsideWaypoint(world, waypoints.mission1Escape)) {
         this.stepIndex = 3;
         this.setDialogue('m1Bulevar', LOCALE_CALI.dialogues.m1Bulevar, CHECKPOINT_DIALOGUE_SECONDS);
+        this.setBanner('m1Bulevar', LOCALE_CALI.banners.m1Bulevar, 'gold');
         this.activeObjective = this.createWaypointObjective(
           waypoints.mission1Finish,
           'escape_police',
@@ -474,6 +521,7 @@ export class MissionDirector {
           3,
           4,
           BEACON_EMERALD,
+          'none',
         );
       }
       return;
@@ -503,8 +551,9 @@ export class MissionDirector {
           copy.stageLabel,
           copy.stageDetail,
           1,
-          3,
+          4,
           BEACON_MAGENTA,
+          'mateo_speakers',
         );
       }
       return;
@@ -513,27 +562,71 @@ export class MissionDirector {
     if (this.stepIndex === 1) {
       if (this.isInsideWaypoint(world, waypoints.mission2Stage)) {
         this.stepIndex = 2;
-        this.targetWantedStars = 3;
+        this.missionFloorStars = 3;
         this.setDialogue('m2Stage', LOCALE_CALI.dialogues.m2Stage, CHECKPOINT_DIALOGUE_SECONDS);
+        this.setBanner('m2Stage', LOCALE_CALI.banners.m2Stage, 'police');
         this.activeObjective = this.createWaypointObjective(
-          waypoints.mission2Summit,
-          'escape_police',
-          copy.summitLabel,
-          copy.summitDetail,
+          waypoints.mission2RampEntry,
+          'reach_point',
+          copy.rampLabel,
+          copy.rampDetail,
           2,
-          3,
+          4,
           BEACON_GOLD,
+          'none',
         );
       }
       return;
     }
 
-    if (this.stepIndex === 2 && this.isInsideWaypoint(world, waypoints.mission2Summit)) {
+    if (this.stepIndex === 2) {
+      if (this.isInsideWaypoint(world, waypoints.mission2RampEntry)) {
+        this.stepIndex = 3;
+        this.setDialogue('m2Ramp', LOCALE_CALI.dialogues.m2Ramp, CHECKPOINT_DIALOGUE_SECONDS);
+        this.setBanner('m2Ramp', LOCALE_CALI.banners.m2Ramp, 'gold');
+        this.activeObjective = this.createWaypointObjective(
+          waypoints.mission2Summit,
+          'escape_police',
+          copy.summitLabel,
+          copy.summitDetail,
+          3,
+          4,
+          BEACON_GOLD,
+          'summit_stage',
+        );
+      }
+      return;
+    }
+
+    if (this.stepIndex === 3 && this.isInsideWaypoint(world, waypoints.mission2Summit)) {
       this.completeStoryMission(
         'mission_2_cristo_rey',
         'victory',
         'm2Passed',
         LOCALE_CALI.dialogues.m2Passed,
+      );
+    }
+  }
+
+  private updateFreeRoamPolice(world: WorldSnapshot): void {
+    const previousStars = this.lastFreeRoamWantedStars;
+    const currentStars = world.wantedStars;
+    this.targetWantedStars = currentStars;
+    this.lastFreeRoamWantedStars = currentStars;
+
+    if (previousStars === 0 && currentStars >= 1) {
+      this.setBanner('freeRoamWanted', LOCALE_CALI.banners.freeRoamWanted, 'police');
+      this.setDialogue(
+        'freeRoamWanted',
+        LOCALE_CALI.dialogues.freeRoamWanted,
+        CHECKPOINT_DIALOGUE_SECONDS,
+      );
+    } else if (previousStars >= 1 && currentStars === 0) {
+      this.setBanner('freeRoamEscaped', LOCALE_CALI.banners.freeRoamEscaped, 'emerald');
+      this.setDialogue(
+        'freeRoamEscaped',
+        LOCALE_CALI.dialogues.freeRoamEscaped,
+        CHECKPOINT_DIALOGUE_SECONDS,
       );
     }
   }
@@ -565,8 +658,10 @@ export class MissionDirector {
     });
 
     this.mode = nextMode;
+    this.missionFloorStars = 0;
     this.targetWantedStars = 0;
     this.activeObjective = null;
+    this.banner = null;
     this.rewardCop = reward;
     this.lastCompletedTimeSeconds = completionTime;
     this.isNewRecord = isNewRecord;
@@ -638,6 +733,48 @@ export class MissionDirector {
     }
   }
 
+  private tickBanner(dt: number): void {
+    if (!this.banner) {
+      return;
+    }
+    const remaining = this.banner.remainingSeconds - dt;
+    if (remaining <= 0) {
+      this.banner = null;
+    } else {
+      this.banner = {
+        ...this.banner,
+        remainingSeconds: remaining,
+      };
+    }
+  }
+
+  private enrichActiveObjectiveNavigation(world: WorldSnapshot): void {
+    if (!this.activeObjective) {
+      return;
+    }
+    if (!this.activeObjective.target) {
+      this.activeObjective = {
+        ...this.activeObjective,
+        gpsRoute: [],
+        distanceMeters: null,
+        bearingDeltaRad: null,
+      };
+      return;
+    }
+
+    const playerPos: Vec2 = { x: world.player.x, z: world.player.z };
+    const gpsRoute = computeGpsRoute(playerPos, this.activeObjective.target, this.map);
+    const distanceMeters = Math.round(computeRouteDistanceMeters(gpsRoute));
+    const bearingDeltaRad = computeNextTurnBearing(playerPos, world.player.heading, gpsRoute);
+
+    this.activeObjective = {
+      ...this.activeObjective,
+      gpsRoute,
+      distanceMeters,
+      bearingDeltaRad,
+    };
+  }
+
   private tickViralTicker(dt: number): void {
     this.tickerElapsed += dt;
     if (this.tickerElapsed >= TICKER_ROTATION_SECONDS) {
@@ -677,6 +814,20 @@ export class MissionDirector {
     };
   }
 
+  private setBanner(
+    id: string,
+    content: { readonly title: string; readonly subtitle: string },
+    accent: BannerAccent,
+  ): void {
+    this.banner = {
+      id,
+      title: content.title,
+      subtitle: content.subtitle,
+      accent,
+      remainingSeconds: BANNER_DURATION_SECONDS,
+    };
+  }
+
   private createEnterVehicleObjective(
     id: string,
     label: string,
@@ -695,6 +846,7 @@ export class MissionDirector {
       stepIndex: 0,
       totalSteps,
       beaconColorHex: BEACON_CYAN,
+      propKind: 'none',
     };
   }
 
@@ -706,6 +858,7 @@ export class MissionDirector {
     stepIndex: number,
     totalSteps: number,
     beaconColorHex: number,
+    propKind: ObjectivePropKind,
   ): ObjectiveSnapshot {
     return {
       id: waypoint.id,
@@ -718,6 +871,7 @@ export class MissionDirector {
       stepIndex,
       totalSteps,
       beaconColorHex,
+      propKind,
     };
   }
 
@@ -738,6 +892,7 @@ export class MissionDirector {
         stepIndex: total,
         totalSteps: total,
         beaconColorHex: BEACON_EMERALD,
+        propKind: 'none',
       };
     }
 
@@ -752,6 +907,7 @@ export class MissionDirector {
       stepIndex: discovered.length,
       totalSteps: total,
       beaconColorHex: BEACON_EMERALD,
+      propKind: 'none',
     };
   }
 }

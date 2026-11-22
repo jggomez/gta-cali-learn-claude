@@ -9,9 +9,11 @@ import type {
 } from '../../../src/types/game';
 import {
   formatNitroPercent,
+  formatTurnCue,
   HudController,
   type HudCallbacks,
 } from '../../../src/ui/hudController';
+import { MinimapRenderer } from '../../../src/ui/minimapRenderer';
 
 class FakeDomElement {
   public readonly tagName: string;
@@ -288,5 +290,255 @@ describe('HudController', () => {
     }
 
     hud.dispose();
+  });
+
+  it('renders step progress badge, segmented dots, top-center compass rotation, turn cue, and live distance', () => {
+    const hud = new HudController(root as unknown as HTMLElement, createCallbacks(), CALI_MAP);
+    const stepProgress = root.findFirst((el) => el.dataset.testid === 'hud-step-progress');
+    const compass = root.findFirst((el) => el.dataset.testid === 'hud-compass');
+    const compassArrow = root.findFirst((el) => el.dataset.testid === 'hud-compass-arrow');
+    const compassCue = root.findFirst((el) => el.dataset.testid === 'hud-compass-cue');
+    const distanceEl = root.findFirst((el) => el.dataset.testid === 'hud-distance');
+
+    expect(stepProgress).not.toBeNull();
+    expect(compass).not.toBeNull();
+    expect(compassArrow).not.toBeNull();
+    expect(compassCue).not.toBeNull();
+    expect(distanceEl).not.toBeNull();
+
+    const missionWithNav: MissionSnapshot = {
+      ...createMissionSnapshot(),
+      activeObjective: {
+        ...createMissionSnapshot().activeObjective!,
+        stepIndex: 1,
+        totalSteps: 4,
+        distanceMeters: 142,
+        bearingDeltaRad: Math.PI / 2,
+      },
+    };
+
+    hud.render(createWorldSnapshot(80), missionWithNav, DEFAULT_AUDIO, 'chase');
+    expect(stepProgress?.textContent).toBe(LOCALE_CALI.hud.stepProgress(2, 4));
+    expect(compass?.hidden).toBe(false);
+    expect(distanceEl?.textContent).toBe(`142 ${LOCALE_CALI.hud.metersUnit}`);
+    expect(compassCue?.textContent).toBe(LOCALE_CALI.hud.directionLeft);
+    // +bearingDeltaRad (left) rotates counter-clockwise -> negative CSS radians
+    expect(compassArrow?.style.transform).toContain('rotate(-1.571rad)');
+
+    // Turn cue mapping across all quadrants
+    expect(formatTurnCue(0)).toBe(LOCALE_CALI.hud.directionStraight);
+    expect(formatTurnCue(Math.PI / 2)).toBe(LOCALE_CALI.hud.directionLeft);
+    expect(formatTurnCue(-Math.PI / 2)).toBe(LOCALE_CALI.hud.directionRight);
+    expect(formatTurnCue(Math.PI)).toBe(LOCALE_CALI.hud.directionBack);
+
+    // Compass hides when activeObjective has no target
+    hud.render(
+      createWorldSnapshot(80),
+      {
+        ...missionWithNav,
+        activeObjective: {
+          ...missionWithNav.activeObjective!,
+          target: null,
+          distanceMeters: null,
+          bearingDeltaRad: null,
+        },
+      },
+      DEFAULT_AUDIO,
+      'chase',
+    );
+    expect(compass?.hidden).toBe(true);
+
+    hud.dispose();
+  });
+
+  it('renders center-screen checkpoint banners with accent attribute and hides when inactive', () => {
+    const hud = new HudController(root as unknown as HTMLElement, createCallbacks(), CALI_MAP);
+    const bannerEl = root.findFirst((el) => el.dataset.testid === 'hud-banner');
+    expect(bannerEl).not.toBeNull();
+
+    hud.render(
+      createWorldSnapshot(100),
+      {
+        ...createMissionSnapshot(),
+        banner: {
+          id: 'm2Ramp',
+          title: LOCALE_CALI.banners.m2Ramp.title,
+          subtitle: LOCALE_CALI.banners.m2Ramp.subtitle,
+          accent: 'gold',
+          remainingSeconds: 2.5,
+        },
+      },
+      DEFAULT_AUDIO,
+      'chase',
+    );
+
+    expect(bannerEl?.hidden).toBe(false);
+    expect(bannerEl?.dataset.accent).toBe('gold');
+    expect(bannerEl?.findFirst((el) => el.textContent === LOCALE_CALI.banners.m2Ramp.title)).not.toBeNull();
+    expect(bannerEl?.findFirst((el) => el.textContent === LOCALE_CALI.banners.m2Ramp.subtitle)).not.toBeNull();
+
+    hud.render(
+      createWorldSnapshot(100),
+      { ...createMissionSnapshot(), banner: null },
+      DEFAULT_AUDIO,
+      'chase',
+    );
+    expect(bannerEl?.hidden).toBe(true);
+
+    hud.dispose();
+  });
+
+  it('renders vehicle-specific [F] enter/hijack prompts and police evade cooldown bar', () => {
+    const hud = new HudController(root as unknown as HTMLElement, createCallbacks(), CALI_MAP);
+    const promptEl = root.findFirst((el) => el.dataset.testid === 'hud-vehicle-prompt');
+    const evadeEl = root.findFirst((el) => el.dataset.testid === 'hud-evade-bar');
+    expect(promptEl).not.toBeNull();
+    expect(evadeEl).not.toBeNull();
+
+    const baseWorld = createWorldSnapshot(100);
+    // On foot near Banshee -> enterNamedVehicle
+    hud.render(
+      {
+        ...baseWorld,
+        player: {
+          ...baseWorld.player,
+          mode: 'on_foot',
+          canEnterVehicle: true,
+          nearbyVehicleId: 'player_banshee',
+          nearbyVehicleKind: 'banshee',
+        },
+        wantedStars: 2,
+        bustProgress: 0,
+        policeEvadeProgress: 0.65,
+      },
+      createMissionSnapshot(),
+      DEFAULT_AUDIO,
+      'chase',
+    );
+    expect(promptEl?.hidden).toBe(false);
+    expect(promptEl?.textContent).toBe(
+      LOCALE_CALI.hud.enterNamedVehicle(LOCALE_CALI.vehicleNames.banshee),
+    );
+    expect(evadeEl?.hidden).toBe(false);
+    expect(
+      evadeEl?.findFirst((el) => el.textContent === LOCALE_CALI.hud.evadingPoliceLabel),
+    ).not.toBeNull();
+
+    // On foot near Chiva -> hijackNamedVehicle; evade hides while busting
+    hud.render(
+      {
+        ...baseWorld,
+        player: {
+          ...baseWorld.player,
+          mode: 'on_foot',
+          canEnterVehicle: true,
+          nearbyVehicleId: 'traffic_chiva',
+          nearbyVehicleKind: 'chiva',
+        },
+        wantedStars: 2,
+        bustProgress: 0.4,
+        policeEvadeProgress: 0.65,
+      },
+      createMissionSnapshot(),
+      DEFAULT_AUDIO,
+      'chase',
+    );
+    expect(promptEl?.textContent).toBe(
+      LOCALE_CALI.hud.hijackNamedVehicle(LOCALE_CALI.vehicleNames.chiva),
+    );
+    expect(evadeEl?.hidden).toBe(true);
+
+    hud.dispose();
+  });
+});
+
+describe('MinimapRenderer', () => {
+  it('renders zoomed player-centered road GPS polyline, 2-letter landmark badges, pedestrians, and off-radar beacon', () => {
+    const lineCalls: Array<{ x: number; y: number }> = [];
+    const textCalls: string[] = [];
+    const arcCalls: Array<{ x: number; y: number; r: number }> = [];
+
+    const ctxStub = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      lineCap: 'butt',
+      lineJoin: 'miter',
+      font: '',
+      textAlign: 'start',
+      textBaseline: 'alphabetic',
+      save: vi.fn(),
+      restore: vi.fn(),
+      translate: vi.fn(),
+      rotate: vi.fn(),
+      fillRect: vi.fn(),
+      strokeRect: vi.fn(),
+      beginPath: vi.fn(),
+      closePath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn((x: number, y: number) => {
+        lineCalls.push({ x, y });
+      }),
+      arc: vi.fn((x: number, y: number, r: number) => {
+        arcCalls.push({ x, y, r });
+      }),
+      fill: vi.fn(),
+      stroke: vi.fn(),
+      setLineDash: vi.fn(),
+      fillText: vi.fn((text: string) => {
+        textCalls.push(text);
+      }),
+    };
+
+    const canvasStub = {
+      width: 180,
+      height: 132,
+      getContext: () => ctxStub,
+    } as unknown as HTMLCanvasElement;
+
+    const renderer = new MinimapRenderer(canvasStub, CALI_MAP);
+    const baseWorld = createWorldSnapshot(100);
+    const world: WorldSnapshot = {
+      ...baseWorld,
+      player: { ...baseWorld.player, x: -90, z: 36, heading: Math.PI / 2 },
+      pedestrians: [
+        {
+          id: 'ped_1',
+          x: -80,
+          y: 0,
+          z: 30,
+          heading: 0,
+          speedMps: 1.5,
+          fleeing: false,
+          shirtColorHex: 0xff2e93,
+          pantsColorHex: 0x1d0e3d,
+        },
+      ],
+      wantedStars: 2,
+    };
+
+    const mission: MissionSnapshot = {
+      ...createMissionSnapshot(),
+      activeObjective: {
+        ...createMissionSnapshot().activeObjective!,
+        target: { x: 132, z: 126 }, // Far east -> outside zoomed radar frame!
+        gpsRoute: [
+          { x: -90, z: 36 },
+          { x: -68, z: 36 },
+          { x: -68, z: 77 },
+          { x: 132, z: 77 },
+          { x: 132, z: 126 },
+        ],
+      },
+    };
+
+    renderer.render(world, mission);
+
+    // San Antonio ('SA') is right next to player (-96, 32) and must be badged
+    expect(textCalls).toContain('SA');
+    // Multi-point GPS polyline + edge beacon + roads drawn
+    expect(lineCalls.length).toBeGreaterThan(20);
+    // Pedestrians and landmarks rendered as arcs
+    expect(arcCalls.length).toBeGreaterThan(3);
   });
 });
