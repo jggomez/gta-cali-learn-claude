@@ -3,9 +3,9 @@
 ## Active Context
 - **Branch**: `feat/gta-vi-cali-3d`
 - **Feature**: `gta-vi-cali-3d` — Playable 3D low-poly GTA VI-inspired web game set in Cali, Colombia (`La Sucursal del Cielo`).
-- **Status**: Changes `C-01` & `C-02` SHIPPED & VERIFIED (`qa-tester: DONE`, `e2e-blackbox-tester: PASSED`, `compliance-verifier: APPROVED`).
-- **Verification**: 9 Vitest suites (81/81 passed), `tsc --noEmit`, `eslint src tests`, `vite build`, and live Playwright Chromium WebGL2 E2E (2/2 journeys across 4 viewports `375/768/1280/1920`, `check_evidence.py` exit `0`).
-- **Visual Engine (`C-02`)**: Procedural PBR maps (wet asphalt, sidewalks, crosswalks, 3 Cali facade styles, 7 neon signs), PMREM sunset env reflections, `2048px` player-tracking shadows, `UnrealBloomPass` + `OutputPass`, GLSL animated Río Cali water, FBM sunset clouds, clearcoat sculpted vehicles with headlight `SpotLight`/brake lights/5-spoke wheels, and GPU `ParticleSystem` (drift smoke, sparks, nitro trails) with full GPU disposal.
+- **Status**: Changes `C-01`, `C-02`, & `C-03` SHIPPED & VERIFIED (`qa-tester: DONE`, `e2e-blackbox-tester: PASSED`, `compliance-verifier: APPROVED`).
+- **Verification**: 10 Vitest suites (98/98 passed), `tsc --noEmit`, `eslint src tests`, `vite build`, and live Playwright Chromium WebGL2 E2E (2/2 journeys across 4 viewports `375/768/1280/1920`, 34 local assets HTTP 200, `check_evidence.py` exit `0`).
+- **Photorealistic Visual Engine (`C-02` + `C-03`)**: 25 MB local `public/` CC0/MIT pack (`ferrari.glb` Rosso Corsa supercar, rigged `character.glb` `Idle/Walk/Run`, `evening_road_01_puresky_1k.hdr` golden-hour HDRI skybox/IBL, local JS Draco decoder, 10 1K photo PBR sets for asphalt/sidewalks/terrain/plaster/roof/facade/palm/jacaranda), `2048px` shadows, subtle HDR `UnrealBloomPass`, GLSL Río Cali water, GPU `ParticleSystem`, and GTA V free-orbit mouse-look + wheel zoom camera with full GPU/listener disposal.
 
 ## Key Decisions
 - **Decoupled 3D Engine (ADR-001)**: Headless Three.js/DOM-free `src/simulation/` & `src/missions/` emit immutable readonly snapshots to `src/world/` (Three.js), `src/audio/` (procedural Web Audio API), and `src/ui/` (DOM HUD + 2D GPS minimap).
