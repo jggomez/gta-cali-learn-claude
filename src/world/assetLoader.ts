@@ -12,6 +12,8 @@ export interface PbrTextureSetPaths {
 export const ASSET_PATHS = {
   dracoDir: '/draco/',
   hdri: '/hdri/evening_road_01_puresky_1k.hdr',
+  /** 2K Poly Haven tonemapped sRGB render of the same sky, used only as the visible background. */
+  skyBackground: '/hdri/evening_road_01_puresky_2k_tonemapped.jpg',
   models: {
     ferrari: '/models/ferrari.glb',
     character: '/models/character.glb',
@@ -69,6 +71,21 @@ export const ASSET_PATHS = {
       norGl: '/textures/jacaranda_leaves/nor_gl.jpg',
       rough: '/textures/jacaranda_leaves/rough.jpg',
     },
+    stucco: {
+      diff: '/textures/stucco/diff.jpg',
+      norGl: '/textures/stucco/nor_gl.jpg',
+      rough: '/textures/stucco/rough.jpg',
+    },
+    concrete: {
+      diff: '/textures/concrete/diff.jpg',
+      norGl: '/textures/concrete/nor_gl.jpg',
+      rough: '/textures/concrete/rough.jpg',
+    },
+    terracottaPlaster: {
+      diff: '/textures/terracotta_plaster/diff.jpg',
+      norGl: '/textures/terracotta_plaster/nor_gl.jpg',
+      rough: '/textures/terracotta_plaster/rough.jpg',
+    },
   },
 } as const;
 
@@ -100,10 +117,15 @@ export interface LoadedWorldTextureSets {
   readonly palmLeaves: PhotoPbrMaterialMaps | null;
   readonly jacarandaBark: PhotoPbrMaterialMaps | null;
   readonly jacarandaLeaves: PhotoPbrMaterialMaps | null;
+  readonly stucco: PhotoPbrMaterialMaps | null;
+  readonly concrete: PhotoPbrMaterialMaps | null;
+  readonly terracottaPlaster: PhotoPbrMaterialMaps | null;
 }
 
 export interface LoadedWorldAssets {
   readonly hdriTexture: THREE.DataTexture | null;
+  /** sRGB equirectangular 2K sky shown as scene background (HDRI stays the PMREM light source). */
+  readonly skyBackgroundTexture: THREE.Texture | null;
   readonly ferrari: THREE.Group | null;
   readonly character: LoadedCharacterAsset | null;
   readonly valeria: LoadedCharacterAsset | null;
@@ -124,16 +146,31 @@ export interface AssetLoaderDeps {
   readonly loadTexture: (url: string) => Promise<THREE.Texture>;
 }
 
-const TEXTURE_ANISOTROPY = 8;
+export interface AssetLoadOptions {
+  /** Upper anisotropic filtering level supported by the GPU (renderer.capabilities.getMaxAnisotropy()). */
+  readonly maxAnisotropy?: number;
+}
+
+const DEFAULT_TEXTURE_ANISOTROPY = 8;
+const MAX_TEXTURE_ANISOTROPY = 16;
+
+function resolveAnisotropy(options: AssetLoadOptions | undefined): number {
+  const requested = options?.maxAnisotropy;
+  if (requested === undefined || !Number.isFinite(requested) || requested < 1) {
+    return DEFAULT_TEXTURE_ANISOTROPY;
+  }
+  return Math.min(MAX_TEXTURE_ANISOTROPY, Math.floor(requested));
+}
 
 function configurePbrTexture(
   texture: THREE.Texture,
   colorSpace: THREE.ColorSpace,
+  anisotropy: number,
 ): THREE.Texture {
   texture.colorSpace = colorSpace;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.anisotropy = TEXTURE_ANISOTROPY;
+  texture.anisotropy = anisotropy;
   texture.needsUpdate = true;
   return texture;
 }
@@ -142,11 +179,12 @@ function createPhotoPbrMaterialMaps(
   map: THREE.Texture,
   normalMap: THREE.Texture,
   roughnessMap: THREE.Texture,
+  anisotropy: number,
 ): PhotoPbrMaterialMaps {
   let disposed = false;
-  configurePbrTexture(map, THREE.SRGBColorSpace);
-  configurePbrTexture(normalMap, THREE.NoColorSpace);
-  configurePbrTexture(roughnessMap, THREE.NoColorSpace);
+  configurePbrTexture(map, THREE.SRGBColorSpace, anisotropy);
+  configurePbrTexture(normalMap, THREE.NoColorSpace, anisotropy);
+  configurePbrTexture(roughnessMap, THREE.NoColorSpace, anisotropy);
 
   return {
     map,
@@ -218,10 +256,12 @@ function disposeObject3DTree(root: THREE.Object3D): void {
 
 function disposeWorldAssets(
   hdriTexture: THREE.DataTexture | null,
+  skyBackgroundTexture: THREE.Texture | null,
   textures: LoadedWorldTextureSets,
   models: ReadonlyArray<THREE.Object3D | null>,
 ): void {
   hdriTexture?.dispose();
+  skyBackgroundTexture?.dispose();
   for (const textureSet of Object.values(textures)) {
     textureSet?.dispose();
   }
@@ -254,6 +294,7 @@ async function safeInvoke<T>(loader: () => Promise<T>): Promise<T> {
 async function loadPbrTextureSet(
   paths: PbrTextureSetPaths,
   loadTexture: (url: string) => Promise<THREE.Texture>,
+  anisotropy: number,
 ): Promise<PhotoPbrMaterialMaps | null> {
   const [diffRes, normalRes, roughRes] = await Promise.allSettled([
     safeInvoke(() => loadTexture(paths.diff)),
@@ -270,6 +311,7 @@ async function loadPbrTextureSet(
       diffRes.value,
       normalRes.value,
       roughRes.value,
+      anisotropy,
     );
   }
 
@@ -316,15 +358,19 @@ function createDefaultDeps(): AssetLoaderDeps {
 }
 
 /**
- * Loads all local 3D models, HDRI environment texture, and 10 1K photographic
- * PBR texture sets in parallel. Never throws in headless environments or when
+ * Loads all local 3D models, the HDRI environment, the 2K sky background, and 13 1K
+ * photographic PBR texture sets in parallel. Never throws in headless environments or when
  * individual assets fail; failed slots degrade gracefully to `null`.
  */
 export async function loadWorldAssets(
   deps?: AssetLoaderDeps,
+  options?: AssetLoadOptions,
 ): Promise<LoadedWorldAssets> {
   const activeDeps = deps ?? createDefaultDeps();
   const dracoHandle = activeDeps.configureDraco(ASSET_PATHS.dracoDir);
+  const anisotropy = resolveAnisotropy(options);
+  const loadSet = (paths: PbrTextureSetPaths): Promise<PhotoPbrMaterialMaps | null> =>
+    loadPbrTextureSet(paths, activeDeps.loadTexture, anisotropy);
 
   try {
     const [
@@ -343,28 +389,43 @@ export async function loadWorldAssets(
       palmLeavesResult,
       jacarandaBarkResult,
       jacarandaLeavesResult,
+      stuccoResult,
+      concreteResult,
+      terracottaPlasterResult,
+      skyBackgroundResult,
     ] = await Promise.allSettled([
       safeInvoke(() => activeDeps.loadHdri(ASSET_PATHS.hdri)),
       safeInvoke(() => activeDeps.loadGltf(ASSET_PATHS.models.ferrari)),
       safeInvoke(() => activeDeps.loadGltf(ASSET_PATHS.models.character)),
       safeInvoke(() => activeDeps.loadGltf(ASSET_PATHS.models.valeria)),
       safeInvoke(() => activeDeps.loadGltf(ASSET_PATHS.models.caleno)),
-      loadPbrTextureSet(ASSET_PATHS.textures.asphalt, activeDeps.loadTexture),
-      loadPbrTextureSet(ASSET_PATHS.textures.sidewalk, activeDeps.loadTexture),
-      loadPbrTextureSet(ASSET_PATHS.textures.terrain, activeDeps.loadTexture),
-      loadPbrTextureSet(ASSET_PATHS.textures.plaster, activeDeps.loadTexture),
-      loadPbrTextureSet(ASSET_PATHS.textures.roof, activeDeps.loadTexture),
-      loadPbrTextureSet(ASSET_PATHS.textures.facade, activeDeps.loadTexture),
-      loadPbrTextureSet(ASSET_PATHS.textures.palmBark, activeDeps.loadTexture),
-      loadPbrTextureSet(ASSET_PATHS.textures.palmLeaves, activeDeps.loadTexture),
-      loadPbrTextureSet(ASSET_PATHS.textures.jacarandaBark, activeDeps.loadTexture),
-      loadPbrTextureSet(ASSET_PATHS.textures.jacarandaLeaves, activeDeps.loadTexture),
+      loadSet(ASSET_PATHS.textures.asphalt),
+      loadSet(ASSET_PATHS.textures.sidewalk),
+      loadSet(ASSET_PATHS.textures.terrain),
+      loadSet(ASSET_PATHS.textures.plaster),
+      loadSet(ASSET_PATHS.textures.roof),
+      loadSet(ASSET_PATHS.textures.facade),
+      loadSet(ASSET_PATHS.textures.palmBark),
+      loadSet(ASSET_PATHS.textures.palmLeaves),
+      loadSet(ASSET_PATHS.textures.jacarandaBark),
+      loadSet(ASSET_PATHS.textures.jacarandaLeaves),
+      loadSet(ASSET_PATHS.textures.stucco),
+      loadSet(ASSET_PATHS.textures.concrete),
+      loadSet(ASSET_PATHS.textures.terracottaPlaster),
+      safeInvoke(() => activeDeps.loadTexture(ASSET_PATHS.skyBackground)),
     ]);
 
     const hdriTexture = unwrapSettled(hdriResult);
     if (hdriTexture) {
       hdriTexture.mapping = THREE.EquirectangularReflectionMapping;
       hdriTexture.needsUpdate = true;
+    }
+
+    const skyBackgroundTexture = unwrapSettled(skyBackgroundResult);
+    if (skyBackgroundTexture) {
+      skyBackgroundTexture.mapping = THREE.EquirectangularReflectionMapping;
+      skyBackgroundTexture.colorSpace = THREE.SRGBColorSpace;
+      skyBackgroundTexture.needsUpdate = true;
     }
 
     const ferrariGltf = unwrapSettled(ferrariResult);
@@ -384,12 +445,16 @@ export async function loadWorldAssets(
       palmLeaves: unwrapSettled(palmLeavesResult),
       jacarandaBark: unwrapSettled(jacarandaBarkResult),
       jacarandaLeaves: unwrapSettled(jacarandaLeavesResult),
+      stucco: unwrapSettled(stuccoResult),
+      concrete: unwrapSettled(concreteResult),
+      terracottaPlaster: unwrapSettled(terracottaPlasterResult),
     };
 
     let disposed = false;
 
     return {
       hdriTexture,
+      skyBackgroundTexture,
       ferrari,
       character,
       valeria,
@@ -400,7 +465,7 @@ export async function loadWorldAssets(
           return;
         }
         disposed = true;
-        disposeWorldAssets(hdriTexture, textures, [
+        disposeWorldAssets(hdriTexture, skyBackgroundTexture, textures, [
           ferrari,
           character?.scene ?? null,
           valeria?.scene ?? null,

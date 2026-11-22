@@ -16,6 +16,7 @@ All assets stored in `public/` are loaded strictly from local files at runtime (
 | Local Path | Asset | License | Source |
 | --- | --- | --- | --- |
 | `public/hdri/evening_road_01_puresky_1k.hdr` | Evening Road 01 Pure Sky (1K HDRI) | CC0 1.0 | Poly Haven (`https://polyhaven.com/a/evening_road_01_puresky`) |
+| `public/hdri/evening_road_01_puresky_2k_tonemapped.jpg` | Evening Road 01 Pure Sky (Poly Haven tonemapped JPG, downscaled locally to 2048x1024, 284 KB; visible sky background only) | CC0 1.0 | Poly Haven (`https://polyhaven.com/a/evening_road_01_puresky`) |
 
 ## 1K Photographic PBR Texture Sets
 
@@ -33,6 +34,9 @@ Each directory contains `diff.jpg` (Diffuse/Albedo), `nor_gl.jpg` (OpenGL Normal
 | `public/textures/palm_leaves/` | Island Tree 01 Fronds (`island_tree_01`, 1K) | CC0 1.0 | Poly Haven (`https://polyhaven.com/a/island_tree_01`) |
 | `public/textures/jacaranda_bark/` | Jacaranda Tree Bark (`jacaranda_tree`, 1K) | CC0 1.0 | Poly Haven (`https://polyhaven.com/a/jacaranda_tree`) |
 | `public/textures/jacaranda_leaves/` | Jacaranda Tree Canopy (`jacaranda_tree`, 1K) | CC0 1.0 | Poly Haven (`https://polyhaven.com/a/jacaranda_tree`) |
+| `public/textures/stucco/` | White Stucco (`white_stucco`, 1K, 1.8 MB set) — colonial San Antonio whitewash and tinted Granada/El Peñón stucco | CC0 1.0 | Poly Haven (`https://polyhaven.com/a/white_stucco`) |
+| `public/textures/concrete/` | Concrete Wall 008 (`concrete_wall_008`, 1K, 1.4 MB set) — worn Centro concrete | CC0 1.0 | Poly Haven (`https://polyhaven.com/a/concrete_wall_008`) |
+| `public/textures/terracotta_plaster/` | Red Plaster Weathered (`red_plaster_weathered`, 1K, 1.9 MB set) — terracotta colonial plaster | CC0 1.0 | Poly Haven (`https://polyhaven.com/a/red_plaster_weathered`) |
 
 ## Compression Decoders
 

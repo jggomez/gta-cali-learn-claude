@@ -63,6 +63,7 @@ function collectAllDeclaredPaths(): string[] {
   return [
     ASSET_PATHS.dracoDir,
     ASSET_PATHS.hdri,
+    ASSET_PATHS.skyBackground,
     ASSET_PATHS.models.ferrari,
     ASSET_PATHS.models.character,
     ASSET_PATHS.models.valeria,
@@ -187,12 +188,35 @@ describe('ASSET_PATHS local offline asset pack', () => {
     expect(animationNames).toContain('SambaDance');
   });
 
-  it('includes all 10 photographic PBR 1K JPEG texture sets with valid JPEG magic headers', async () => {
+  it('includes a 2K tonemapped evening sky JPEG background under 3 MB', async () => {
+    const fs = await loadNodeFs();
+    const skyUrl = resolvePublicUrl(ASSET_PATHS.skyBackground);
+    expect(fs.existsSync(skyUrl)).toBe(true);
+    const bytes = fs.readFileSync(skyUrl);
+    assertJpegMagic(bytes, 'skyBackground');
+    expect(bytes.byteLength).toBeLessThan(3 * 1024 * 1024);
+  });
+
+  it('includes Cali facade finishes (white stucco, worn concrete, terracotta plaster) each under 3 MB', async () => {
+    const fs = await loadNodeFs();
+    for (const set of [
+      ASSET_PATHS.textures.stucco,
+      ASSET_PATHS.textures.concrete,
+      ASSET_PATHS.textures.terracottaPlaster,
+    ]) {
+      for (const filePath of [set.diff, set.norGl, set.rough]) {
+        const stat = fs.statSync(resolvePublicUrl(filePath));
+        expect(stat.size, filePath).toBeLessThan(3 * 1024 * 1024);
+      }
+    }
+  });
+
+  it('includes all 13 photographic PBR 1K JPEG texture sets with valid JPEG magic headers', async () => {
     const fs = await loadNodeFs();
     const sets = Object.entries(ASSET_PATHS.textures) as Array<
       [string, PbrTextureSetPaths]
     >;
-    expect(sets).toHaveLength(10);
+    expect(sets).toHaveLength(13);
 
     for (const [kind, paths] of sets) {
       for (const [channel, filePath] of Object.entries(paths)) {
@@ -230,6 +254,10 @@ describe('ASSET_PATHS local offline asset pack', () => {
     const licenseText = UTF8_DECODER.decode(bytes);
     expect(licenseText).toContain('models/valeria.glb');
     expect(licenseText).toContain('models/caleno.glb');
+    expect(licenseText).toContain('hdri/evening_road_01_puresky_2k_tonemapped.jpg');
+    expect(licenseText).toContain('textures/stucco/');
+    expect(licenseText).toContain('textures/concrete/');
+    expect(licenseText).toContain('textures/terracotta_plaster/');
   });
 });
 
@@ -238,6 +266,7 @@ describe('loadWorldAssets', () => {
     const assets = await loadWorldAssets();
 
     expect(assets.hdriTexture).toBeNull();
+    expect(assets.skyBackgroundTexture).toBeNull();
     expect(assets.ferrari).toBeNull();
     expect(assets.character).toBeNull();
     expect(assets.valeria).toBeNull();
@@ -252,12 +281,15 @@ describe('loadWorldAssets', () => {
     expect(assets.textures.palmLeaves).toBeNull();
     expect(assets.textures.jacarandaBark).toBeNull();
     expect(assets.textures.jacarandaLeaves).toBeNull();
+    expect(assets.textures.stucco).toBeNull();
+    expect(assets.textures.concrete).toBeNull();
+    expect(assets.textures.terracottaPlaster).toBeNull();
 
     expect(() => assets.dispose()).not.toThrow();
     expect(() => assets.dispose()).not.toThrow();
   });
 
-  it('configures Draco decoder, all 10 PBR sets (including ARM roughness), HDRI mapping, and full disposal', async () => {
+  it('configures Draco decoder, all 13 PBR sets (including ARM roughness), HDRI + 2K sky mapping, GPU anisotropy, and full disposal', async () => {
     const setDecoderPath = vi.fn();
     const disposeDraco = vi.fn();
     const disposedTextures: THREE.Texture[] = [];
@@ -319,20 +351,30 @@ describe('loadWorldAssets', () => {
       loadTexture: async () => trackTexture(new THREE.Texture()),
     };
 
-    const assets = await loadWorldAssets(deps);
+    const assets = await loadWorldAssets(deps, { maxAnisotropy: 16 });
 
     expect(setDecoderPath).toHaveBeenCalledWith(ASSET_PATHS.dracoDir);
     expect(disposeDraco).toHaveBeenCalledTimes(1);
 
     expect(assets.hdriTexture).toBe(hdriTex);
     expect(assets.hdriTexture?.mapping).toBe(THREE.EquirectangularReflectionMapping);
+    expect(assets.skyBackgroundTexture).not.toBeNull();
+    expect(assets.skyBackgroundTexture?.mapping).toBe(THREE.EquirectangularReflectionMapping);
+    expect(assets.skyBackgroundTexture?.colorSpace).toBe(THREE.SRGBColorSpace);
     expect(assets.ferrari).not.toBeNull();
     expect(assets.character?.animations).toEqual([walkClip]);
     expect(assets.valeria?.animations).toEqual([sambaClip]);
     expect(assets.caleno).not.toBeNull();
     expect(assets.caleno?.scene.name).toBe('caleno');
 
-    for (const set of [assets.textures.asphalt, assets.textures.palmBark, assets.textures.jacarandaLeaves]) {
+    for (const set of [
+      assets.textures.asphalt,
+      assets.textures.palmBark,
+      assets.textures.jacarandaLeaves,
+      assets.textures.stucco,
+      assets.textures.concrete,
+      assets.textures.terracottaPlaster,
+    ]) {
       expect(set).not.toBeNull();
       if (set) {
         expect(set.map.colorSpace).toBe(THREE.SRGBColorSpace);
@@ -341,7 +383,7 @@ describe('loadWorldAssets', () => {
         for (const tex of [set.map, set.normalMap, set.roughnessMap]) {
           expect(tex.wrapS).toBe(THREE.RepeatWrapping);
           expect(tex.wrapT).toBe(THREE.RepeatWrapping);
-          expect(tex.anisotropy).toBe(8);
+          expect(tex.anisotropy).toBe(16);
         }
       }
     }
@@ -351,8 +393,8 @@ describe('loadWorldAssets', () => {
     const firstDisposeGeomCount = disposedGeometries.length;
     const firstDisposeMatCount = disposedMaterials.length;
 
-    // 1 HDRI + 30 PBR maps (10 sets * 3) + 4 model mesh textures = 35 textures
-    expect(firstDisposeTextureCount).toBe(35);
+    // 1 HDRI + 1 sky JPEG + 39 PBR maps (13 sets * 3) + 4 model mesh textures = 45 textures
+    expect(firstDisposeTextureCount).toBe(45);
     expect(firstDisposeGeomCount).toBe(4);
     expect(firstDisposeMatCount).toBe(4);
 
