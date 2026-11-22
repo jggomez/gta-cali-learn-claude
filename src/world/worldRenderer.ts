@@ -205,6 +205,7 @@ export class WorldRenderer {
   private orbitAngle = 0;
   private sparkCooldown = 0;
   private lastBeaconColorHex = -1;
+  private worldAssetsLoaded = false;
   private disposed = false;
 
   constructor(canvas: HTMLCanvasElement, map: CaliMapConfig = CALI_MAP) {
@@ -409,6 +410,14 @@ export class WorldRenderer {
     return this.landmarkCount;
   }
 
+  public getAssetsLoaded(): boolean {
+    return this.worldAssetsLoaded;
+  }
+
+  public get assetsLoaded(): boolean {
+    return this.worldAssetsLoaded;
+  }
+
   public dispose(): void {
     if (this.disposed) {
       return;
@@ -445,33 +454,36 @@ export class WorldRenderer {
   }
 
   private async loadRealWorldAssets(): Promise<void> {
-    let assets: LoadedWorldAssets;
     try {
-      assets = await loadWorldAssets();
+      const assets = await loadWorldAssets();
+
+      if (this.disposed) {
+        assets.dispose();
+        return;
+      }
+
+      this.loadedAssets = assets;
+
+      if (assets.hdriTexture) {
+        this.applyHdriEnvironment(assets.hdriTexture);
+      }
+
+      applyPhotographicAssets(this.worldGroup, assets.textures);
+
+      if (assets.ferrari) {
+        this.ferrariTemplate = assets.ferrari;
+        this.upgradePooledBansheesToFerrari(assets.ferrari);
+      }
+
+      if (assets.character) {
+        this.upgradePlayerToRiggedCharacter(assets.character);
+      }
     } catch {
-      return;
-    }
-
-    if (this.disposed) {
-      assets.dispose();
-      return;
-    }
-
-    this.loadedAssets = assets;
-
-    if (assets.hdriTexture) {
-      this.applyHdriEnvironment(assets.hdriTexture);
-    }
-
-    applyPhotographicAssets(this.worldGroup, assets.textures);
-
-    if (assets.ferrari) {
-      this.ferrariTemplate = assets.ferrari;
-      this.upgradePooledBansheesToFerrari(assets.ferrari);
-    }
-
-    if (assets.character) {
-      this.upgradePlayerToRiggedCharacter(assets.character);
+      // Fall back cleanly to procedural assets while signaling load completion
+    } finally {
+      if (!this.disposed) {
+        this.worldAssetsLoaded = true;
+      }
     }
   }
 
