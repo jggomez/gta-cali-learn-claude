@@ -15,6 +15,7 @@ import type {
   CaliMapConfig,
   InputState,
   LandmarkId,
+  MotorcycleKind,
   StuntJumpDef,
   VehicleKind,
 } from '../types/game';
@@ -31,6 +32,18 @@ export interface VehicleHandlingProfile {
   readonly baseTurnRate: number;
   readonly driftTurnMultiplier: number;
   readonly maxSteerAngle: number;
+  /** Two-wheeler (moto) dynamics: lean-driven turning, wheelies, and a slim collision radius. */
+  readonly isTwoWheeler?: boolean;
+  /** Maximum body lean (radians) reached at full steer and speed. */
+  readonly maxLeanRad?: number;
+  /** Exponential lean response rate (1/s). */
+  readonly leanRatePerSec?: number;
+  /** Maximum nose-up wheelie pitch (radians). */
+  readonly wheelieMaxRad?: number;
+  /** Throttle wheelies only pop below this speed (nitro extends it by NITRO_WHEELIE_SPEED_FACTOR). */
+  readonly wheelieMaxSpeedMps?: number;
+  /** Explicit world collision radius; falls back to max(halfWidth, car minimum). */
+  readonly collisionRadius?: number;
 }
 
 export interface CollisionResult {
@@ -57,6 +70,8 @@ export interface VehicleMotionState {
   readonly halfLength: number;
   readonly airborneHeight?: number;
   readonly verticalVelocity?: number;
+  readonly leanAngle?: number;
+  readonly wheelieAngle?: number;
 }
 
 export interface VehicleStepResult {
@@ -75,6 +90,8 @@ export interface VehicleStepResult {
   readonly inRiverHazard: boolean;
   readonly airborneHeight: number;
   readonly verticalVelocity: number;
+  readonly leanAngle: number;
+  readonly wheelieAngle: number;
 }
 
 export interface VerticalMotionResult {
@@ -164,6 +181,135 @@ const VEHICLE_HANDLING_PROFILES: Readonly<
     driftTurnMultiplier: 1.48,
     maxSteerAngle: 0.52,
   },
+  mazda_323_coupe: {
+    baseMaxSpeedMps: 40.5,
+    boostMaxSpeedMps: 55,
+    maxReverseSpeedMps: -14,
+    accelMps2: 23.5,
+    boostAccelMps2: 35,
+    brakeDecelMps2: 35,
+    reverseAccelMps2: 14,
+    coastDragMps2: 7.4,
+    baseTurnRate: 2.5,
+    driftTurnMultiplier: 1.52,
+    maxSteerAngle: 0.53,
+  },
+  renault_18_gtx: {
+    baseMaxSpeedMps: 39,
+    boostMaxSpeedMps: 52,
+    maxReverseSpeedMps: -13.5,
+    accelMps2: 21.5,
+    boostAccelMps2: 33,
+    brakeDecelMps2: 33,
+    reverseAccelMps2: 13.5,
+    coastDragMps2: 7.2,
+    baseTurnRate: 2.3,
+    driftTurnMultiplier: 1.42,
+    maxSteerAngle: 0.5,
+  },
+  chevrolet_sprint_turbo: {
+    baseMaxSpeedMps: 40,
+    boostMaxSpeedMps: 55.5,
+    maxReverseSpeedMps: -14.5,
+    accelMps2: 25,
+    boostAccelMps2: 37,
+    brakeDecelMps2: 35,
+    reverseAccelMps2: 14.5,
+    coastDragMps2: 7.6,
+    baseTurnRate: 2.62,
+    driftTurnMultiplier: 1.5,
+    maxSteerAngle: 0.55,
+  },
+  chevrolet_monza: {
+    baseMaxSpeedMps: 38.5,
+    boostMaxSpeedMps: 51,
+    maxReverseSpeedMps: -13.5,
+    accelMps2: 21,
+    boostAccelMps2: 32,
+    brakeDecelMps2: 32,
+    reverseAccelMps2: 13.5,
+    coastDragMps2: 7.1,
+    baseTurnRate: 2.25,
+    driftTurnMultiplier: 1.4,
+    maxSteerAngle: 0.5,
+  },
+  nissan_sentra_b13: {
+    baseMaxSpeedMps: 41,
+    boostMaxSpeedMps: 56.9,
+    maxReverseSpeedMps: -14,
+    accelMps2: 23,
+    boostAccelMps2: 35.5,
+    brakeDecelMps2: 35,
+    reverseAccelMps2: 14,
+    coastDragMps2: 7.3,
+    baseTurnRate: 2.45,
+    driftTurnMultiplier: 1.48,
+    maxSteerAngle: 0.52,
+  },
+  chevette_turbo: {
+    baseMaxSpeedMps: 38,
+    boostMaxSpeedMps: 52.5,
+    maxReverseSpeedMps: -13.5,
+    accelMps2: 22,
+    boostAccelMps2: 34,
+    brakeDecelMps2: 33,
+    reverseAccelMps2: 13.5,
+    coastDragMps2: 7.2,
+    baseTurnRate: 2.35,
+    driftTurnMultiplier: 1.64,
+    maxSteerAngle: 0.52,
+  },
+  renault_twingo: {
+    baseMaxSpeedMps: 36,
+    boostMaxSpeedMps: 49,
+    maxReverseSpeedMps: -13,
+    accelMps2: 22.5,
+    boostAccelMps2: 33,
+    brakeDecelMps2: 34,
+    reverseAccelMps2: 13,
+    coastDragMps2: 7.5,
+    baseTurnRate: 2.7,
+    driftTurnMultiplier: 1.46,
+    maxSteerAngle: 0.56,
+  },
+  yamaha_rx115: {
+    baseMaxSpeedMps: 34,
+    boostMaxSpeedMps: 45,
+    maxReverseSpeedMps: -4,
+    accelMps2: 26,
+    boostAccelMps2: 36,
+    brakeDecelMps2: 30,
+    reverseAccelMps2: 4,
+    coastDragMps2: 6.4,
+    baseTurnRate: 2.9,
+    driftTurnMultiplier: 1.35,
+    maxSteerAngle: 0.42,
+    isTwoWheeler: true,
+    maxLeanRad: 0.75,
+    leanRatePerSec: 6.5,
+    wheelieMaxRad: 0.5,
+    wheelieMaxSpeedMps: 12,
+    collisionRadius: 0.55,
+  },
+  yamaha_dt125: {
+    baseMaxSpeedMps: 32,
+    boostMaxSpeedMps: 43,
+    maxReverseSpeedMps: -4,
+    accelMps2: 24,
+    boostAccelMps2: 34,
+    brakeDecelMps2: 28,
+    reverseAccelMps2: 4,
+    coastDragMps2: 6.8,
+    baseTurnRate: 2.8,
+    driftTurnMultiplier: 1.4,
+    maxSteerAngle: 0.46,
+    isTwoWheeler: true,
+    maxLeanRad: 0.68,
+    leanRatePerSec: 5.5,
+    wheelieMaxRad: 0.6,
+    wheelieMaxSpeedMps: 13,
+    collisionRadius: 0.55,
+  },
   police: {
     baseMaxSpeedMps: 37,
     boostMaxSpeedMps: 49,
@@ -228,10 +374,107 @@ const DRIFT_MIN_SPEED_MPS = 6.5;
 export const STUNT_GRAVITY_MPS2 = 19;
 const STUNT_HEADING_MIN_COS = 0.35;
 
+const CAR_COLLISION_RADIUS_MIN = 1.35;
+const LEAN_FULL_SPEED_MPS = 14;
+const WHEELIE_RISE_RATE_PER_SEC = 2.6;
+const WHEELIE_FALL_RATE_PER_SEC = 3.4;
+const THROTTLE_WHEELIE_FRACTION = 0.6;
+const NITRO_WHEELIE_SPEED_FACTOR = 1.8;
+const WHEELIE_STEER_PENALTY = 0.7;
+
 export function getVehicleHandlingProfile(
   kind: VehicleKind,
 ): VehicleHandlingProfile {
   return VEHICLE_HANDLING_PROFILES[kind];
+}
+
+export function isTwoWheelerKind(kind: VehicleKind): kind is MotorcycleKind {
+  return VEHICLE_HANDLING_PROFILES[kind].isTwoWheeler === true;
+}
+
+/**
+ * World/vehicle collision radius: bikes use their slim profile radius, cars keep a minimum
+ * footprint (`carMinimum`) so wide bodies never clip building corners.
+ */
+export function resolveVehicleCollisionRadius(
+  kind: VehicleKind | undefined,
+  halfWidth: number,
+  carMinimum: number = CAR_COLLISION_RADIUS_MIN,
+): number {
+  const explicitRadius = kind
+    ? VEHICLE_HANDLING_PROFILES[kind].collisionRadius
+    : undefined;
+  return explicitRadius ?? Math.max(halfWidth, carMinimum);
+}
+
+function approachValue(current: number, target: number, maxDelta: number): number {
+  if (Math.abs(target - current) <= maxDelta) {
+    return target;
+  }
+  return current + Math.sign(target - current) * maxDelta;
+}
+
+interface TwoWheelerAttitude {
+  readonly leanAngle: number;
+  readonly wheelieAngle: number;
+  /** Effective steer (-1..1) after lean-derived turning and wheelie steering loss. */
+  readonly turnInput: number;
+}
+
+const UPRIGHT_ATTITUDE_ZERO = { leanAngle: 0, wheelieAngle: 0 } as const;
+
+/**
+ * Lean follows steer x speed (exponential response, bounded by maxLean) and the yaw input is
+ * derived from the current lean at speed, blending to direct steer at walking pace. Throttle
+ * wheelies only pop at low speed (nitro extends the window) and cut steering authority.
+ */
+function stepTwoWheelerAttitude(
+  profile: VehicleHandlingProfile,
+  state: VehicleMotionState,
+  input: InputState,
+  steerInput: number,
+  speed: number,
+  isBoosting: boolean,
+  dt: number,
+): TwoWheelerAttitude {
+  const maxLean = profile.maxLeanRad ?? 0;
+  const speedBlend = clamp(Math.abs(speed) / LEAN_FULL_SPEED_MPS, 0, 1);
+  const targetLean = steerInput * maxLean * speedBlend;
+  const leanAlpha = clamp(dt * (profile.leanRatePerSec ?? 0), 0, 1);
+  const currentLean = state.leanAngle ?? 0;
+  const leanAngle = clamp(
+    currentLean + (targetLean - currentLean) * leanAlpha,
+    -maxLean,
+    maxLean,
+  );
+
+  const wheelieMax = profile.wheelieMaxRad ?? 0;
+  const wheelieSpeedLimit =
+    (profile.wheelieMaxSpeedMps ?? 0) * (isBoosting ? NITRO_WHEELIE_SPEED_FACTOR : 1);
+  const wantsWheelie =
+    input.forward &&
+    !input.backward &&
+    !input.handbrake &&
+    speed >= 0 &&
+    speed < wheelieSpeedLimit;
+  const targetWheelie = wantsWheelie
+    ? wheelieMax * (isBoosting ? 1 : THROTTLE_WHEELIE_FRACTION)
+    : 0;
+  const currentWheelie = state.wheelieAngle ?? 0;
+  const wheelieRate =
+    targetWheelie > currentWheelie ? WHEELIE_RISE_RATE_PER_SEC : WHEELIE_FALL_RATE_PER_SEC;
+  const wheelieAngle = clamp(
+    approachValue(currentWheelie, targetWheelie, wheelieRate * dt),
+    0,
+    wheelieMax,
+  );
+
+  const leanSteer = maxLean > 0 ? leanAngle / maxLean : 0;
+  const blendedSteer = clamp(steerInput * (1 - speedBlend) + leanSteer, -1, 1);
+  const wheelieLoss =
+    wheelieMax > 0 ? 1 - WHEELIE_STEER_PENALTY * (wheelieAngle / wheelieMax) : 1;
+
+  return { leanAngle, wheelieAngle, turnInput: blendedSteer * wheelieLoss };
 }
 
 const WALK_SPEED_MPS = 6.5;
@@ -553,10 +796,13 @@ export function stepPlayerVehicle(
       inRiverHazard: false,
       airborneHeight: initialAirborneHeight,
       verticalVelocity: initialVerticalVelocity,
+      leanAngle: state.leanAngle ?? 0,
+      wheelieAngle: state.wheelieAngle ?? 0,
     };
   }
 
-  const profile = getVehicleHandlingProfile(kind ?? state.kind ?? 'banshee');
+  const resolvedKind = kind ?? state.kind ?? 'banshee';
+  const profile = getVehicleHandlingProfile(resolvedKind);
   const steerInput = (input.left ? 1 : 0) - (input.right ? 1 : 0);
   const isBoosting =
     input.boost && (input.forward || state.speedMps > 2) && state.nitro > 0;
@@ -619,6 +865,9 @@ export function stepPlayerVehicle(
     state.steerAngle + (targetSteerAngle - state.steerAngle) * steerLerp;
 
   const absSpeed = Math.abs(speed);
+  const attitude: TwoWheelerAttitude = profile.isTwoWheeler
+    ? stepTwoWheelerAttitude(profile, state, input, steerInput, speed, isBoosting, safeDt)
+    : { ...UPRIGHT_ATTITUDE_ZERO, turnInput: steerInput };
   const lowSpeedRamp = clamp(absSpeed / 6, 0, 1);
   const highSpeedDamp = 1 - 0.35 * clamp((absSpeed - 15) / 40, 0, 1);
   const driftMultiplier = isDrifting ? profile.driftTurnMultiplier : 1;
@@ -626,7 +875,7 @@ export function stepPlayerVehicle(
   const turnRate =
     profile.baseTurnRate * lowSpeedRamp * highSpeedDamp * driftMultiplier;
   const nextHeading = normalizeAngle(
-    state.heading + steerInput * directionSign * turnRate * safeDt,
+    state.heading + attitude.turnInput * directionSign * turnRate * safeDt,
   );
 
   const travelHeading = isDrifting
@@ -635,7 +884,7 @@ export function stepPlayerVehicle(
 
   const intendedX = state.x + Math.sin(travelHeading) * speed * safeDt;
   const intendedZ = state.z + Math.cos(travelHeading) * speed * safeDt;
-  const collisionRadius = Math.max(state.halfWidth, 1.35);
+  const collisionRadius = resolveVehicleCollisionRadius(resolvedKind, state.halfWidth);
   const collision = resolveCircleWorldCollision(
     intendedX,
     intendedZ,
@@ -698,6 +947,8 @@ export function stepPlayerVehicle(
     inRiverHazard: collision.inRiverHazard,
     airborneHeight: vertical.airborneHeight,
     verticalVelocity: vertical.verticalVelocity,
+    leanAngle: attitude.leanAngle,
+    wheelieAngle: attitude.wheelieAngle,
   };
 }
 

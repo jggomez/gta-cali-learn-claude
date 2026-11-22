@@ -27,6 +27,7 @@ import {
   clamp,
   isVehicleOnStuntRamp,
   resolveCircleWorldCollision,
+  resolveVehicleCollisionRadius,
   stepOnFoot,
   stepPlayerVehicle,
   stepVerticalMotion,
@@ -57,6 +58,8 @@ export interface ResetWorldOptions {
 }
 
 const MAX_NITRO = 100;
+const VEHICLE_BUMP_RADIUS_MIN = 1.25;
+const VEHICLE_ENTRY_MIN_HALF_LENGTH = 1.8;
 const TRAFFIC_LIGHT_CYCLE_SECONDS = 20;
 
 const STUNT_JUMP_COOLDOWN_SECONDS = 4;
@@ -145,7 +148,9 @@ function distanceToVehicleExterior(
   const localFwd = dx * fwdX + dz * fwdZ;
   const localRight = dx * rightX + dz * rightZ;
 
-  const clampedFwd = clamp(localFwd, -vehicle.halfLength, vehicle.halfLength);
+  // Motos are short: pad their entry footprint so they are as easy to mount as a car
+  const entryHalfLength = Math.max(vehicle.halfLength, VEHICLE_ENTRY_MIN_HALF_LENGTH);
+  const clampedFwd = clamp(localFwd, -entryHalfLength, entryHalfLength);
   const clampedRight = clamp(localRight, -vehicle.halfWidth, vehicle.halfWidth);
 
   return Math.hypot(localFwd - clampedFwd, localRight - clampedRight);
@@ -451,6 +456,8 @@ export class GameWorld {
     vehicle.isBoosting = false;
     vehicle.airborneHeight = 0;
     vehicle.verticalVelocity = 0;
+    vehicle.leanAngle = 0;
+    vehicle.wheelieAngle = 0;
   }
 
   private syncPlayerFromVehicle(vehicle: SimVehicle): void {
@@ -540,6 +547,8 @@ export class GameWorld {
     vehicle.isBoosting = false;
     vehicle.sirenActive = false;
     vehicle.speedMps *= 0.25;
+    vehicle.leanAngle = 0;
+    vehicle.wheelieAngle = 0;
 
     const exitPos = this.findSafeExitPosition(vehicle);
     this.playerMode = 'on_foot';
@@ -627,6 +636,8 @@ export class GameWorld {
       activeVehicle.isBoosting = result.isBoosting;
       activeVehicle.airborneHeight = result.airborneHeight;
       activeVehicle.verticalVelocity = result.verticalVelocity;
+      activeVehicle.leanAngle = result.leanAngle;
+      activeVehicle.wheelieAngle = result.wheelieAngle;
 
       if (
         activeVehicle.airborneHeight <= 0 &&
@@ -713,7 +724,7 @@ export class GameWorld {
         const col = resolveCircleWorldCollision(
           nextX,
           nextZ,
-          Math.max(vehicle.halfWidth, 1.35),
+          resolveVehicleCollisionRadius(vehicle.kind, vehicle.halfWidth),
           this.map,
         );
         vehicle.x = col.x;
@@ -1130,14 +1141,22 @@ export class GameWorld {
       return;
     }
 
-    const playerRadius = Math.max(activeVehicle.halfWidth, 1.25);
+    const playerRadius = resolveVehicleCollisionRadius(
+      activeVehicle.kind,
+      activeVehicle.halfWidth,
+      VEHICLE_BUMP_RADIUS_MIN,
+    );
     const playerSpeedBeforeBump = Math.abs(activeVehicle.speedMps);
 
     for (const other of this.vehicles) {
       if (other.id === activeVehicle.id) {
         continue;
       }
-      const otherRadius = Math.max(other.halfWidth, 1.25);
+      const otherRadius = resolveVehicleCollisionRadius(
+        other.kind,
+        other.halfWidth,
+        VEHICLE_BUMP_RADIUS_MIN,
+      );
       const minSep = playerRadius + otherRadius;
       const dx = activeVehicle.x - other.x;
       const dz = activeVehicle.z - other.z;

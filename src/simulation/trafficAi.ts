@@ -48,6 +48,8 @@ export interface SimVehicle {
   verticalVelocity: number;
   halfWidth: number;
   halfLength: number;
+  leanAngle: number;
+  wheelieAngle: number;
   routeId: string | null;
   waypointIndex: number;
   baseSpeedMps: number;
@@ -98,6 +100,15 @@ const VEHICLE_DIMENSIONS: Readonly<Record<VehicleKind, VehicleDimensions>> = {
   spark_gt_turbo: { halfWidth: 0.92, halfLength: 1.98 },
   willys_v8: { halfWidth: 1.04, halfLength: 2.15 },
   banshee: { halfWidth: 1.05, halfLength: 2.35 },
+  mazda_323_coupe: { halfWidth: 0.84, halfLength: 2.1 },
+  renault_18_gtx: { halfWidth: 0.86, halfLength: 2.2 },
+  chevrolet_sprint_turbo: { halfWidth: 0.78, halfLength: 1.8 },
+  chevrolet_monza: { halfWidth: 0.85, halfLength: 2.18 },
+  nissan_sentra_b13: { halfWidth: 0.83, halfLength: 2.15 },
+  chevette_turbo: { halfWidth: 0.8, halfLength: 2.08 },
+  renault_twingo: { halfWidth: 0.8, halfLength: 1.72 },
+  yamaha_rx115: { halfWidth: 0.38, halfLength: 0.98 },
+  yamaha_dt125: { halfWidth: 0.42, halfLength: 1.05 },
   taxi: { halfWidth: 0.95, halfLength: 2.15 },
   mio_bus: { halfWidth: 1.3, halfLength: 4.4 },
   chiva: { halfWidth: 1.25, halfLength: 3.8 },
@@ -149,6 +160,12 @@ export function toVehicleSnapshot(vehicle: SimVehicle): VehicleSnapshot {
     airborneHeight: vehicle.airborneHeight,
     halfWidth: vehicle.halfWidth,
     halfLength: vehicle.halfLength,
+    leanAngle: vehicle.leanAngle,
+    wheelieAngle: vehicle.wheelieAngle,
+    hasNpcDriver:
+      vehicle.role !== 'player' &&
+      !vehicle.isHijackedByPlayer &&
+      (vehicle.role !== 'traffic' || vehicle.routeId !== null),
   };
 }
 
@@ -189,6 +206,8 @@ function createVehicleRecord(params: {
     verticalVelocity: 0,
     halfWidth: dims.halfWidth,
     halfLength: dims.halfLength,
+    leanAngle: 0,
+    wheelieAngle: 0,
     routeId: params.routeId ?? null,
     waypointIndex: params.waypointIndex ?? 0,
     baseSpeedMps: params.baseSpeedMps ?? 0,
@@ -296,6 +315,22 @@ export function createInitialVehicles(
       trafficVehicle.speedMps = route.speedMps * 0.7;
       vehicles.push(trafficVehicle);
     }
+  }
+
+  for (const parked of map.parkedVehicles ?? []) {
+    vehicles.push(
+      createVehicleRecord({
+        id: parked.id,
+        kind: parked.vehicleKind,
+        role: 'traffic',
+        x: parked.x,
+        z: parked.z,
+        heading: parked.heading,
+        colorHex: parked.colorHex,
+        accentHex: parked.accentHex,
+        nitro: 100,
+      }),
+    );
   }
 
   for (const [i, spawn] of map.policeSpawns.entries()) {

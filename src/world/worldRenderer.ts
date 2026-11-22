@@ -83,8 +83,17 @@ import {
   type RiggedCharacterActions,
   type RiggedCharacterRig,
 } from './vehicleMeshes';
+import { isTwoWheelerKind } from '../simulation/physics';
+import { getClassicHeadlightHeight } from './classicFleetMeshes';
+import {
+  computeMotorcycleBodyPose,
+  getMotorcycleHeadlightHeight,
+  type MotorcycleRiderSeat,
+} from './motorcycleMeshes';
+import { applySeatedRiderPose, resolveRiderHipHeight } from './riderPose';
 
 const HEADLIGHT_LOOK_AHEAD_METERS = 45;
+const RIDER_SEAT_CUSHION_METERS = 0.06;
 const TAILLIGHT_CRUISE_INTENSITY = 1.15;
 const TAILLIGHT_BRAKE_INTENSITY = 2.8;
 const BRAKE_DECEL_THRESHOLD_MPS2 = -3.2;
@@ -390,6 +399,17 @@ export function resolveHeadlightHeight(kind: VehicleKind): number {
       return 0.98;
     case 'chiva':
       return 1.04;
+    case 'mazda_323_coupe':
+    case 'renault_18_gtx':
+    case 'chevrolet_sprint_turbo':
+    case 'chevrolet_monza':
+    case 'nissan_sentra_b13':
+    case 'chevette_turbo':
+    case 'renault_twingo':
+      return getClassicHeadlightHeight(kind);
+    case 'yamaha_rx115':
+    case 'yamaha_dt125':
+      return getMotorcycleHeadlightHeight(kind);
   }
 }
 
@@ -671,6 +691,7 @@ export class WorldRenderer {
   private characterMixer: THREE.AnimationMixer | null = null;
   private characterActions: RiggedCharacterActions = {};
   private activeCharacterState: CharacterLocomotionState = 'idle';
+  private readonly riderSeatScratch = new THREE.Vector3();
   private mateoMixer: THREE.AnimationMixer | null = null;
   private mateoIsRigged = false;
   private summitDancerGroup: THREE.Group | null = null;
@@ -1019,6 +1040,7 @@ export class WorldRenderer {
     this.animateWater(safeDt, animTime);
     this.syncPlayer(world, mission, safeDt);
     this.syncVehicles(world.vehicles, activePlayerVehicleId, safeDt);
+    this.syncPlayerMotorcycleRider(world, safeDt);
     this.syncPedestrians(world.pedestrians, world.player.x, world.player.z, safeDt);
     this.syncPlayerHeadlight(world);
     this.syncCollisionSparks(world);
@@ -1645,7 +1667,7 @@ export class WorldRenderer {
     }
 
     this.playerMesh.position.set(player.x, player.y, player.z);
-    this.playerMesh.rotation.y = player.heading;
+    this.playerMesh.rotation.set(0, player.heading, 0);
 
     const absSpeed = Math.abs(player.speedMps);
 
@@ -1666,26 +1688,7 @@ export class WorldRenderer {
             ? 'run'
             : 'walk';
 
-      if (targetState !== this.activeCharacterState) {
-        const prevAction = this.characterActions[this.activeCharacterState];
-        const nextAction = this.characterActions[targetState];
-        if (nextAction) {
-          nextAction
-            .reset()
-            .setLoop(THREE.LoopRepeat, Infinity)
-            .setEffectiveTimeScale(1)
-            .setEffectiveWeight(1)
-            .play();
-          if (prevAction && prevAction !== nextAction) {
-            prevAction.crossFadeTo(nextAction, CHARACTER_CROSSFADE_SECONDS, false);
-          }
-          this.activeCharacterState = targetState;
-        } else if (this.activeCharacterState === 'dance' && prevAction) {
-          prevAction.fadeOut(CHARACTER_CROSSFADE_SECONDS);
-          this.activeCharacterState = targetState;
-        }
-      }
-
+      this.transitionCharacterState(targetState);
       this.characterMixer.update(this.reducedMotion ? 0 : dt);
       return;
     }
@@ -1712,6 +1715,66 @@ export class WorldRenderer {
     if (rightLeg) rightLeg.rotation.x = -swing;
     if (leftArm) leftArm.rotation.x = -swing * 0.7;
     if (rightArm) rightArm.rotation.x = swing * 0.7;
+  }
+
+  private transitionCharacterState(targetState: CharacterLocomotionState): void {
+    if (targetState === this.activeCharacterState) {
+      return;
+    }
+    const prevAction = this.characterActions[this.activeCharacterState];
+    const nextAction = this.characterActions[targetState];
+    if (nextAction) {
+      nextAction
+        .reset()
+        .setLoop(THREE.LoopRepeat, Infinity)
+        .setEffectiveTimeScale(1)
+        .setEffectiveWeight(1)
+        .play();
+      if (prevAction && prevAction !== nextAction) {
+        prevAction.crossFadeTo(nextAction, CHARACTER_CROSSFADE_SECONDS, false);
+      }
+      this.activeCharacterState = targetState;
+    } else if (this.activeCharacterState === 'dance' && prevAction) {
+      prevAction.fadeOut(CHARACTER_CROSSFADE_SECONDS);
+      this.activeCharacterState = targetState;
+    }
+  }
+
+  /**
+   * Keeps the player avatar visible on a moto: seated on the bike's seat, leaning and wheelie-
+   * pitching with the body (copies the bike transform), idle-animated with a bars-reaching pose.
+   */
+  private syncPlayerMotorcycleRider(world: WorldSnapshot, dt: number): void {
+    const { player } = world;
+    if (player.mode !== 'driving' || player.vehicleId === null) {
+      return;
+    }
+    const vehicle = world.vehicles.find((v) => v.id === player.vehicleId);
+    if (!vehicle || !isTwoWheelerKind(vehicle.kind)) {
+      return;
+    }
+    const bike = this.vehiclePool.get(vehicle.id)?.group;
+    const seat = bike?.userData.riderSeat as MotorcycleRiderSeat | undefined;
+    if (!bike || !seat) {
+      return;
+    }
+
+    if (this.characterMixer) {
+      this.transitionCharacterState('idle');
+      this.characterMixer.update(this.reducedMotion ? 0 : dt);
+    }
+
+    const hipHeight = resolveRiderHipHeight(this.playerMesh);
+    bike.updateMatrixWorld(true);
+    this.playerMesh.visible = true;
+    this.playerMesh.quaternion.copy(bike.quaternion);
+    this.playerMesh.position.copy(
+      bike.localToWorld(
+        this.riderSeatScratch.set(0, seat.seatY + RIDER_SEAT_CUSHION_METERS - hipHeight, seat.seatZ),
+      ),
+    );
+    this.playerMesh.updateMatrixWorld(true);
+    applySeatedRiderPose(this.playerMesh);
   }
 
   private syncPlayerHeadlight(world: WorldSnapshot): void {
@@ -2007,8 +2070,19 @@ export class WorldRenderer {
     mesh.rotation.y = vehicle.heading;
 
     // Subtle arcade body roll when drifting, terrain-following slope when grounded,
-    // and proportional nose-up GTA Stunt Jump pitch when airborne
-    const driftRoll = vehicle.isDrifting ? -vehicle.steerAngle * 0.24 : 0;
+    // and proportional nose-up GTA Stunt Jump pitch when airborne. Motos instead roll by their
+    // lean angle and pitch/lift around the rear tire while wheeling.
+    const bikePose = isTwoWheelerKind(vehicle.kind)
+      ? computeMotorcycleBodyPose(vehicle.kind, vehicle.leanAngle ?? 0, vehicle.wheelieAngle ?? 0)
+      : null;
+    if (bikePose) {
+      mesh.position.y += bikePose.lift;
+    }
+    const driftRoll = bikePose
+      ? bikePose.roll
+      : vehicle.isDrifting
+        ? -vehicle.steerAngle * 0.24
+        : 0;
     const terrainSlopeRad =
       (vehicle.airborneHeight ?? 0) > AIRBORNE_PITCH_THRESHOLD_METERS
         ? 0
@@ -2021,7 +2095,16 @@ export class WorldRenderer {
     const rollAlpha = 1 - Math.exp(-14 * dt);
     const pitchAlpha = 1 - Math.exp(-12 * dt);
     mesh.rotation.z = THREE.MathUtils.lerp(mesh.rotation.z, driftRoll, rollAlpha);
-    mesh.rotation.x = THREE.MathUtils.lerp(mesh.rotation.x, targetPitch, pitchAlpha);
+    mesh.rotation.x = THREE.MathUtils.lerp(
+      mesh.rotation.x,
+      targetPitch + (bikePose?.pitch ?? 0),
+      pitchAlpha,
+    );
+
+    const npcRider = mesh.userData.npcRider as THREE.Object3D | undefined;
+    if (npcRider) {
+      npcRider.visible = vehicle.hasNpcDriver === true;
+    }
 
     const wheels = mesh.userData.wheels as THREE.Object3D[] | undefined;
     if (wheels) {

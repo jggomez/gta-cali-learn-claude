@@ -1341,7 +1341,16 @@ describe('Colombian license plates and sculpted clearcoat Cali fleet', () => {
     disposeObjectTree(ferrariTemplate);
   });
 
-  it('builds 8 distinct sculpted clearcoat VehicleKind rigs with valid bounds, wheels, lights, and sirens', () => {
+  it('builds 15 distinct sculpted clearcoat four-wheel VehicleKind rigs with valid bounds, wheels, lights, and sirens', () => {
+    const classicKinds: readonly PlayerCarKind[] = [
+      'mazda_323_coupe',
+      'renault_18_gtx',
+      'chevrolet_sprint_turbo',
+      'chevrolet_monza',
+      'nissan_sentra_b13',
+      'chevette_turbo',
+      'renault_twingo',
+    ];
     const allKinds: readonly VehicleKind[] = [
       'renault4_turbo',
       'spark_gt_turbo',
@@ -1351,12 +1360,14 @@ describe('Colombian license plates and sculpted clearcoat Cali fleet', () => {
       'taxi',
       'mio_bus',
       'chiva',
+      ...classicKinds,
     ];
     const playerKinds = new Set<PlayerCarKind>([
       'renault4_turbo',
       'spark_gt_turbo',
       'willys_v8',
       'banshee',
+      ...classicKinds,
     ]);
     const vertexCounts = new Set<number>();
 
@@ -1429,8 +1440,20 @@ describe('Colombian license plates and sculpted clearcoat Cali fleet', () => {
       disposeObjectTree(vehicle);
     }
 
-    // All 8 silhouettes must have genuinely distinct procedural meshes (no shared copy-paste box)
+    // All 15 silhouettes must have genuinely distinct procedural meshes (no shared copy-paste box)
     expect(vertexCounts.size).toBe(allKinds.length);
+  });
+
+  it('textures the moto plate and the motorizado reflective vest with canvas art when a DOM exists', () => {
+    vi.stubGlobal('document', createMockCanvasDocument());
+    for (const kind of ['yamaha_rx115', 'yamaha_dt125'] as const) {
+      const moto = createVehicleMesh(kind, 0x1d4ed8, 0xf8fafc);
+      const vest = moto.getObjectByName('moto_rider_vest') as THREE.Mesh;
+      const plateFace = moto.getObjectByName('plate_face_rear') as THREE.Mesh;
+      expect((vest.material as THREE.MeshStandardMaterial).map).toBeInstanceOf(THREE.CanvasTexture);
+      expect((plateFace.material as THREE.MeshPhysicalMaterial).map).toBeInstanceOf(THREE.CanvasTexture);
+      disposeObjectTree(moto);
+    }
   });
 });
 

@@ -3,7 +3,11 @@
  * Strictly decoupled from Three.js, DOM globals, simulation internals, world, audio, and UI.
  */
 
-import { CALI_MAP, DEFAULT_GARAGE_CONFIG } from '../config/caliMap';
+import {
+  CALI_MAP,
+  DEFAULT_GARAGE_CONFIG,
+  PLAYER_CAR_KINDS,
+} from '../config/caliMap';
 import { LOCALE_CALI } from '../config/localeCali';
 import {
   computeGpsRoute,
@@ -47,12 +51,9 @@ const VALID_MISSIONS: ReadonlySet<string> = new Set<MissionId>([
   'free_roam',
 ]);
 
-const VALID_PLAYER_CAR_KINDS: ReadonlySet<string> = new Set<PlayerCarKind>([
-  'renault4_turbo',
-  'spark_gt_turbo',
-  'willys_v8',
-  'banshee',
-]);
+const VALID_PLAYER_CAR_KINDS: ReadonlySet<string> = new Set<PlayerCarKind>(
+  PLAYER_CAR_KINDS,
+);
 
 const VALID_AVATARS: ReadonlySet<string> = new Set<CharacterAvatarId>([
   'valeria',

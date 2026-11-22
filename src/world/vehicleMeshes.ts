@@ -8,6 +8,8 @@ import * as THREE from 'three';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { CaliOutfitId, ObjectivePropKind, VehicleKind } from '../types/game';
 import type { LoadedCharacterAsset } from './assetLoader';
+import { buildClassicCarMesh } from './classicFleetMeshes';
+import { buildMotorcycleMesh } from './motorcycleMeshes';
 
 export type MissionPropKey = Exclude<ObjectivePropKind, 'none'>;
 
@@ -98,18 +100,18 @@ const CIVILIAN_MALE_WARM_PALETTES = [
   0xd0a788,
 ] as const;
 
-interface WheelSpec {
+export interface WheelSpec {
   readonly x: number;
   readonly z: number;
   readonly isFront: boolean;
 }
 
-interface WheelRig {
+export interface WheelRig {
   readonly wheels: THREE.Object3D[];
   readonly frontWheels: THREE.Object3D[];
 }
 
-interface MeshPlacement {
+export interface MeshPlacement {
   readonly x?: number;
   readonly y?: number;
   readonly z?: number;
@@ -127,7 +129,7 @@ interface MeshPlacement {
 const DEFAULT_BRAKE_EMISSIVE_INTENSITY = 1.45;
 const BANSHEE_BRAKE_EMISSIVE_INTENSITY = 1.65;
 
-function createCarPaintMaterial(
+export function createCarPaintMaterial(
   colorHex: number,
   overrides?: THREE.MeshPhysicalMaterialParameters,
 ): THREE.MeshPhysicalMaterial {
@@ -142,7 +144,7 @@ function createCarPaintMaterial(
   });
 }
 
-function createTintedGlassMaterial(
+export function createTintedGlassMaterial(
   colorHex = 0x0b1522,
   overrides?: THREE.MeshPhysicalMaterialParameters,
 ): THREE.MeshPhysicalMaterial {
@@ -157,7 +159,7 @@ function createTintedGlassMaterial(
   });
 }
 
-function createSmokedCabinGlassMaterial(): THREE.MeshPhysicalMaterial {
+export function createSmokedCabinGlassMaterial(): THREE.MeshPhysicalMaterial {
   return createTintedGlassMaterial(0x0b1522, {
     transparent: true,
     opacity: 0.86,
@@ -169,7 +171,7 @@ function createSmokedCabinGlassMaterial(): THREE.MeshPhysicalMaterial {
   });
 }
 
-function createChromeMaterial(): THREE.MeshPhysicalMaterial {
+export function createChromeMaterial(): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({
     color: 0xe6edf8,
     metalness: 0.94,
@@ -179,7 +181,7 @@ function createChromeMaterial(): THREE.MeshPhysicalMaterial {
   });
 }
 
-function createCarbonMaterial(): THREE.MeshStandardMaterial {
+export function createCarbonMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     color: 0x161724,
     metalness: 0.42,
@@ -187,7 +189,7 @@ function createCarbonMaterial(): THREE.MeshStandardMaterial {
   });
 }
 
-function createXenonHeadlightMaterial(): THREE.MeshStandardMaterial {
+export function createXenonHeadlightMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     color: 0xfff8e6,
     emissive: 0xfff1cc,
@@ -197,7 +199,7 @@ function createXenonHeadlightMaterial(): THREE.MeshStandardMaterial {
   });
 }
 
-function createBrakeLightMaterial(
+export function createBrakeLightMaterial(
   emissiveIntensity = DEFAULT_BRAKE_EMISSIVE_INTENSITY,
 ): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
@@ -209,7 +211,7 @@ function createBrakeLightMaterial(
   });
 }
 
-function addMesh(
+export function addMesh(
   parent: THREE.Object3D,
   geometry: THREE.BufferGeometry,
   material: THREE.Material,
@@ -273,7 +275,7 @@ function createProfileGeometry(
  * Extrudes a curved 2D side silhouette drawn in (z, y) symmetrically across [-width/2, +width/2]
  * with smooth multi-segment bevels (zero sharp box corners).
  */
-function createCurvedSideExtrude(
+export function createCurvedSideExtrude(
   buildShape: (shape: THREE.Shape) => void,
   width: number,
   bevel = 0.08,
@@ -300,7 +302,7 @@ function createCurvedSideExtrude(
  * Extrudes a curved 2D cross-section drawn in (x, y) symmetrically along [-length/2, +length/2]
  * for arched roofs, contoured bellows, curved windshields, and aerodynamic roof domes.
  */
-function createCurvedCrossExtrude(
+export function createCurvedCrossExtrude(
   buildShape: (shape: THREE.Shape) => void,
   length: number,
   bevel = 0.05,
@@ -325,7 +327,7 @@ function createCurvedCrossExtrude(
 /**
  * Builds a rounded beveled pod (width along X, height along Y, length along Z) using quadratic curves.
  */
-function createRoundedPodGeometry(
+export function createRoundedPodGeometry(
   width: number,
   height: number,
   length: number,
@@ -356,7 +358,7 @@ function createRoundedPodGeometry(
 /**
  * Builds a smooth semi-circular flared wheel arch fender centered at its wheel hub (z=0, y=0).
  */
-function createFlaredWheelArchGeometry(
+export function createFlaredWheelArchGeometry(
   innerRadius: number,
   thickness: number,
   flareWidth: number,
@@ -551,7 +553,7 @@ export function attachColombianLicensePlate(
   return plateGroup;
 }
 
-function attachVehicleLicensePlates(
+export function attachVehicleLicensePlates(
   parent: THREE.Group,
   code: string,
   style: ColombianPlateStyle,
@@ -842,7 +844,7 @@ function createContactShadowTexture(): THREE.CanvasTexture | null {
   return texture;
 }
 
-function attachContactShadow(
+export function attachContactShadow(
   parent: THREE.Group,
   width: number,
   length: number,
@@ -879,7 +881,7 @@ function attachContactShadow(
  * barrel, metallic concave 5-spoke rim, brake rotor, and glowing red Brembo brake caliper)
  * preserving spinHub (`wheels`) and steerPivot (`frontWheels`).
  */
-function attachWheels(
+export function attachWheels(
   parent: THREE.Group,
   specs: readonly WheelSpec[],
   radius: number,
@@ -1030,7 +1032,7 @@ function attachWheels(
   return { wheels, frontWheels };
 }
 
-function attachUnderglow(
+export function attachUnderglow(
   parent: THREE.Group,
   width: number,
   length: number,
@@ -1066,7 +1068,7 @@ function attachUnderglow(
   return underglowMat;
 }
 
-function attachCabinInterior(
+export function attachCabinInterior(
   parent: THREE.Group,
   spec: {
     readonly seatY: number;
@@ -1146,7 +1148,7 @@ function attachCabinInterior(
   }
 }
 
-interface ClosedCabinPillarSpec {
+export interface ClosedCabinPillarSpec {
   readonly groupName: string;
   readonly glassWidth: number;
   readonly bottomY: number;
@@ -1171,7 +1173,7 @@ interface ClosedCabinPillarSpec {
  * corner pillars, side roof cant rails, front/rear roof headers, and an opaque charcoal headliner
  * so side and rear chase-camera views never appear hollow or convertible.
  */
-function attachClosedCabinPillars(
+export function attachClosedCabinPillars(
   parent: THREE.Group,
   pillarMaterial: THREE.Material,
   spec: ClosedCabinPillarSpec,
@@ -1309,7 +1311,7 @@ function attachClosedCabinPillars(
   return pillarsGroup;
 }
 
-function attachDoorHandles(
+export function attachDoorHandles(
   parent: THREE.Group,
   halfWidth: number,
   yPos: number,
@@ -1336,7 +1338,7 @@ function attachDoorHandles(
   }
 }
 
-function attachPlayerNitroFlames(
+export function attachPlayerNitroFlames(
   parent: THREE.Group,
   exhaustOffsets: readonly number[],
   exhaustY: number,
@@ -1402,7 +1404,7 @@ function attachPlayerNitroFlames(
   return nitroFlames;
 }
 
-function attachSideMirrors(
+export function attachSideMirrors(
   parent: THREE.Group,
   xPos: number,
   yPos: number,
@@ -1432,7 +1434,7 @@ function attachSideMirrors(
  * Attaches low-profile, edge-faded additive headlight beams and a soft asphalt light pool
  * fanning forward from the xenon lenses (zero shadows, zero hard circular rim).
  */
-function attachHeadlightCones(
+export function attachHeadlightCones(
   parent: THREE.Group,
   xOffset: number,
   lightY: number,
@@ -3949,8 +3951,8 @@ function buildPoliceMesh(colorHex: number, accentHex: number): THREE.Group {
 }
 
 /**
- * Constructs a distinct sculpted clearcoat PBR 3D vehicle mesh for any of the 8 Cali VehicleKind
- * values, complete with authentic front & rear Colombian license plates, interior cabin, concave
+ * Constructs a distinct sculpted clearcoat PBR 3D vehicle mesh for every Cali VehicleKind
+ * (classic fleet and motos delegate to classicFleetMeshes / motorcycleMeshes), complete with authentic front & rear Colombian license plates, interior cabin, concave
  * 5-spoke alloys, headlights/brakelights, and optional neon underglow on player cars.
  */
 export function createVehicleMesh(
@@ -3976,6 +3978,17 @@ export function createVehicleMesh(
       return buildChivaMesh(colorHex, accentHex ?? 0xffb800);
     case 'police':
       return buildPoliceMesh(colorHex, accentHex ?? 0x0b6b3a);
+    case 'mazda_323_coupe':
+    case 'renault_18_gtx':
+    case 'chevrolet_sprint_turbo':
+    case 'chevrolet_monza':
+    case 'nissan_sentra_b13':
+    case 'chevette_turbo':
+    case 'renault_twingo':
+      return buildClassicCarMesh(kind, colorHex, accentHex ?? 0x111827, neonHex);
+    case 'yamaha_rx115':
+    case 'yamaha_dt125':
+      return buildMotorcycleMesh(kind, colorHex, accentHex ?? 0xf8fafc, neonHex);
   }
 }
 

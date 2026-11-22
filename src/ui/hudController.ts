@@ -4,7 +4,11 @@
  * All player-facing Español Caleño text is sourced strictly from LOCALE_CALI.
  */
 
-import { CALI_MAP, DEFAULT_GARAGE_CONFIG } from '../config/caliMap';
+import {
+  CALI_MAP,
+  DEFAULT_GARAGE_CONFIG,
+  PLAYER_CAR_KINDS,
+} from '../config/caliMap';
 import { LOCALE_CALI } from '../config/localeCali';
 import type {
   AudioState,
@@ -80,12 +84,7 @@ const MAX_STEP_DOTS = 6;
 const VOICES_BTN_BASE_CLASS = 'cali-btn cali-btn--ghost cali-btn--compact cali-voices-pill';
 const VOICES_BTN_OFF_CLASS = `${VOICES_BTN_BASE_CLASS} cali-voices-pill--off`;
 
-const GARAGE_CAR_ORDER: readonly PlayerCarKind[] = [
-  'renault4_turbo',
-  'spark_gt_turbo',
-  'willys_v8',
-  'banshee',
-];
+const GARAGE_CAR_ORDER: readonly PlayerCarKind[] = PLAYER_CAR_KINDS;
 const GARAGE_AVATAR_ORDER: readonly CharacterAvatarId[] = ['valeria', 'mateo'];
 const GARAGE_OUTFIT_ORDER: readonly CaliOutfitId[] = [
   'urbano_cali',
@@ -1448,8 +1447,8 @@ export class HudController {
     const subtitle = createEl('p', 'cali-modal-subtitle');
     subtitle.textContent = copy.subtitle;
 
-    // 1. 4 Fast Colombian Cars
-    const carsGroup = createEl('div', 'cali-garage-group');
+    // 1. Fast Colombian cars, classic Cali "pique" fleet, and motos (scrollable grid)
+    const carsGroup = createEl('div', 'cali-garage-group cali-garage-group--cars');
     carsGroup.setAttribute('role', 'group');
     const carButtons = new Map<PlayerCarKind, HTMLButtonElement>();
     for (const carKind of GARAGE_CAR_ORDER) {

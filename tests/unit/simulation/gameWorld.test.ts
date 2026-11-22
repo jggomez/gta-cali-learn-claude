@@ -42,7 +42,12 @@ describe('simulation/GameWorld', () => {
     expect(snap.currentDistrict).toBe('Barrio San Antonio');
 
     const playerCars = snap.vehicles.filter((v) => v.role === 'player');
-    const trafficCars = snap.vehicles.filter((v) => v.role === 'traffic');
+    const trafficCars = snap.vehicles.filter(
+      (v) => v.role === 'traffic' && v.hasNpcDriver,
+    );
+    const parkedCars = snap.vehicles.filter(
+      (v) => v.role === 'traffic' && !v.hasNpcDriver,
+    );
     const policeCars = snap.vehicles.filter((v) => v.role === 'police');
 
     expect(playerCars).toHaveLength(1);
@@ -51,6 +56,7 @@ describe('simulation/GameWorld', () => {
     expect(playerCars[0]?.neonHex).toBe(DEFAULT_GARAGE_CONFIG.neonHex);
     expect(playerCars[0]?.airborneHeight).toBe(0);
     expect(trafficCars).toHaveLength(CALI_MAP.trafficRoutes.length * 2);
+    expect(parkedCars).toHaveLength(CALI_MAP.parkedVehicles?.length ?? 0);
     expect(policeCars).toHaveLength(CALI_MAP.policeSpawns.length);
   });
 
@@ -97,7 +103,7 @@ describe('simulation/GameWorld', () => {
     const world = new GameWorld(CALI_MAP);
     const before = world
       .getSnapshot()
-      .vehicles.filter((v) => v.role === 'traffic')
+      .vehicles.filter((v) => v.role === 'traffic' && v.hasNpcDriver)
       .map((v) => ({ id: v.id, x: v.x, z: v.z }));
 
     for (let i = 0; i < 40; i += 1) {

@@ -739,6 +739,15 @@ describe('HudController', () => {
       'garage-car-spark_gt_turbo',
       'garage-car-willys_v8',
       'garage-car-banshee',
+      'garage-car-mazda_323_coupe',
+      'garage-car-renault_18_gtx',
+      'garage-car-chevrolet_sprint_turbo',
+      'garage-car-chevrolet_monza',
+      'garage-car-nissan_sentra_b13',
+      'garage-car-chevette_turbo',
+      'garage-car-renault_twingo',
+      'garage-car-yamaha_rx115',
+      'garage-car-yamaha_dt125',
       'garage-paint-0',
       'garage-paint-1',
       'garage-paint-2',
@@ -756,6 +765,15 @@ describe('HudController', () => {
     for (const testId of requiredIds) {
       expect(root.findFirst((el) => el.dataset.testid === testId)).not.toBeNull();
     }
+
+    // Classic Cali moto is selectable and labelled with Caleño copy
+    const rxButton = root.findFirst((el) => el.dataset.testid === 'garage-car-yamaha_rx115');
+    expect(rxButton?.textContent).toBe(LOCALE_CALI.garage.cars.yamaha_rx115);
+    rxButton?.click();
+    expect(onUpdateGarage).toHaveBeenLastCalledWith({
+      ...DEFAULT_GARAGE_CONFIG,
+      carKind: 'yamaha_rx115',
+    });
 
     // Select Jeep Willys Yipao V8
     root.findFirst((el) => el.dataset.testid === 'garage-car-willys_v8')?.click();

@@ -921,4 +921,33 @@ describe('MissionDirector', () => {
     const sanitizedDirector = new MissionDirector(CALI_MAP, new StorageAdapter(backing));
     expect(sanitizedDirector.getGarageConfig()).toEqual(DEFAULT_GARAGE_CONFIG);
   });
+
+  it('persists every classic Cali car and moto kind through the sanitized garage round-trip', () => {
+    const newKinds = [
+      'mazda_323_coupe',
+      'renault_18_gtx',
+      'chevrolet_sprint_turbo',
+      'chevrolet_monza',
+      'nissan_sentra_b13',
+      'chevette_turbo',
+      'renault_twingo',
+      'yamaha_rx115',
+      'yamaha_dt125',
+    ] as const;
+
+    for (const carKind of newKinds) {
+      const backing = new MemoryStorage();
+      const director = new MissionDirector(CALI_MAP, new StorageAdapter(backing));
+      const garage: GarageConfig = {
+        carKind,
+        paintHex: 0xe11d48,
+        neonHex: 0x00f0ff,
+        avatar: 'valeria',
+        outfit: 'escarlata',
+      };
+      director.saveGarageConfig(garage);
+      const reloaded = new MissionDirector(CALI_MAP, new StorageAdapter(backing));
+      expect(reloaded.getGarageConfig().carKind, carKind).toBe(carKind);
+    }
+  });
 });
