@@ -58,6 +58,11 @@ interface NightOpacitySpec {
   readonly nightOpacity: number;
 }
 
+interface NightLightSpec {
+  readonly dayIntensity: number;
+  readonly nightIntensity: number;
+}
+
 function tagNightEmissive(
   material: THREE.MeshStandardMaterial,
   spec: NightEmissiveSpec,
@@ -76,6 +81,18 @@ function tagNightOpacity(
     nightOpacity,
   } satisfies NightOpacitySpec;
   return material;
+}
+
+function tagNightLight<T extends THREE.Light>(
+  light: T,
+  dayIntensity: number,
+  nightIntensity: number,
+): T {
+  light.userData.nightLight = {
+    dayIntensity,
+    nightIntensity,
+  } satisfies NightLightSpec;
+  return light;
 }
 
 const TERRAIN_EXTENT = 520;
@@ -245,6 +262,220 @@ function createSoftGlowPoolTexture(
   const data = new Uint8Array([
     255, 210, 128, 180, 255, 210, 128, 120,
     255, 210, 128, 120, 255, 210, 128, 60,
+  ]);
+  const fallback = new THREE.DataTexture(data, 2, 2, THREE.RGBAFormat);
+  fallback.colorSpace = THREE.SRGBColorSpace;
+  fallback.needsUpdate = true;
+  return fallback;
+}
+
+function createStripedAwningTexture(
+  primaryCss: string,
+  stripeCss: string,
+  primaryRgb: readonly [number, number, number],
+  stripeRgb: readonly [number, number, number],
+): THREE.Texture {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const stripeCount = 8;
+      const stripeW = canvas.width / stripeCount;
+      for (let i = 0; i < stripeCount; i += 1) {
+        ctx.fillStyle = i % 2 === 0 ? primaryCss : stripeCss;
+        ctx.fillRect(i * stripeW, 0, stripeW, canvas.height);
+      }
+      // Subtle woven fabric shade gradient along slope + hem stitch
+      const shade = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      shade.addColorStop(0, 'rgba(0, 0, 0, 0.14)');
+      shade.addColorStop(0.55, 'rgba(255, 255, 255, 0.04)');
+      shade.addColorStop(1, 'rgba(0, 0, 0, 0.22)');
+      ctx.fillStyle = shade;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = 'rgba(255, 245, 230, 0.32)';
+      ctx.fillRect(0, canvas.height - 5, canvas.width, 2);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.needsUpdate = true;
+      return texture;
+    }
+  }
+
+  const data = new Uint8Array([
+    primaryRgb[0], primaryRgb[1], primaryRgb[2], 255,
+    stripeRgb[0], stripeRgb[1], stripeRgb[2], 255,
+    primaryRgb[0], primaryRgb[1], primaryRgb[2], 255,
+    stripeRgb[0], stripeRgb[1], stripeRgb[2], 255,
+  ]);
+  const fallback = new THREE.DataTexture(data, 4, 1, THREE.RGBAFormat);
+  fallback.colorSpace = THREE.SRGBColorSpace;
+  fallback.wrapS = THREE.RepeatWrapping;
+  fallback.needsUpdate = true;
+  return fallback;
+}
+
+function createMioSignTexture(): THREE.Texture {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 96;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const bg = ctx.createLinearGradient(0, 0, 256, 96);
+      bg.addColorStop(0, '#0a4eb8');
+      bg.addColorStop(1, '#0f72e5');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, 256, 96);
+
+      ctx.fillStyle = '#38d3ff';
+      ctx.fillRect(0, 74, 256, 10);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(14, 16, 76, 48);
+
+      ctx.fillStyle = '#0a4eb8';
+      ctx.font = 'bold 34px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('MIO', 52, 41);
+
+      ctx.fillStyle = '#f8fbff';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('ESTACIÓN CALI', 102, 34);
+
+      ctx.fillStyle = '#bfe8ff';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText('T31 • E21 • P27', 102, 56);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.needsUpdate = true;
+      return texture;
+    }
+  }
+
+  const data = new Uint8Array([
+    14, 102, 224, 255, 240, 248, 255, 255,
+    14, 102, 224, 255, 56, 211, 255, 255,
+  ]);
+  const fallback = new THREE.DataTexture(data, 2, 2, THREE.RGBAFormat);
+  fallback.colorSpace = THREE.SRGBColorSpace;
+  fallback.needsUpdate = true;
+  return fallback;
+}
+
+function createRoseWindowTexture(): THREE.Texture {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const cx = 128;
+      const cy = 128;
+      ctx.fillStyle = '#1b2748';
+      ctx.fillRect(0, 0, 256, 256);
+
+      const radial = ctx.createRadialGradient(cx, cy, 8, cx, cy, 122);
+      radial.addColorStop(0, '#fff2b0');
+      radial.addColorStop(0.28, '#ff9c47');
+      radial.addColorStop(0.58, '#c93c4e');
+      radial.addColorStop(0.84, '#2458a6');
+      radial.addColorStop(1, '#121c36');
+      ctx.fillStyle = radial;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 122, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Neo-gothic stained-glass petals & dark lead cames
+      const petalColors = ['#ffd166', '#ef476f', '#38a3ff', '#ff9f43'] as const;
+      for (let i = 0; i < 12; i += 1) {
+        const a = (i / 12) * Math.PI * 2;
+        const px = cx + Math.cos(a) * 76;
+        const py = cy + Math.sin(a) * 76;
+        ctx.fillStyle = petalColors[i % petalColors.length] ?? '#ffd166';
+        ctx.beginPath();
+        ctx.arc(px, py, 20, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = '#1a1724';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(a) * 122, cy + Math.sin(a) * 122);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = '#1a1724';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 46, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy, 102, 0, Math.PI * 2);
+      ctx.stroke();
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.needsUpdate = true;
+      return texture;
+    }
+  }
+
+  const data = new Uint8Array([
+    255, 210, 110, 255, 220, 72, 92, 255,
+    46, 110, 198, 255, 255, 160, 78, 255,
+  ]);
+  const fallback = new THREE.DataTexture(data, 2, 2, THREE.RGBAFormat);
+  fallback.colorSpace = THREE.SRGBColorSpace;
+  fallback.needsUpdate = true;
+  return fallback;
+}
+
+function createHelipadTexture(): THREE.Texture {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#2d323a';
+      ctx.fillRect(0, 0, 256, 256);
+
+      // Subtle concrete tile seam cross
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(12, 12, 232, 232);
+
+      // High-visibility aviation yellow safety circle
+      ctx.strokeStyle = '#f4c424';
+      ctx.lineWidth = 14;
+      ctx.beginPath();
+      ctx.arc(128, 128, 92, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Bold painted white H
+      ctx.fillStyle = '#f4f6fa';
+      ctx.fillRect(88, 76, 18, 104);
+      ctx.fillRect(150, 76, 18, 104);
+      ctx.fillRect(88, 119, 80, 18);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.needsUpdate = true;
+      return texture;
+    }
+  }
+
+  const data = new Uint8Array([
+    46, 50, 58, 255, 244, 196, 36, 255,
+    244, 246, 250, 255, 46, 50, 58, 255,
   ]);
   const fallback = new THREE.DataTexture(data, 2, 2, THREE.RGBAFormat);
   fallback.colorSpace = THREE.SRGBColorSpace;
@@ -1279,20 +1510,114 @@ function classifyBuildingStyle(bldg: AabbCollider): BuildingFacadeStyle {
   return 'downtown_midrise';
 }
 
+type FacadeSide = 'east' | 'west' | 'north' | 'south';
+
+interface BuildingSharedGeometries {
+  readonly pilasterUnitGeo: THREE.BoxGeometry;
+  readonly windowPaneGeo: THREE.BoxGeometry;
+  readonly windowJambGeo: THREE.BoxGeometry;
+  readonly windowSillGeo: THREE.BoxGeometry;
+  readonly windowLintelGeo: THREE.BoxGeometry;
+  readonly balconySlabGeo: THREE.BoxGeometry;
+  readonly balconyFrontRailGeo: THREE.BoxGeometry;
+  readonly balconySideRailGeo: THREE.BoxGeometry;
+  readonly balconyPostGeo: THREE.BoxGeometry;
+  readonly awningCanopyGeo: THREE.BoxGeometry;
+  readonly awningValanceGeo: THREE.BoxGeometry;
+  readonly awningBracketGeo: THREE.BoxGeometry;
+  readonly storefrontBayGeo: THREE.BoxGeometry;
+  readonly rafterTailGeo: THREE.BoxGeometry;
+  readonly modernMullionGeo: THREE.BoxGeometry;
+}
+
 interface BuildingSharedMaterials {
   readonly roofMat: THREE.MeshStandardMaterial;
   readonly parapetMat: THREE.MeshStandardMaterial;
   readonly corniceMat: THREE.MeshStandardMaterial;
+  readonly sillMat: THREE.MeshStandardMaterial;
   readonly hvacMat: THREE.MeshStandardMaterial;
   readonly storefrontGlassMat: THREE.MeshPhysicalMaterial;
+  readonly storefrontWarmBayMat: THREE.MeshStandardMaterial;
   readonly reflectiveGlassMat: THREE.MeshPhysicalMaterial;
+  readonly recessedWindowGlassMat: THREE.MeshStandardMaterial;
   readonly warmInteriorGlassMat: THREE.MeshStandardMaterial;
+  readonly windowRevealMat: THREE.MeshStandardMaterial;
+  readonly wroughtIronMat: THREE.MeshStandardMaterial;
+  readonly colonialRoofMat: THREE.MeshStandardMaterial;
+  readonly awningMats: readonly THREE.MeshStandardMaterial[];
   readonly antennaMat: THREE.MeshStandardMaterial;
   readonly beaconRedMat: THREE.MeshStandardMaterial;
   readonly woodTrimMat: THREE.MeshStandardMaterial;
+  readonly geom: BuildingSharedGeometries;
 }
 
 function createBuildingSharedMaterials(): BuildingSharedMaterials {
+  const colonialRoofMat = new THREE.MeshStandardMaterial({
+    color: 0xc25d3c,
+    roughness: 0.82,
+    metalness: 0.04,
+    flatShading: false,
+  });
+  colonialRoofMat.userData.surfaceRole = 'roof' satisfies SurfaceRole;
+
+  const awningPalettes: readonly {
+    readonly primaryCss: string;
+    readonly stripeCss: string;
+    readonly primaryRgb: readonly [number, number, number];
+    readonly stripeRgb: readonly [number, number, number];
+  }[] = [
+    {
+      primaryCss: '#c24d36',
+      stripeCss: '#f3e7d4',
+      primaryRgb: [194, 77, 54],
+      stripeRgb: [243, 231, 212],
+    },
+    {
+      primaryCss: '#18857f',
+      stripeCss: '#f2ead9',
+      primaryRgb: [24, 133, 127],
+      stripeRgb: [242, 234, 217],
+    },
+    {
+      primaryCss: '#d49a28',
+      stripeCss: '#f5ecd8',
+      primaryRgb: [212, 154, 40],
+      stripeRgb: [245, 236, 216],
+    },
+  ];
+
+  const awningMats = awningPalettes.map((palette) => {
+    const tex = createStripedAwningTexture(
+      palette.primaryCss,
+      palette.stripeCss,
+      palette.primaryRgb,
+      palette.stripeRgb,
+    );
+    return new THREE.MeshStandardMaterial({
+      map: tex,
+      roughness: 0.84,
+      metalness: 0.04,
+    });
+  });
+
+  const geom: BuildingSharedGeometries = {
+    pilasterUnitGeo: new THREE.BoxGeometry(0.56, 1.0, 0.56),
+    windowPaneGeo: new THREE.BoxGeometry(1.26, 1.62, 0.06),
+    windowJambGeo: new THREE.BoxGeometry(0.14, 1.76, 0.18),
+    windowSillGeo: new THREE.BoxGeometry(1.74, 0.14, 0.28),
+    windowLintelGeo: new THREE.BoxGeometry(1.7, 0.16, 0.24),
+    balconySlabGeo: new THREE.BoxGeometry(2.54, 0.16, 0.86),
+    balconyFrontRailGeo: new THREE.BoxGeometry(2.5, 0.055, 0.055),
+    balconySideRailGeo: new THREE.BoxGeometry(0.055, 0.055, 0.84),
+    balconyPostGeo: new THREE.BoxGeometry(0.048, 0.9, 0.048),
+    awningCanopyGeo: new THREE.BoxGeometry(3.15, 0.08, 1.28),
+    awningValanceGeo: new THREE.BoxGeometry(3.15, 0.24, 0.06),
+    awningBracketGeo: new THREE.BoxGeometry(0.06, 0.06, 1.12),
+    storefrontBayGeo: new THREE.BoxGeometry(2.74, 2.32, 0.08),
+    rafterTailGeo: new THREE.BoxGeometry(0.16, 0.18, 0.78),
+    modernMullionGeo: new THREE.BoxGeometry(0.14, 2.48, 0.22),
+  };
+
   return {
     roofMat: new THREE.MeshStandardMaterial({
       color: 0x4e4b47,
@@ -1308,6 +1633,11 @@ function createBuildingSharedMaterials(): BuildingSharedMaterials {
       color: 0xa69f94,
       roughness: 0.68,
       metalness: 0.22,
+    }),
+    sillMat: new THREE.MeshStandardMaterial({
+      color: 0xc4baa9,
+      roughness: 0.76,
+      metalness: 0.08,
     }),
     hvacMat: new THREE.MeshStandardMaterial({
       color: 0x767470,
@@ -1330,6 +1660,17 @@ function createBuildingSharedMaterials(): BuildingSharedMaterials {
         nightEmissiveHex: 0xffe0a8,
       },
     ) as THREE.MeshPhysicalMaterial,
+    storefrontWarmBayMat: tagNightEmissive(
+      new THREE.MeshStandardMaterial({
+        color: 0xffdfab,
+        emissive: 0xffb85c,
+        emissiveIntensity: 0.36,
+        roughness: 0.12,
+        metalness: 0.45,
+        envMapIntensity: 1.35,
+      }),
+      { dayIntensity: 0.36, nightIntensity: 1.72 },
+    ),
     reflectiveGlassMat: tagNightEmissive(
       new THREE.MeshPhysicalMaterial({
         color: 0x162433,
@@ -1346,16 +1687,43 @@ function createBuildingSharedMaterials(): BuildingSharedMaterials {
         nightEmissiveHex: 0x162442,
       },
     ) as THREE.MeshPhysicalMaterial,
+    recessedWindowGlassMat: tagNightEmissive(
+      new THREE.MeshStandardMaterial({
+        color: 0x101c2a,
+        roughness: 0.12,
+        metalness: 0.45,
+        envMapIntensity: 1.55,
+      }),
+      {
+        dayIntensity: 0.04,
+        nightIntensity: 0.36,
+        dayEmissiveHex: 0x0a1424,
+        nightEmissiveHex: 0x1f3557,
+      },
+    ),
     warmInteriorGlassMat: tagNightEmissive(
       new THREE.MeshStandardMaterial({
         color: 0xffd596,
         emissive: 0xffb866,
-        emissiveIntensity: 0.65,
-        roughness: 0.14,
-        metalness: 0.2,
+        emissiveIntensity: 0.58,
+        roughness: 0.12,
+        metalness: 0.45,
+        envMapIntensity: 1.25,
       }),
-      { dayIntensity: 0.65, nightIntensity: 1.65 },
+      { dayIntensity: 0.58, nightIntensity: 1.85 },
     ),
+    windowRevealMat: new THREE.MeshStandardMaterial({
+      color: 0x242830,
+      roughness: 0.72,
+      metalness: 0.24,
+    }),
+    wroughtIronMat: new THREE.MeshStandardMaterial({
+      color: 0x1b1e25,
+      roughness: 0.36,
+      metalness: 0.82,
+    }),
+    colonialRoofMat,
+    awningMats,
     antennaMat: new THREE.MeshStandardMaterial({
       color: 0x8d939c,
       roughness: 0.4,
@@ -1374,6 +1742,7 @@ function createBuildingSharedMaterials(): BuildingSharedMaterials {
       color: 0x573723,
       roughness: 0.84,
     }),
+    geom,
   };
 }
 
@@ -1408,15 +1777,28 @@ function attachBuildingRooftopDetails(
     group.add(ewWall);
   }
 
-  // Refined architectural stone/metal cornice coping (no neon bands)
+  // Stepped architectural stone/metal roof parapet cornice coping
+  const corniceGroup = new THREE.Group();
+  corniceGroup.name = `building_parapet_cornice_${bldg.id}`;
+
+  const corniceLower = new THREE.Mesh(
+    new THREE.BoxGeometry(width + 0.34, 0.18, depth + 0.34),
+    shared.sillMat,
+  );
+  corniceLower.position.set(cx, roofY + 0.04, cz);
+  corniceLower.castShadow = true;
+  corniceLower.receiveShadow = true;
+  corniceGroup.add(corniceLower);
+
   const corniceBand = new THREE.Mesh(
-    new THREE.BoxGeometry(width + 0.42, 0.26, depth + 0.42),
+    new THREE.BoxGeometry(width + 0.52, 0.28, depth + 0.52),
     shared.corniceMat,
   );
-  corniceBand.position.set(cx, roofY + parapetH + 0.1, cz);
+  corniceBand.position.set(cx, roofY + parapetH + 0.12, cz);
   corniceBand.castShadow = true;
   corniceBand.receiveShadow = true;
-  group.add(corniceBand);
+  corniceGroup.add(corniceBand);
+  group.add(corniceGroup);
 
   // Rooftop mechanical HVAC boxes
   const hvacA = new THREE.Mesh(
@@ -1480,9 +1862,311 @@ function hashBuildingIndex(id: string): number {
   return acc;
 }
 
+function hasFacadeSignConflict(
+  buildingId: string,
+  side: FacadeSide,
+  yOffsetAboveGround: number,
+): boolean {
+  if (
+    buildingId === 'bldg_bulevar_2' &&
+    side === 'east' &&
+    Math.abs(yOffsetAboveGround - 16.12) < 3.0
+  ) {
+    return true;
+  }
+  if (
+    buildingId === 'bldg_bulevar_4' &&
+    side === 'east' &&
+    Math.abs(yOffsetAboveGround - 12.4) < 3.0
+  ) {
+    return true;
+  }
+  return false;
+}
+
+interface FacadePose {
+  readonly x: number;
+  readonly z: number;
+  readonly rotY: number;
+  readonly span: number;
+}
+
+function getFacadePose(
+  side: FacadeSide,
+  cx: number,
+  cz: number,
+  width: number,
+  depth: number,
+  alongOffset: number,
+): FacadePose {
+  switch (side) {
+    case 'east':
+      return { x: cx + width * 0.5, z: cz + alongOffset, rotY: Math.PI / 2, span: depth };
+    case 'west':
+      return { x: cx - width * 0.5, z: cz + alongOffset, rotY: -Math.PI / 2, span: depth };
+    case 'south':
+      return { x: cx + alongOffset, z: cz + depth * 0.5, rotY: 0, span: width };
+    case 'north':
+      return { x: cx + alongOffset, z: cz - depth * 0.5, rotY: Math.PI, span: width };
+  }
+}
+
+function getStreetFacingSides(bldg: AabbCollider): readonly FacadeSide[] {
+  const cx = (bldg.minX + bldg.maxX) * 0.5;
+  const cz = (bldg.minZ + bldg.maxZ) * 0.5;
+  const sides: FacadeSide[] = [];
+
+  // Primary X street orientation (Av. Colombia x=-4, Circunvalar x=-68, Carrera 1 x=58, Carrera 36 x=96, Carrera 39 x=174)
+  if (cx < -35) {
+    sides.push('west');
+  } else if (cx < 0) {
+    sides.push('east');
+  } else if (cx < 90) {
+    sides.push('west');
+  } else if (cx < 135) {
+    sides.push('west');
+  } else {
+    sides.push('east');
+  }
+
+  // Secondary Z street orientation (Las Américas z=-112, Calle 13 z=-24, San Antonio z=36, Calle 5 z=77, Roosevelt z=166)
+  if (cz < -70 || (cz > -20 && cz < 24) || (cz > 85 && cz < 120)) {
+    sides.push('north');
+  } else {
+    sides.push('south');
+  }
+
+  return sides;
+}
+
+function createRecessedWindowBay(
+  bayName: string,
+  isLit: boolean,
+  jambMat: THREE.MeshStandardMaterial,
+  shared: BuildingSharedMaterials,
+): THREE.Group {
+  const bay = new THREE.Group();
+  bay.name = bayName;
+
+  const pane = new THREE.Mesh(
+    shared.geom.windowPaneGeo,
+    isLit ? shared.warmInteriorGlassMat : shared.recessedWindowGlassMat,
+  );
+  pane.name = `${bayName}_window_pane`;
+  pane.position.set(0, 0, 0.04);
+  bay.add(pane);
+
+  for (const sx of [-0.71, 0.71] as const) {
+    const jamb = new THREE.Mesh(shared.geom.windowJambGeo, jambMat);
+    jamb.position.set(sx, 0, 0.09);
+    bay.add(jamb);
+  }
+
+  const sill = new THREE.Mesh(shared.geom.windowSillGeo, shared.sillMat);
+  sill.position.set(0, -0.9, 0.14);
+  sill.castShadow = true;
+  sill.receiveShadow = true;
+  bay.add(sill);
+
+  const lintel = new THREE.Mesh(shared.geom.windowLintelGeo, shared.corniceMat);
+  lintel.position.set(0, 0.9, 0.12);
+  lintel.castShadow = true;
+  bay.add(lintel);
+
+  return bay;
+}
+
+function createProjectingBalcony(
+  balconyName: string,
+  slabMat: THREE.MeshStandardMaterial,
+  shared: BuildingSharedMaterials,
+): THREE.Group {
+  const balcony = new THREE.Group();
+  balcony.name = balconyName;
+
+  const slab = new THREE.Mesh(shared.geom.balconySlabGeo, slabMat);
+  slab.position.set(0, 0, 0.44);
+  slab.castShadow = true;
+  slab.receiveShadow = true;
+  balcony.add(slab);
+
+  const topRail = new THREE.Mesh(shared.geom.balconyFrontRailGeo, shared.wroughtIronMat);
+  topRail.position.set(0, 0.94, 0.84);
+  balcony.add(topRail);
+
+  const midRail = new THREE.Mesh(shared.geom.balconyFrontRailGeo, shared.wroughtIronMat);
+  midRail.position.set(0, 0.5, 0.84);
+  balcony.add(midRail);
+
+  for (const sx of [-1.23, 1.23] as const) {
+    const sideRail = new THREE.Mesh(shared.geom.balconySideRailGeo, shared.wroughtIronMat);
+    sideRail.position.set(sx, 0.94, 0.44);
+    balcony.add(sideRail);
+  }
+
+  for (const px of [-1.22, -0.61, 0, 0.61, 1.22] as const) {
+    const post = new THREE.Mesh(shared.geom.balconyPostGeo, shared.wroughtIronMat);
+    post.position.set(px, 0.5, 0.84);
+    balcony.add(post);
+  }
+
+  return balcony;
+}
+
+function createStripedShopfrontAwning(
+  awningName: string,
+  awningMat: THREE.MeshStandardMaterial,
+  isLitStorefront: boolean,
+  shared: BuildingSharedMaterials,
+): THREE.Group {
+  const awning = new THREE.Group();
+  awning.name = awningName;
+
+  const canopy = new THREE.Mesh(shared.geom.awningCanopyGeo, awningMat);
+  canopy.position.set(0, 0.14, 0.62);
+  canopy.rotation.x = 0.36;
+  canopy.castShadow = true;
+  canopy.receiveShadow = true;
+  awning.add(canopy);
+
+  const valance = new THREE.Mesh(shared.geom.awningValanceGeo, awningMat);
+  valance.position.set(0, -0.18, 1.22);
+  awning.add(valance);
+
+  for (const sx of [-1.45, 1.45] as const) {
+    const bracket = new THREE.Mesh(shared.geom.awningBracketGeo, shared.wroughtIronMat);
+    bracket.position.set(sx, -0.12, 0.56);
+    awning.add(bracket);
+  }
+
+  const storefrontBay = new THREE.Mesh(
+    shared.geom.storefrontBayGeo,
+    isLitStorefront ? shared.storefrontWarmBayMat : shared.storefrontGlassMat,
+  );
+  storefrontBay.position.set(0, -1.65, 0.06);
+  awning.add(storefrontBay);
+
+  return awning;
+}
+
+function attachCornerPilasters(
+  group: THREE.Group,
+  bldg: AabbCollider,
+  style: BuildingFacadeStyle,
+  cx: number,
+  cz: number,
+  width: number,
+  depth: number,
+  centerY: number,
+  shared: BuildingSharedMaterials,
+): void {
+  const pilasterMat =
+    style === 'colonial_stucco'
+      ? shared.sillMat
+      : style === 'modern_glass'
+        ? shared.corniceMat
+        : shared.parapetMat;
+  let pilasterIdx = 0;
+  for (const sx of [-1, 1] as const) {
+    for (const sz of [-1, 1] as const) {
+      const pilaster = new THREE.Mesh(shared.geom.pilasterUnitGeo, pilasterMat);
+      pilaster.name = `building_pilaster_${bldg.id}_${pilasterIdx}`;
+      pilaster.scale.set(1, bldg.height, 1);
+      pilaster.position.set(
+        cx + sx * (width * 0.5 - 0.1),
+        centerY + bldg.height * 0.5,
+        cz + sz * (depth * 0.5 - 0.1),
+      );
+      pilaster.castShadow = true;
+      pilaster.receiveShadow = true;
+      group.add(pilaster);
+      pilasterIdx += 1;
+    }
+  }
+}
+
+function attachColonialRoofAndEaves(
+  group: THREE.Group,
+  bldg: AabbCollider,
+  cx: number,
+  cz: number,
+  width: number,
+  depth: number,
+  roofY: number,
+  shared: BuildingSharedMaterials,
+): void {
+  const overhang = cx < -15 ? 0.92 : 0.7;
+  const maxSpan = Math.max(width + overhang, depth + overhang);
+
+  const roofPeak = new THREE.Mesh(
+    new THREE.ConeGeometry(maxSpan * 0.74, 3.1, 4),
+    shared.colonialRoofMat,
+  );
+  roofPeak.rotation.y = Math.PI / 4;
+  roofPeak.scale.set(
+    (width + overhang) / maxSpan,
+    1,
+    (depth + overhang) / maxSpan,
+  );
+  roofPeak.position.set(cx, roofY + 1.5, cz);
+  roofPeak.castShadow = true;
+  roofPeak.receiveShadow = true;
+  roofPeak.userData.surfaceRole = 'roof' satisfies SurfaceRole;
+  group.add(roofPeak);
+
+  const eavesGroup = new THREE.Group();
+  eavesGroup.name = `building_colonial_eaves_${bldg.id}`;
+
+  // Terracotta eaves drip skirt + dark timber fascia band
+  const eavesSkirt = new THREE.Mesh(
+    new THREE.BoxGeometry(width + overhang * 1.15, 0.22, depth + overhang * 1.15),
+    shared.colonialRoofMat,
+  );
+  eavesSkirt.position.set(cx, roofY + 0.14, cz);
+  eavesSkirt.castShadow = true;
+  eavesSkirt.receiveShadow = true;
+  eavesSkirt.userData.surfaceRole = 'roof' satisfies SurfaceRole;
+  eavesGroup.add(eavesSkirt);
+
+  const timberFascia = new THREE.Mesh(
+    new THREE.BoxGeometry(width + overhang, 0.28, depth + overhang),
+    shared.woodTrimMat,
+  );
+  timberFascia.position.set(cx, roofY - 0.08, cz);
+  timberFascia.castShadow = true;
+  timberFascia.receiveShadow = true;
+  eavesGroup.add(timberFascia);
+
+  // Exposed wooden rafter tails tucked beneath colonial roof overhangs
+  const nsCount = Math.max(3, Math.min(6, Math.floor(width / 2.4)));
+  for (const side of [-1, 1] as const) {
+    for (let i = 0; i < nsCount; i += 1) {
+      const tx = ((i + 0.5) / nsCount - 0.5) * (width * 0.86);
+      const rafter = new THREE.Mesh(shared.geom.rafterTailGeo, shared.woodTrimMat);
+      rafter.position.set(cx + tx, roofY - 0.24, cz + side * (depth * 0.5 + 0.24));
+      eavesGroup.add(rafter);
+    }
+  }
+
+  const ewCount = Math.max(3, Math.min(6, Math.floor(depth / 2.4)));
+  for (const side of [-1, 1] as const) {
+    for (let i = 0; i < ewCount; i += 1) {
+      const tz = ((i + 0.5) / ewCount - 0.5) * (depth * 0.86);
+      const rafter = new THREE.Mesh(shared.geom.rafterTailGeo, shared.woodTrimMat);
+      rafter.rotation.y = Math.PI / 2;
+      rafter.position.set(cx + side * (width * 0.5 + 0.24), roofY - 0.24, cz + tz);
+      eavesGroup.add(rafter);
+    }
+  }
+
+  group.add(eavesGroup);
+}
+
 function attachArchitecturalWindows(
   group: THREE.Group,
+  bldg: AabbCollider,
   style: BuildingFacadeStyle,
+  bldgHash: number,
   cx: number,
   cz: number,
   width: number,
@@ -1491,62 +2175,123 @@ function attachArchitecturalWindows(
   height: number,
   shared: BuildingSharedMaterials,
 ): void {
+  const streetSides = getStreetFacingSides(bldg);
+  let windowIdx = 0;
+  let balconyIdx = 0;
+
   if (style === 'colonial_stucco') {
-    // Timber-framed San Antonio colonial windows with dark reflective glass & subtle warm lamp glow
-    const floorLevels = height >= 7.5 ? [centerY + 2.2, centerY + 5.6] : [centerY + 2.5];
-    const frameGeoEW = new THREE.BoxGeometry(0.14, 1.85, 1.35);
-    const paneGeoEW = new THREE.BoxGeometry(0.18, 1.55, 1.05);
-    const frameGeoNS = new THREE.BoxGeometry(1.35, 1.85, 0.14);
-    const paneGeoNS = new THREE.BoxGeometry(1.05, 1.55, 0.18);
+    // San Antonio & Oeste colonial recessed windows with timber jambs, stone sills & upper balconies
+    const floorLevels = height >= 7.5 ? [centerY + 2.3, centerY + 5.7] : [centerY + 2.5];
+    const allSides: readonly FacadeSide[] = ['east', 'west', 'north', 'south'];
 
-    const xCount = Math.max(1, Math.min(3, Math.floor(width / 4.2)));
-    const zCount = Math.max(1, Math.min(3, Math.floor(depth / 4.2)));
+    for (const side of allSides) {
+      const isStreetFace = streetSides.includes(side);
+      const faceSpan = side === 'east' || side === 'west' ? depth : width;
+      const colCount = Math.max(1, Math.min(3, Math.floor(faceSpan / 4.2)));
 
-    for (let flIdx = 0; flIdx < floorLevels.length; flIdx += 1) {
-      const wy = floorLevels[flIdx] ?? centerY + 2.2;
-      for (const side of [-1, 1] as const) {
-        for (let i = 0; i < zCount; i += 1) {
-          const tz = ((i + 0.5) / zCount - 0.5) * (depth * 0.72);
-          const isLit = (flIdx + i + (side > 0 ? 1 : 0)) % 3 === 0;
-          const frame = new THREE.Mesh(frameGeoEW, shared.woodTrimMat);
-          frame.position.set(cx + side * (width * 0.5 + 0.04), wy, cz + tz);
-          group.add(frame);
+      for (let flIdx = 0; flIdx < floorLevels.length; flIdx += 1) {
+        const wy = floorLevels[flIdx] ?? centerY + 2.3;
+        for (let col = 0; col < colCount; col += 1) {
+          const offset = ((col + 0.5) / colCount - 0.5) * (faceSpan * 0.72);
+          const pose = getFacadePose(side, cx, cz, width, depth, offset);
+          const isLit = (bldgHash + flIdx + col + windowIdx) % 3 === 0;
 
-          const pane = new THREE.Mesh(
-            paneGeoEW,
-            isLit ? shared.warmInteriorGlassMat : shared.storefrontGlassMat,
+          const bay = createRecessedWindowBay(
+            `building_window_bay_${bldg.id}_${windowIdx}`,
+            isLit,
+            shared.woodTrimMat,
+            shared,
           );
-          pane.position.set(cx + side * (width * 0.5 + 0.06), wy, cz + tz);
-          group.add(pane);
-        }
+          bay.position.set(pose.x, wy, pose.z);
+          bay.rotation.y = pose.rotY;
+          group.add(bay);
+          windowIdx += 1;
 
-        for (let i = 0; i < xCount; i += 1) {
-          const tx = ((i + 0.5) / xCount - 0.5) * (width * 0.72);
-          const isLit = (flIdx + i) % 3 === 1;
-          const frame = new THREE.Mesh(frameGeoNS, shared.woodTrimMat);
-          frame.position.set(cx + tx, wy, cz + side * (depth * 0.5 + 0.04));
-          group.add(frame);
-
-          const pane = new THREE.Mesh(
-            paneGeoNS,
-            isLit ? shared.warmInteriorGlassMat : shared.storefrontGlassMat,
-          );
-          pane.position.set(cx + tx, wy, cz + side * (depth * 0.5 + 0.06));
-          group.add(pane);
+          // Projecting San Antonio colonial balconies with dark wrought-iron railings on upper street-facing bays
+          if (isStreetFace && flIdx === 1 && (col + bldgHash) % 2 === 0) {
+            const balcony = createProjectingBalcony(
+              `building_balcony_${bldg.id}_${balconyIdx}`,
+              shared.woodTrimMat,
+              shared,
+            );
+            balcony.position.set(pose.x, wy - 0.98, pose.z);
+            balcony.rotation.y = pose.rotY;
+            group.add(balcony);
+            balconyIdx += 1;
+          }
         }
       }
     }
     return;
   }
 
-  // Downtown & Granada towers: horizontal dark reflective architectural glass ribbon bands
-  // + architectural floor ledges catching real golden-hour HDRI sunset sky reflections
-  const floorStep = style === 'modern_glass' ? 4.1 : 4.4;
-  const startY = centerY + 4.4;
-  const maxY = centerY + height - 1.4;
-  const bandHeight = style === 'modern_glass' ? 2.45 : 1.75;
-  const glassBandGeo = new THREE.BoxGeometry(width + 0.16, bandHeight, depth + 0.16);
-  const ledgeGeo = new THREE.BoxGeometry(width + 0.34, 0.22, depth + 0.34);
+  if (style === 'downtown_midrise') {
+    // Rhythmic 3D recessed window bays, protruding ledges, and projecting Cali wrought-iron balconies
+    const floorStep = 3.9;
+    const startY = centerY + 5.4;
+    const maxY = centerY + height - 1.5;
+
+    let floorIdx = 0;
+    for (let wy = startY; wy < maxY; wy += floorStep) {
+      for (const side of streetSides) {
+        const faceSpan = side === 'east' || side === 'west' ? depth : width;
+        const colCount = Math.max(2, Math.min(4, Math.floor(faceSpan / 4.4)));
+
+        for (let col = 0; col < colCount; col += 1) {
+          const offset = ((col + 0.5) / colCount - 0.5) * (faceSpan * 0.74);
+          const pose = getFacadePose(side, cx, cz, width, depth, offset);
+          const isLit = (bldgHash + floorIdx * 2 + col) % 3 === 0;
+
+          const bay = createRecessedWindowBay(
+            `building_window_bay_${bldg.id}_${windowIdx}`,
+            isLit,
+            shared.windowRevealMat,
+            shared,
+          );
+          bay.position.set(pose.x, wy, pose.z);
+          bay.rotation.y = pose.rotY;
+          group.add(bay);
+          windowIdx += 1;
+
+          // Projecting residential balconies on mid & upper alternating bays (clear of facade neon signs)
+          if (
+            (floorIdx + col + bldgHash) % 3 === 0 &&
+            !hasFacadeSignConflict(bldg.id, side, wy - centerY)
+          ) {
+            const balcony = createProjectingBalcony(
+              `building_balcony_${bldg.id}_${balconyIdx}`,
+              shared.corniceMat,
+              shared,
+            );
+            balcony.position.set(pose.x, wy - 0.98, pose.z);
+            balcony.rotation.y = pose.rotY;
+            group.add(balcony);
+            balconyIdx += 1;
+          }
+        }
+      }
+      floorIdx += 1;
+    }
+
+    // Subtle concrete belt course ledge separating ground-floor retail from residential stories
+    const beltCourse = new THREE.Mesh(
+      new THREE.BoxGeometry(width + 0.34, 0.24, depth + 0.34),
+      shared.sillMat,
+    );
+    beltCourse.position.set(cx, centerY + 4.0, cz);
+    beltCourse.castShadow = true;
+    beltCourse.receiveShadow = true;
+    group.add(beltCourse);
+    return;
+  }
+
+  // Modern downtown & Granada towers: reflective curtain-glass ribbon bands + 3D architectural window bays & mullion reliefs
+  const floorStep = 4.1;
+  const startY = centerY + 4.8;
+  const maxY = centerY + height - 1.5;
+  const bandHeight = 2.42;
+  const glassBandGeo = new THREE.BoxGeometry(width + 0.14, bandHeight, depth + 0.14);
+  const ledgeGeo = new THREE.BoxGeometry(width + 0.38, 0.24, depth + 0.38);
 
   let floorIndex = 0;
   for (let wy = startY; wy < maxY; wy += floorStep) {
@@ -1555,29 +2300,105 @@ function attachArchitecturalWindows(
     glassBand.receiveShadow = true;
     group.add(glassBand);
 
-    if (floorIndex % 2 === 0 || style === 'modern_glass') {
-      const ledge = new THREE.Mesh(ledgeGeo, shared.corniceMat);
-      ledge.position.set(cx, wy - bandHeight * 0.5 - 0.12, cz);
-      ledge.castShadow = true;
-      ledge.receiveShadow = true;
-      group.add(ledge);
-    }
+    const ledge = new THREE.Mesh(ledgeGeo, shared.corniceMat);
+    ledge.position.set(cx, wy - bandHeight * 0.5 - 0.12, cz);
+    ledge.castShadow = true;
+    ledge.receiveShadow = true;
+    group.add(ledge);
 
-    // Occasional warm sunset-lit interior office bays for authentic architectural life
-    if (floorIndex % 3 === 1) {
-      const litStrip = new THREE.Mesh(
-        new THREE.BoxGeometry(width * 0.32, bandHeight * 0.72, depth + 0.2),
-        shared.warmInteriorGlassMat,
-      );
-      litStrip.position.set(
-        cx + (floorIndex % 2 === 0 ? width * 0.22 : -width * 0.22),
-        wy,
-        cz,
-      );
-      group.add(litStrip);
+    // Street-facing architectural recessed window bay mullions & warm glowing office suites
+    for (const side of streetSides) {
+      const faceSpan = side === 'east' || side === 'west' ? depth : width;
+      const colCount = Math.max(2, Math.min(3, Math.floor(faceSpan / 5.4)));
+      for (let col = 0; col < colCount; col += 1) {
+        const offset = ((col + 0.5) / colCount - 0.5) * (faceSpan * 0.72);
+        const pose = getFacadePose(side, cx, cz, width, depth, offset);
+        const isLit = (bldgHash + floorIndex + col) % 3 === 1;
+
+        const bay = new THREE.Group();
+        bay.name = `building_window_bay_${bldg.id}_${windowIdx}`;
+        bay.position.set(pose.x, wy, pose.z);
+        bay.rotation.y = pose.rotY;
+
+        const pane = new THREE.Mesh(
+          shared.geom.windowPaneGeo,
+          isLit ? shared.warmInteriorGlassMat : shared.recessedWindowGlassMat,
+        );
+        pane.name = `building_window_bay_${bldg.id}_${windowIdx}_window_pane`;
+        pane.position.set(0, 0, 0.1);
+        bay.add(pane);
+
+        for (const sx of [-0.72, 0.72] as const) {
+          const mullion = new THREE.Mesh(shared.geom.modernMullionGeo, shared.windowRevealMat);
+          mullion.position.set(sx, 0, 0.14);
+          bay.add(mullion);
+        }
+
+        group.add(bay);
+        windowIdx += 1;
+
+        // Occasional sleek executive tower balcony on upper stories (clear of facade neon signs)
+        if (
+          floorIndex > 0 &&
+          floorIndex % 2 === 1 &&
+          col === 0 &&
+          !hasFacadeSignConflict(bldg.id, side, wy - centerY)
+        ) {
+          const balcony = createProjectingBalcony(
+            `building_balcony_${bldg.id}_${balconyIdx}`,
+            shared.corniceMat,
+            shared,
+          );
+          balcony.position.set(pose.x, wy - bandHeight * 0.5, pose.z);
+          balcony.rotation.y = pose.rotY;
+          group.add(balcony);
+          balconyIdx += 1;
+        }
+      }
     }
 
     floorIndex += 1;
+  }
+}
+
+function attachGroundFloorAwnings(
+  group: THREE.Group,
+  bldg: AabbCollider,
+  bldgHash: number,
+  cx: number,
+  cz: number,
+  width: number,
+  depth: number,
+  centerY: number,
+  shared: BuildingSharedMaterials,
+): void {
+  const streetSides = getStreetFacingSides(bldg);
+  const awningMat =
+    shared.awningMats[bldgHash % shared.awningMats.length] ?? shared.awningMats[0];
+  if (!awningMat) {
+    return;
+  }
+
+  let awningIdx = 0;
+  for (const side of streetSides) {
+    const faceSpan = side === 'east' || side === 'west' ? depth : width;
+    const count = Math.max(1, Math.min(3, Math.floor((faceSpan - 2.2) / 4.4)));
+    for (let i = 0; i < count; i += 1) {
+      const offset = ((i + 0.5) / count - 0.5) * (faceSpan * 0.72);
+      const pose = getFacadePose(side, cx, cz, width, depth, offset);
+      const isLitStorefront = (bldgHash + i + awningIdx) % 2 === 0;
+
+      const awning = createStripedShopfrontAwning(
+        `building_awning_${bldg.id}_${awningIdx}`,
+        awningMat,
+        isLitStorefront,
+        shared,
+      );
+      awning.position.set(pose.x, centerY + 3.05, pose.z);
+      awning.rotation.y = pose.rotY;
+      group.add(awning);
+      awningIdx += 1;
+    }
   }
 }
 
@@ -1669,9 +2490,12 @@ function createSingleBuilding(
   body.receiveShadow = true;
   group.add(body);
 
+  attachCornerPilasters(group, bldg, style, cx, cz, width, depth, centerY, shared);
   attachArchitecturalWindows(
     group,
+    bldg,
     style,
+    bldgHash,
     cx,
     cz,
     width,
@@ -1684,45 +2508,13 @@ function createSingleBuilding(
   const roofY = centerY + bldg.height;
 
   if (style === 'colonial_stucco') {
-    // Terracotta clay-tiled pitched colonial roof + timber eaves trim for San Antonio & Oeste houses
-    const roofTileMat = new THREE.MeshStandardMaterial({
-      color: 0xc25d3c,
-      roughness: 0.82,
-      metalness: 0.04,
-      flatShading: false,
-    });
-    roofTileMat.userData.surfaceRole = 'roof' satisfies SurfaceRole;
-
-    const roofPeak = new THREE.Mesh(
-      new THREE.ConeGeometry(Math.max(width, depth) * 0.75, 2.9, 4),
-      roofTileMat,
-    );
-    roofPeak.rotation.y = Math.PI / 4;
-    roofPeak.scale.set(
-      width / Math.max(width, depth),
-      1,
-      depth / Math.max(width, depth),
-    );
-    roofPeak.position.set(cx, roofY + 1.45, cz);
-    roofPeak.castShadow = true;
-    roofPeak.receiveShadow = true;
-    roofPeak.userData.surfaceRole = 'roof' satisfies SurfaceRole;
-    group.add(roofPeak);
-
-    const eaves = new THREE.Mesh(
-      new THREE.BoxGeometry(width + 0.7, 0.3, depth + 0.7),
-      shared.woodTrimMat,
-    );
-    eaves.position.set(cx, roofY + 0.05, cz);
-    eaves.castShadow = true;
-    eaves.receiveShadow = true;
-    group.add(eaves);
+    attachColonialRoofAndEaves(group, bldg, cx, cz, width, depth, roofY, shared);
   } else {
-    // Ground-floor architectural storefront trim & concrete canopy awning
+    // Ground-floor architectural concrete canopy + striped Cali shopfront awnings & warm storefront bays
     const canopyY =
       style === 'downtown_midrise'
-        ? centerY + Math.min(4.2, Math.max(2.9, bldg.height * 0.23))
-        : centerY + 3.6;
+        ? centerY + Math.min(4.2, Math.max(3.65, bldg.height * 0.23))
+        : centerY + 3.65;
     const storefrontCanopy = new THREE.Mesh(
       new THREE.BoxGeometry(width + 0.65, 0.24, depth + 0.65),
       shared.corniceMat,
@@ -1741,22 +2533,6 @@ function createSingleBuilding(
       lobbyGlass.receiveShadow = true;
       group.add(lobbyGlass);
     } else {
-      // Corner pilasters & dark architectural storefront glazing
-      const pilasterHeight = canopyY - centerY;
-      const pilasterGeo = new THREE.BoxGeometry(0.48, pilasterHeight, 0.48);
-      for (const sx of [-1, 1] as const) {
-        for (const sz of [-1, 1] as const) {
-          const pilaster = new THREE.Mesh(pilasterGeo, shared.parapetMat);
-          pilaster.position.set(
-            cx + sx * (width * 0.5 - 0.12),
-            centerY + pilasterHeight * 0.5,
-            cz + sz * (depth * 0.5 - 0.12),
-          );
-          pilaster.castShadow = true;
-          pilaster.receiveShadow = true;
-          group.add(pilaster);
-        }
-      }
       const kickplate = new THREE.Mesh(
         new THREE.BoxGeometry(width + 0.16, 0.42, depth + 0.16),
         shared.storefrontGlassMat,
@@ -1765,6 +2541,8 @@ function createSingleBuilding(
       kickplate.receiveShadow = true;
       group.add(kickplate);
     }
+
+    attachGroundFloorAwnings(group, bldg, bldgHash, cx, cz, width, depth, centerY, shared);
 
     attachBuildingRooftopDetails(
       group,
@@ -1993,6 +2771,19 @@ function buildCristoReyLandmark(landmark: LandmarkDef): THREE.Group {
   });
   terraceStoneMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
 
+  const carvedStepMat = new THREE.MeshStandardMaterial({
+    color: 0xd8ccb8,
+    roughness: 0.76,
+    metalness: 0.04,
+  });
+  carvedStepMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
+
+  const railingSteelMat = new THREE.MeshStandardMaterial({
+    color: 0x242830,
+    roughness: 0.36,
+    metalness: 0.8,
+  });
+
   const pedestalMat = tagNightEmissive(
     new THREE.MeshStandardMaterial({
       color: 0xe6dfd3,
@@ -2032,43 +2823,135 @@ function buildCristoReyLandmark(landmark: LandmarkDef): THREE.Group {
     }),
     { dayIntensity: 0.35, nightIntensity: 1.95 },
   );
+  const floodlightLensMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xfff2cc,
+      emissive: 0xffcf70,
+      emissiveIntensity: 0.65,
+      roughness: 0.14,
+      metalness: 0.15,
+    }),
+    { dayIntensity: 0.65, nightIntensity: 3.4 },
+  );
   const uplightBeamMat = tagNightOpacity(
     new THREE.MeshBasicMaterial({
       color: 0xffd796,
       transparent: true,
-      opacity: 0.08,
+      opacity: 0.06,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     }),
-    0.08,
+    0.06,
     0.36,
   );
 
-  // Multi-tier Mirador stone terraces & glowing golden balustrade
+  // Terraced circular stone mirador observation deck
+  const miradorDeckGroup = new THREE.Group();
+  miradorDeckGroup.name = 'cristo_rey_mirador_deck';
+
   const lowerTerrace = new THREE.Mesh(
-    new THREE.CylinderGeometry(13.2, 15.2, 1.4, 20),
+    new THREE.CylinderGeometry(13.4, 15.2, 1.4, 24),
     plazaMat,
   );
   lowerTerrace.position.y = 0.4;
-  group.add(lowerTerrace);
+  miradorDeckGroup.add(lowerTerrace);
 
   const miradorDeck = new THREE.Mesh(
-    new THREE.CylinderGeometry(10.8, 12.2, 1.4, 20),
+    new THREE.CylinderGeometry(11.2, 12.4, 1.4, 24),
     terraceStoneMat,
   );
   miradorDeck.position.y = 1.65;
-  group.add(miradorDeck);
+  miradorDeckGroup.add(miradorDeck);
+
+  const copingRing = new THREE.Mesh(
+    new THREE.TorusGeometry(11.15, 0.22, 8, 36),
+    carvedStepMat,
+  );
+  copingRing.rotation.x = Math.PI / 2;
+  copingRing.position.y = 2.38;
+  miradorDeckGroup.add(copingRing);
 
   const miradorRing = new THREE.Mesh(
-    new THREE.TorusGeometry(10.7, 0.22, 8, 28),
+    new THREE.TorusGeometry(8.4, 0.12, 8, 32),
     goldMat,
   );
   miradorRing.rotation.x = Math.PI / 2;
-  miradorRing.position.y = 2.65;
-  group.add(miradorRing);
+  miradorRing.position.y = 2.4;
+  miradorDeckGroup.add(miradorRing);
+  group.add(miradorDeckGroup);
 
-  // Illuminated pedestal terrace & grand front steps facing +X (downtown Cali)
+  // Protective circular perimeter railings around mirador deck (open toward +X approach steps)
+  const railingGroup = new THREE.Group();
+  railingGroup.name = 'cristo_rey_mirador_railing';
+  const entryHalfGapRad = 0.32;
+  const railingArcRad = Math.PI * 2 - entryHalfGapRad * 2;
+  const railingRadius = 11.05;
+
+  for (const railY of [3.42, 2.94] as const) {
+    const railTube = new THREE.Mesh(
+      new THREE.TorusGeometry(railingRadius, 0.075, 8, 36, railingArcRad),
+      railingSteelMat,
+    );
+    railTube.rotation.x = Math.PI / 2;
+    railTube.rotation.z = entryHalfGapRad;
+    railTube.position.y = railY;
+    railingGroup.add(railTube);
+  }
+
+  const postGeo = new THREE.CylinderGeometry(0.055, 0.068, 1.12, 6);
+  const postCount = 22;
+  for (let i = 0; i <= postCount; i += 1) {
+    const angle = entryHalfGapRad + (i / postCount) * railingArcRad;
+    const post = new THREE.Mesh(postGeo, railingSteelMat);
+    post.position.set(
+      Math.cos(angle) * railingRadius,
+      2.9,
+      Math.sin(angle) * railingRadius,
+    );
+    railingGroup.add(post);
+  }
+  group.add(railingGroup);
+
+  // Warm carved stone approach steps ascending from east (+X) mirador entrance to pedestal terrace
+  const stepsGroup = new THREE.Group();
+  stepsGroup.name = 'cristo_rey_approach_steps';
+  const stepCount = 8;
+  const stepWidthBase = 6.2;
+  const stepGeo = new THREE.BoxGeometry(1.05, 0.34, 1.0);
+
+  for (let s = 0; s < stepCount; s += 1) {
+    const t = s / (stepCount - 1);
+    const sx = 11.4 - t * 6.4;
+    const sy = 1.25 + t * 2.55;
+    const sw = stepWidthBase - t * 1.1;
+    const step = new THREE.Mesh(stepGeo, carvedStepMat);
+    step.scale.set(1, 1, sw);
+    step.position.set(sx, sy, 0);
+    stepsGroup.add(step);
+  }
+
+  // Carved stone cheek walls & glowing sandstone newel post lanterns flanking staircase
+  const cheekWallGeo = new THREE.BoxGeometry(6.8, 1.45, 0.55);
+  const newelPostGeo = new THREE.BoxGeometry(0.76, 1.8, 0.76);
+  const newelLanternGeo = new THREE.SphereGeometry(0.32, 8, 8);
+  for (const sideSign of [-1, 1] as const) {
+    const cheek = new THREE.Mesh(cheekWallGeo, carvedStepMat);
+    cheek.position.set(8.2, 2.55, sideSign * 3.15);
+    cheek.rotation.z = 0.35;
+    stepsGroup.add(cheek);
+
+    const newel = new THREE.Mesh(newelPostGeo, carvedStepMat);
+    newel.position.set(11.65, 2.05, sideSign * 3.25);
+    stepsGroup.add(newel);
+
+    const lantern = new THREE.Mesh(newelLanternGeo, floodlightLensMat);
+    lantern.position.set(11.65, 3.15, sideSign * 3.25);
+    stepsGroup.add(lantern);
+  }
+  group.add(stepsGroup);
+
+  // Illuminated pedestal terrace & iconic monument plinth
   const pedestalBase = new THREE.Mesh(
     new THREE.CylinderGeometry(5.6, 6.6, 1.8, 12),
     terraceStoneMat,
@@ -2082,10 +2965,6 @@ function buildCristoReyLandmark(landmark: LandmarkDef): THREE.Group {
   );
   pedestal.position.y = 7.2;
   group.add(pedestal);
-
-  const steps = new THREE.Mesh(new THREE.BoxGeometry(4.4, 2.4, 5.6), pedestalMat);
-  steps.position.set(4.8, 2.5, 0);
-  group.add(steps);
 
   // Giant illuminated ivory Cristo Rey statue facing +X (arms spread along Z)
   const robe = new THREE.Mesh(
@@ -2122,20 +3001,53 @@ function buildCristoReyLandmark(landmark: LandmarkDef): THREE.Group {
   halo.position.set(-0.3, 32.1, 0);
   group.add(halo);
 
-  // Warm golden architectural uplight cones around pedestal
-  const beamGeo = new THREE.ConeGeometry(4.8, 24, 16, 1, true);
-  for (let i = 0; i < 4; i += 1) {
-    const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
-    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 8), goldMat);
-    lamp.position.set(Math.cos(angle) * 6.4, 2.65, Math.sin(angle) * 6.4);
-    group.add(lamp);
+  // 6 heavy-duty architectural ground floodlight housings + dramatic volumetric uplight cones
+  const housingGeo = new THREE.BoxGeometry(0.74, 0.44, 0.56);
+  const lensGeo = new THREE.PlaneGeometry(0.6, 0.34);
+  const mountGeo = new THREE.BoxGeometry(0.92, 0.42, 0.92);
+  const beamGeo = new THREE.ConeGeometry(4.6, 26, 16, 1, true);
+
+  for (let i = 0; i < 6; i += 1) {
+    const angle = (i / 6) * Math.PI * 2 + Math.PI / 6;
+    const fx = Math.cos(angle) * 7.2;
+    const fz = Math.sin(angle) * 7.2;
+
+    const fixture = new THREE.Group();
+    fixture.name = `cristo_rey_floodlight_${i}`;
+    fixture.position.set(fx, 2.45, fz);
+
+    const mount = new THREE.Mesh(mountGeo, terraceStoneMat);
+    mount.position.y = 0.12;
+    fixture.add(mount);
+
+    const housing = new THREE.Mesh(housingGeo, railingSteelMat);
+    housing.position.y = 0.52;
+    housing.lookAt(-fx, 18, -fz);
+
+    const lens = new THREE.Mesh(lensGeo, floodlightLensMat);
+    lens.position.set(0, 0, 0.29);
+    housing.add(lens);
+    fixture.add(housing);
+
+    group.add(fixture);
 
     const beam = new THREE.Mesh(beamGeo, uplightBeamMat);
-    beam.position.set(Math.cos(angle) * 3.4, 14.5, Math.sin(angle) * 3.4);
-    beam.rotation.z = Math.cos(angle) * 0.14;
-    beam.rotation.x = -Math.sin(angle) * 0.14;
+    beam.name = `cristo_rey_uplight_beam_${i}`;
+    beam.position.set(Math.cos(angle) * 3.8, 15.2, Math.sin(angle) * 3.8);
+    beam.rotation.z = Math.cos(angle) * 0.16;
+    beam.rotation.x = -Math.sin(angle) * 0.16;
     group.add(beam);
   }
+
+  // Dedicated warm night-boosted architectural monument uplight (no shadow pass overhead)
+  const monumentUplight = tagNightLight(
+    new THREE.PointLight(0xffd699, 0.25, 48, 1.5),
+    0.25,
+    3.6,
+  );
+  monumentUplight.name = 'cristo_rey_monument_uplight';
+  monumentUplight.position.set(5.5, 16.5, 0);
+  group.add(monumentUplight);
 
   enableSolidLandmarkShadows(group);
   return group;
@@ -2153,20 +3065,44 @@ function buildLaErmitaLandmark(landmark: LandmarkDef): THREE.Group {
   });
   ivoryMat.userData.surfaceRole = 'plaster' satisfies SurfaceRole;
 
+  const trimStoneMat = new THREE.MeshStandardMaterial({
+    color: 0xd9d1c3,
+    roughness: 0.78,
+    metalness: 0.06,
+  });
+
   const skyBlueMat = new THREE.MeshStandardMaterial({
     color: 0x7aa4c9,
     roughness: 0.52,
     metalness: 0.14,
     flatShading: false,
   });
+  const roseTex = createRoseWindowTexture();
   const roseGlowMat = tagNightEmissive(
     new THREE.MeshStandardMaterial({
-      color: 0xd96b4e,
-      emissive: 0xff8b4a,
-      emissiveIntensity: 0.9,
-      roughness: 0.22,
+      color: 0xffffff,
+      map: roseTex,
+      emissive: 0xffa85c,
+      emissiveMap: roseTex,
+      emissiveIntensity: 0.85,
+      roughness: 0.2,
     }),
-    { dayIntensity: 0.9, nightIntensity: 2.2 },
+    { dayIntensity: 0.85, nightIntensity: 2.35 },
+  );
+  const lancetGlassMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0x264470,
+      emissive: 0xffb35c,
+      emissiveIntensity: 0.42,
+      roughness: 0.14,
+      metalness: 0.38,
+    }),
+    {
+      dayIntensity: 0.42,
+      nightIntensity: 1.85,
+      dayEmissiveHex: 0x5c7aa6,
+      nightEmissiveHex: 0xffb85e,
+    },
   );
   const goldMat = tagNightEmissive(
     new THREE.MeshStandardMaterial({
@@ -2176,8 +3112,12 @@ function buildLaErmitaLandmark(landmark: LandmarkDef): THREE.Group {
       roughness: 0.28,
       metalness: 0.68,
     }),
-    { dayIntensity: 0.42, nightIntensity: 1.35 },
+    { dayIntensity: 0.42, nightIntensity: 1.45 },
   );
+  const darkWoodMat = new THREE.MeshStandardMaterial({
+    color: 0x452918,
+    roughness: 0.84,
+  });
 
   // Stone sanctuary plinth
   const plinthMat = new THREE.MeshStandardMaterial({ color: 0x8f887d, roughness: 0.88 });
@@ -2189,22 +3129,121 @@ function buildLaErmitaLandmark(landmark: LandmarkDef): THREE.Group {
   plinth.position.y = 0.6;
   group.add(plinth);
 
-  // Main ivory neo-gothic nave + flanking buttress piers
+  // Main ivory neo-gothic nave
   const nave = new THREE.Mesh(new THREE.BoxGeometry(13.5, 12.5, 16.5), ivoryMat);
   nave.position.set(1.2, 7.2, 0);
   group.add(nave);
 
-  for (const bx of [-3.2, 1.2, 5.6]) {
-    for (const side of [-8.4, 8.4]) {
-      const buttress = new THREE.Mesh(new THREE.BoxGeometry(1.1, 10.5, 1.1), ivoryMat);
-      buttress.position.set(bx, 6.2, side);
-      group.add(buttress);
+  // Stepped corner & nave buttresses with sky-blue gothic pinnacles & golden finials
+  const buttressBaseGeo = new THREE.BoxGeometry(1.45, 4.6, 1.45);
+  const buttressMidGeo = new THREE.BoxGeometry(1.12, 4.2, 1.12);
+  const buttressTopGeo = new THREE.BoxGeometry(0.84, 3.0, 0.84);
+  const buttressPinnacleGeo = new THREE.ConeGeometry(0.58, 3.4, 4);
+  const miniFinialGeo = new THREE.BoxGeometry(0.14, 0.85, 0.14);
 
-      const pinnacle = new THREE.Mesh(new THREE.ConeGeometry(0.62, 3.2, 4), skyBlueMat);
-      pinnacle.rotation.y = Math.PI / 4;
-      pinnacle.position.set(bx, 13.0, side);
-      group.add(pinnacle);
+  const buttressCoords: readonly (readonly [number, number])[] = [
+    [-3.2, -8.5],
+    [1.2, -8.5],
+    [5.6, -8.5],
+    [8.0, -8.5],
+    [-3.2, 8.5],
+    [1.2, 8.5],
+    [5.6, 8.5],
+    [8.0, 8.5],
+    [-7.3, -6.5],
+    [-7.3, 6.5],
+  ];
+
+  buttressCoords.forEach(([bx, bz], idx) => {
+    const buttressGroup = new THREE.Group();
+    buttressGroup.name = `la_ermita_buttress_${idx}`;
+    buttressGroup.position.set(bx, 1.2, bz);
+
+    const base = new THREE.Mesh(buttressBaseGeo, trimStoneMat);
+    base.position.y = 2.3;
+    buttressGroup.add(base);
+
+    const mid = new THREE.Mesh(buttressMidGeo, ivoryMat);
+    mid.position.y = 6.5;
+    buttressGroup.add(mid);
+
+    const top = new THREE.Mesh(buttressTopGeo, ivoryMat);
+    top.position.y = 10.0;
+    buttressGroup.add(top);
+
+    const pinnacle = new THREE.Mesh(buttressPinnacleGeo, skyBlueMat);
+    pinnacle.rotation.y = Math.PI / 4;
+    pinnacle.position.y = 13.1;
+    buttressGroup.add(pinnacle);
+
+    const finial = new THREE.Mesh(miniFinialGeo, goldMat);
+    finial.position.y = 15.1;
+    buttressGroup.add(finial);
+
+    group.add(buttressGroup);
+  });
+
+  // Pointed neo-gothic lancet window cutouts/arches along nave walls & west facade towers
+  const lancetPaneGeo = new THREE.BoxGeometry(1.15, 3.6, 0.14);
+  const lancetPeakGeo = new THREE.ConeGeometry(0.67, 1.35, 3);
+  const lancetJambGeo = new THREE.BoxGeometry(0.18, 3.85, 0.28);
+  const lancetSillGeo = new THREE.BoxGeometry(1.56, 0.22, 0.36);
+
+  const buildLancetWindow = (name: string): THREE.Group => {
+    const lancet = new THREE.Group();
+    lancet.name = name;
+
+    const pane = new THREE.Mesh(lancetPaneGeo, lancetGlassMat);
+    pane.position.set(0, 0, 0.05);
+    lancet.add(pane);
+
+    const archPeak = new THREE.Mesh(lancetPeakGeo, lancetGlassMat);
+    archPeak.scale.set(1, 1, 0.22);
+    archPeak.position.set(0, 2.35, 0.05);
+    lancet.add(archPeak);
+
+    const hoodPeak = new THREE.Mesh(lancetPeakGeo, trimStoneMat);
+    hoodPeak.scale.set(1.24, 1.15, 0.34);
+    hoodPeak.position.set(0, 2.48, 0.12);
+    lancet.add(hoodPeak);
+
+    for (const sx of [-0.66, 0.66] as const) {
+      const jamb = new THREE.Mesh(lancetJambGeo, trimStoneMat);
+      jamb.position.set(sx, 0, 0.12);
+      lancet.add(jamb);
     }
+
+    const sill = new THREE.Mesh(lancetSillGeo, trimStoneMat);
+    sill.position.set(0, -1.96, 0.16);
+    lancet.add(sill);
+
+    return lancet;
+  };
+
+  let lancetIdx = 0;
+  for (const lx of [-1.0, 3.4, 6.7] as const) {
+    for (const side of [-1, 1] as const) {
+      const win = buildLancetWindow(`la_ermita_lancet_window_${lancetIdx}`);
+      win.position.set(lx, 7.6, side * 8.28);
+      win.rotation.y = side > 0 ? 0 : Math.PI;
+      group.add(win);
+      lancetIdx += 1;
+    }
+  }
+  for (const side of [-4.6, 4.6] as const) {
+    const towerLancet = buildLancetWindow(`la_ermita_lancet_window_${lancetIdx}`);
+    towerLancet.position.set(-7.42, 14.5, side);
+    towerLancet.rotation.y = -Math.PI / 2;
+    group.add(towerLancet);
+    lancetIdx += 1;
+  }
+  for (const belfryY of [20.5, 25.4] as const) {
+    const centerLancet = buildLancetWindow(`la_ermita_lancet_window_${lancetIdx}`);
+    centerLancet.position.set(-6.45, belfryY, 0);
+    centerLancet.rotation.y = -Math.PI / 2;
+    centerLancet.scale.setScalar(0.82);
+    group.add(centerLancet);
+    lancetIdx += 1;
   }
 
   // Pitched nave roof in sky-blue gothic slate
@@ -2217,71 +3256,172 @@ function buildLaErmitaLandmark(landmark: LandmarkDef): THREE.Group {
   roof.position.set(1.2, 16.4, 0);
   group.add(roof);
 
-  // Iconic twin neo-gothic spires facing west (-X) toward Río Cali
-  for (const side of [-4.6, 4.6] as const) {
-    const tower = new THREE.Mesh(new THREE.BoxGeometry(3.6, 21, 3.6), ivoryMat);
-    tower.position.set(-5.6, 11.4, side);
-    group.add(tower);
+  // Twin flanking neo-gothic spires + corner mini-pinnacles + golden cross finials
+  const cornerSpireletGeo = new THREE.ConeGeometry(0.46, 3.1, 4);
+  const sideCrossVGeo = new THREE.BoxGeometry(0.24, 2.5, 0.24);
+  const sideCrossHGeo = new THREE.BoxGeometry(0.24, 0.24, 1.35);
 
-    const spire = new THREE.Mesh(new THREE.ConeGeometry(2.35, 11.8, 4), skyBlueMat);
-    spire.rotation.y = Math.PI / 4;
-    spire.position.set(-5.6, 27.6, side);
-    group.add(spire);
+  const flankingSides = [
+    { z: -4.6, tag: 'left' },
+    { z: 4.6, tag: 'right' },
+  ] as const;
 
-    const finial = new THREE.Mesh(new THREE.BoxGeometry(0.32, 2.4, 0.32), goldMat);
-    finial.position.set(-5.6, 34.4, side);
-    group.add(finial);
+  for (const flank of flankingSides) {
+    const flankGroup = new THREE.Group();
+    flankGroup.name = `la_ermita_flanking_pinnacle_${flank.tag}`;
+    flankGroup.position.set(-5.6, 0, flank.z);
+
+    const towerLower = new THREE.Mesh(new THREE.BoxGeometry(3.8, 16.0, 3.8), ivoryMat);
+    towerLower.position.y = 9.0;
+    flankGroup.add(towerLower);
+
+    const towerSetback = new THREE.Mesh(new THREE.BoxGeometry(3.1, 6.2, 3.1), ivoryMat);
+    towerSetback.position.y = 19.8;
+    flankGroup.add(towerSetback);
+
+    const towerCrown = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.65, 3.4), trimStoneMat);
+    towerCrown.position.y = 22.9;
+    flankGroup.add(towerCrown);
+
+    for (const cx of [-1.45, 1.45] as const) {
+      for (const cz of [-1.45, 1.45] as const) {
+        const spirelet = new THREE.Mesh(cornerSpireletGeo, skyBlueMat);
+        spirelet.rotation.y = Math.PI / 4;
+        spirelet.position.set(cx, 24.7, cz);
+        flankGroup.add(spirelet);
+      }
+    }
+
+    const spire = new THREE.Mesh(new THREE.ConeGeometry(2.15, 12.6, 8), skyBlueMat);
+    spire.position.y = 29.4;
+    flankGroup.add(spire);
+
+    const crossGroup = new THREE.Group();
+    crossGroup.name = `la_ermita_cross_finial_${flank.tag}`;
+    crossGroup.position.y = 36.6;
+    crossGroup.add(new THREE.Mesh(sideCrossVGeo, goldMat));
+    const arm = new THREE.Mesh(sideCrossHGeo, goldMat);
+    arm.position.y = 0.45;
+    crossGroup.add(arm);
+    flankGroup.add(crossGroup);
+
+    group.add(flankGroup);
   }
 
-  // Tall lacy central neo-gothic spire
-  const centerTower = new THREE.Mesh(new THREE.BoxGeometry(4.4, 24.5, 4.4), ivoryMat);
-  centerTower.position.set(-4.2, 13.2, 0);
-  group.add(centerTower);
+  // Stepped multi-tier neo-gothic central spire with octagonal belfry drum & golden cross finial
+  const centralSpireGroup = new THREE.Group();
+  centralSpireGroup.name = 'la_ermita_central_spire';
+  centralSpireGroup.position.set(-4.2, 0, 0);
+
+  const centerTowerBase = new THREE.Mesh(new THREE.BoxGeometry(4.6, 21.0, 4.6), ivoryMat);
+  centerTowerBase.position.y = 11.4;
+  centralSpireGroup.add(centerTowerBase);
+
+  const centerBelfryTier = new THREE.Mesh(new THREE.BoxGeometry(3.8, 6.4, 3.8), ivoryMat);
+  centerBelfryTier.position.y = 24.8;
+  centralSpireGroup.add(centerBelfryTier);
+
+  const centerLanternDrum = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.9, 2.25, 4.2, 8),
+    trimStoneMat,
+  );
+  centerLanternDrum.position.y = 29.8;
+  centralSpireGroup.add(centerLanternDrum);
+
+  for (const cx of [-1.8, 1.8] as const) {
+    for (const cz of [-1.8, 1.8] as const) {
+      const crownPin = new THREE.Mesh(cornerSpireletGeo, ivoryMat);
+      crownPin.rotation.y = Math.PI / 4;
+      crownPin.position.set(cx, 29.4, cz);
+      centralSpireGroup.add(crownPin);
+    }
+  }
 
   const centerSpire = new THREE.Mesh(
-    new THREE.ConeGeometry(2.95, 15.0, 4),
+    new THREE.ConeGeometry(2.15, 14.5, 8),
     ivoryMat,
   );
-  centerSpire.rotation.y = Math.PI / 4;
-  centerSpire.position.set(-4.2, 32.5, 0);
-  group.add(centerSpire);
+  centerSpire.position.y = 39.0;
+  centralSpireGroup.add(centerSpire);
 
-  const crossVertical = new THREE.Mesh(new THREE.BoxGeometry(0.35, 3.2, 0.35), goldMat);
-  crossVertical.position.set(-4.2, 41.0, 0);
-  group.add(crossVertical);
-  const crossArm = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 1.9), goldMat);
-  crossArm.position.set(-4.2, 41.5, 0);
-  group.add(crossArm);
+  const centerCrossGroup = new THREE.Group();
+  centerCrossGroup.name = 'la_ermita_cross_finial_center';
+  centerCrossGroup.position.y = 47.4;
+  centerCrossGroup.add(new THREE.Mesh(new THREE.BoxGeometry(0.36, 3.4, 0.36), goldMat));
+  const centerCrossArm = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 2.1), goldMat);
+  centerCrossArm.position.y = 0.55;
+  centerCrossGroup.add(centerCrossArm);
+  centralSpireGroup.add(centerCrossGroup);
 
-  // Luminous circular stained-glass rose window with concentric golden tracery
+  group.add(centralSpireGroup);
+
+  // Layered glowing stained-glass rose window with concentric golden tracery & radial mullions
+  const roseGroup = new THREE.Group();
+  roseGroup.name = 'la_ermita_rose_window';
+  roseGroup.position.set(-6.62, 13.5, 0);
+
+  const roseStoneSurround = new THREE.Mesh(
+    new THREE.TorusGeometry(2.55, 0.32, 8, 28),
+    trimStoneMat,
+  );
+  roseStoneSurround.rotation.y = Math.PI / 2;
+  roseGroup.add(roseStoneSurround);
+
   const roseOuter = new THREE.Mesh(
-    new THREE.TorusGeometry(2.3, 0.32, 8, 24),
+    new THREE.TorusGeometry(2.26, 0.18, 8, 24),
     goldMat,
   );
   roseOuter.rotation.y = Math.PI / 2;
-  roseOuter.position.set(-6.6, 13.5, 0);
-  group.add(roseOuter);
+  roseOuter.position.x = -0.06;
+  roseGroup.add(roseOuter);
 
   const roseInnerRing = new THREE.Mesh(
-    new THREE.TorusGeometry(1.15, 0.14, 8, 20),
+    new THREE.TorusGeometry(1.12, 0.12, 8, 20),
     goldMat,
   );
   roseInnerRing.rotation.y = Math.PI / 2;
-  roseInnerRing.position.set(-6.68, 13.5, 0);
-  group.add(roseInnerRing);
+  roseInnerRing.position.x = -0.1;
+  roseGroup.add(roseInnerRing);
 
   const roseGlass = new THREE.Mesh(
-    new THREE.CircleGeometry(2.08, 20),
+    new THREE.CircleGeometry(2.16, 24),
     roseGlowMat,
   );
   roseGlass.rotation.y = -Math.PI / 2;
-  roseGlass.position.set(-6.66, 13.5, 0);
-  group.add(roseGlass);
+  roseGlass.position.x = -0.04;
+  roseGroup.add(roseGlass);
 
-  // Illuminated gothic entrance portal
-  const portal = new THREE.Mesh(new THREE.BoxGeometry(0.65, 5.4, 3.6), goldMat);
-  portal.position.set(-6.5, 3.8, 0);
-  group.add(portal);
+  const spokeGeo = new THREE.BoxGeometry(0.08, 4.2, 0.08);
+  for (let s = 0; s < 4; s += 1) {
+    const spoke = new THREE.Mesh(spokeGeo, goldMat);
+    spoke.position.x = -0.11;
+    spoke.rotation.x = (s / 4) * Math.PI;
+    roseGroup.add(spoke);
+  }
+
+  const roseBoss = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 8), goldMat);
+  roseBoss.position.x = -0.14;
+  roseGroup.add(roseBoss);
+  group.add(roseGroup);
+
+  // Stepped gothic entrance portal with carved wooden double doors & gable hood
+  const portalGroup = new THREE.Group();
+  portalGroup.name = 'la_ermita_portal';
+  portalGroup.position.set(-6.55, 3.8, 0);
+
+  const portalFrame = new THREE.Mesh(new THREE.BoxGeometry(0.72, 5.6, 4.1), trimStoneMat);
+  portalGroup.add(portalFrame);
+
+  const portalDoors = new THREE.Mesh(new THREE.BoxGeometry(0.84, 4.6, 3.0), darkWoodMat);
+  portalDoors.position.set(-0.08, -0.3, 0);
+  portalGroup.add(portalDoors);
+
+  const portalGable = new THREE.Mesh(new THREE.ConeGeometry(2.5, 2.4, 3), goldMat);
+  portalGable.rotation.y = Math.PI / 2;
+  portalGable.scale.set(1, 1, 0.32);
+  portalGable.position.set(-0.12, 3.85, 0);
+  portalGroup.add(portalGable);
+  group.add(portalGroup);
 
   enableSolidLandmarkShadows(group);
   return group;
@@ -2325,19 +3465,74 @@ function buildTorreDeCaliLandmark(landmark: LandmarkDef): THREE.Group {
   });
   concreteRibMat.userData.surfaceRole = 'facade' satisfies SurfaceRole;
 
-  const crownSteelMat = new THREE.MeshStandardMaterial({
-    color: 0x3b4049,
-    roughness: 0.34,
+  const mullionFinMat = new THREE.MeshStandardMaterial({
+    color: 0x162230,
+    roughness: 0.18,
     metalness: 0.78,
+    envMapIntensity: 1.6,
   });
+  const crownSteelMat = new THREE.MeshStandardMaterial({
+    color: 0x343a44,
+    roughness: 0.32,
+    metalness: 0.8,
+  });
+  const crownGlowMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffe6b3,
+      emissive: 0xffc668,
+      emissiveIntensity: 0.35,
+      roughness: 0.22,
+    }),
+    { dayIntensity: 0.35, nightIntensity: 1.95 },
+  );
+  const helipadTex = createHelipadTexture();
+  const helipadSurfaceMat = new THREE.MeshStandardMaterial({
+    map: helipadTex,
+    roughness: 0.74,
+    metalness: 0.08,
+  });
+  const helipadYellowMat = new THREE.MeshStandardMaterial({
+    color: 0xf4c424,
+    roughness: 0.42,
+    metalness: 0.15,
+  });
+  const helipadWhiteMat = new THREE.MeshStandardMaterial({
+    color: 0xf4f6fa,
+    roughness: 0.48,
+  });
+  const helipadLightMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0x4cff9b,
+      emissive: 0x22ee7a,
+      emissiveIntensity: 0.7,
+      roughness: 0.18,
+    }),
+    { dayIntensity: 0.7, nightIntensity: 2.5 },
+  );
   const aviationBeaconMat = tagNightEmissive(
     new THREE.MeshStandardMaterial({
       color: 0xff3b3b,
-      emissive: 0xff2828,
-      emissiveIntensity: 1.6,
-      roughness: 0.18,
+      emissive: 0xff2222,
+      emissiveIntensity: 1.4,
+      roughness: 0.16,
     }),
-    { dayIntensity: 1.6, nightIntensity: 2.6 },
+    { dayIntensity: 1.4, nightIntensity: 3.6 },
+  );
+  const beaconHaloTex = createSoftGlowPoolTexture(
+    'rgba(255, 48, 48, 0.85)',
+    'rgba(255, 24, 24, 0.28)',
+  );
+  const beaconHaloMat = tagNightOpacity(
+    new THREE.MeshBasicMaterial({
+      map: beaconHaloTex,
+      transparent: true,
+      opacity: 0.16,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+    0.16,
+    0.74,
   );
 
   // Grand stepped architectural stone plaza podium
@@ -2348,13 +3543,14 @@ function buildTorreDeCaliLandmark(landmark: LandmarkDef): THREE.Group {
   podium.position.y = 2.75;
   group.add(podium);
 
-  // Three stepped reflective curtain-glass skyscraper tiers with concrete floor bands
+  // Three stepped reflective curtain-glass skyscraper tiers with vertical dark-glass mullion fins on all 4 sides
   const tiers = [
-    { size: 15.6, height: 30, y: 20.5 },
-    { size: 12.6, height: 24, y: 47.5 },
-    { size: 9.8, height: 17, y: 68.0 },
+    { size: 15.6, height: 30, y: 20.5, finsPerFace: 5 },
+    { size: 12.6, height: 24, y: 47.5, finsPerFace: 4 },
+    { size: 9.8, height: 17, y: 68.0, finsPerFace: 3 },
   ] as const;
 
+  let mullionIdx = 0;
   for (const tier of tiers) {
     const shaftGeo = createUvScaledBoxGeometry(tier.size, tier.height, tier.size, 8, 16, {
       integerSideRepeat: true,
@@ -2376,6 +3572,29 @@ function buildTorreDeCaliLandmark(landmark: LandmarkDef): THREE.Group {
     );
     ring.position.y = tier.y + tier.height * 0.5;
     group.add(ring);
+
+    // Crisp vertical dark-glass curtain-wall mullion fins rising along all 4 sides
+    const finGeoNS = new THREE.BoxGeometry(0.18, tier.height, 0.36);
+    const finGeoEW = new THREE.BoxGeometry(0.36, tier.height, 0.18);
+    const halfSpan = tier.size * 0.5 + 0.12;
+
+    for (let i = 0; i < tier.finsPerFace; i += 1) {
+      const along =
+        ((i + 1) / (tier.finsPerFace + 1) - 0.5) * (tier.size * 0.88);
+      for (const side of [-1, 1] as const) {
+        const nsFin = new THREE.Mesh(finGeoNS, mullionFinMat);
+        nsFin.name = `torre_mullion_fin_${mullionIdx}`;
+        nsFin.position.set(along, tier.y, side * halfSpan);
+        group.add(nsFin);
+        mullionIdx += 1;
+
+        const ewFin = new THREE.Mesh(finGeoEW, mullionFinMat);
+        ewFin.name = `torre_mullion_fin_${mullionIdx}`;
+        ewFin.position.set(side * halfSpan, tier.y, along);
+        group.add(ewFin);
+        mullionIdx += 1;
+      }
+    }
   }
 
   // Iconic vertical white-concrete modernist structural corner fins
@@ -2387,26 +3606,112 @@ function buildTorreDeCaliLandmark(landmark: LandmarkDef): THREE.Group {
     }
   }
 
-  // Modernist architectural steel crown & twin telecom spires with aviation beacons
+  // Stepped upper mechanical crown with steel louvers & architectural crown illumination
+  const crownGroup = new THREE.Group();
+  crownGroup.name = 'torre_mechanical_crown';
+
   const crownLower = new THREE.Mesh(new THREE.BoxGeometry(10.8, 1.5, 10.8), concreteRibMat);
   crownLower.position.y = 77.2;
-  group.add(crownLower);
+  crownGroup.add(crownLower);
 
-  const crownUpper = new THREE.Mesh(new THREE.BoxGeometry(7.4, 2.3, 7.4), crownSteelMat);
-  crownUpper.position.y = 79.0;
-  group.add(crownUpper);
+  const crownGlowBand = new THREE.Mesh(new THREE.BoxGeometry(10.2, 0.34, 10.2), crownGlowMat);
+  crownGlowBand.position.y = 78.12;
+  crownGroup.add(crownGlowBand);
 
-  for (const offset of [-1.8, 1.8] as const) {
-    const spire = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.14, 0.34, 12.0, 8),
+  const crownUpper = new THREE.Mesh(new THREE.BoxGeometry(9.0, 2.2, 9.0), crownSteelMat);
+  crownUpper.position.y = 79.35;
+  crownGroup.add(crownUpper);
+
+  const crownParapetNS = new THREE.BoxGeometry(9.4, 0.55, 0.35);
+  const crownParapetEW = new THREE.BoxGeometry(0.35, 0.55, 9.4);
+  for (const side of [-1, 1] as const) {
+    const nsWall = new THREE.Mesh(crownParapetNS, concreteRibMat);
+    nsWall.position.set(0, 80.7, side * 4.5);
+    crownGroup.add(nsWall);
+
+    const ewWall = new THREE.Mesh(crownParapetEW, concreteRibMat);
+    ewWall.position.set(side * 4.5, 80.7, 0);
+    crownGroup.add(ewWall);
+  }
+  group.add(crownGroup);
+
+  // Painted rooftop helipad (H circle) deck & perimeter approach lights
+  const helipadGroup = new THREE.Group();
+  helipadGroup.name = 'torre_helipad';
+  helipadGroup.position.set(0, 80.56, 0);
+
+  const helipadDeck = new THREE.Mesh(
+    new THREE.BoxGeometry(6.8, 0.22, 6.8),
+    [
       crownSteelMat,
-    );
-    spire.position.set(offset, 86.0, 0);
-    group.add(spire);
+      crownSteelMat,
+      helipadSurfaceMat,
+      crownSteelMat,
+      crownSteelMat,
+      crownSteelMat,
+    ],
+  );
+  helipadGroup.add(helipadDeck);
 
-    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 10), aviationBeaconMat);
-    tip.position.set(offset, 92.2, 0);
-    group.add(tip);
+  const helipadRing = new THREE.Mesh(
+    new THREE.RingGeometry(2.35, 2.75, 28),
+    helipadYellowMat,
+  );
+  helipadRing.rotation.x = -Math.PI / 2;
+  helipadRing.position.y = 0.13;
+  helipadGroup.add(helipadRing);
+
+  const hBarGeo = new THREE.BoxGeometry(0.38, 0.04, 2.4);
+  for (const hx of [-0.75, 0.75] as const) {
+    const leg = new THREE.Mesh(hBarGeo, helipadWhiteMat);
+    leg.position.set(hx, 0.13, 0);
+    helipadGroup.add(leg);
+  }
+  const hCross = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.04, 0.38), helipadWhiteMat);
+  hCross.position.y = 0.13;
+  helipadGroup.add(hCross);
+
+  const cornerLightGeo = new THREE.SphereGeometry(0.16, 8, 8);
+  for (const cx of [-3.1, 3.1] as const) {
+    for (const cz of [-3.1, 3.1] as const) {
+      const lightBulb = new THREE.Mesh(cornerLightGeo, helipadLightMat);
+      lightBulb.position.set(cx, 0.22, cz);
+      helipadGroup.add(lightBulb);
+    }
+  }
+  group.add(helipadGroup);
+
+  // Twin telecom spires with glowing red aviation warning beacons (intensified at night)
+  const spireGeo = new THREE.CylinderGeometry(0.14, 0.34, 12.6, 8);
+  const beaconTipGeo = new THREE.SphereGeometry(0.46, 10, 10);
+  const haloPlaneGeo = new THREE.PlaneGeometry(3.4, 3.4);
+
+  const beaconOffsets = [
+    { offset: -3.25, idx: 1 },
+    { offset: 3.25, idx: 2 },
+  ] as const;
+
+  for (const b of beaconOffsets) {
+    const beaconGroup = new THREE.Group();
+    beaconGroup.name = `torre_aviation_beacon_${b.idx}`;
+    beaconGroup.position.set(b.offset, 80.5, 0);
+
+    const spire = new THREE.Mesh(spireGeo, crownSteelMat);
+    spire.position.y = 6.3;
+    beaconGroup.add(spire);
+
+    const tip = new THREE.Mesh(beaconTipGeo, aviationBeaconMat);
+    tip.position.y = 12.8;
+    beaconGroup.add(tip);
+
+    for (const rotY of [0, Math.PI / 2] as const) {
+      const halo = new THREE.Mesh(haloPlaneGeo, beaconHaloMat);
+      halo.position.y = 12.8;
+      halo.rotation.y = rotY;
+      beaconGroup.add(halo);
+    }
+
+    group.add(beaconGroup);
   }
 
   enableSolidLandmarkShadows(group);
@@ -3379,6 +4684,491 @@ export function applyPhotographicAssets(
   }
 }
 
+interface MioShelterSpec {
+  readonly id: string;
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+}
+
+interface BenchSpec {
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+}
+
+interface RoadPuddleSpec {
+  readonly x: number;
+  readonly z: number;
+  readonly scaleX: number;
+  readonly scaleZ: number;
+  readonly rotationY: number;
+  readonly variant: 0 | 1 | 2;
+}
+
+const MIO_SHELTER_SPECS: readonly MioShelterSpec[] = [
+  { id: 'av_colombia_centro', x: -15.4, z: -54, yaw: Math.PI / 2 },
+  { id: 'av_colombia_bulevar', x: -15.4, z: 4, yaw: Math.PI / 2 },
+  { id: 'calle_5_penon', x: -42, z: 89.2, yaw: Math.PI },
+  { id: 'calle_5_estadio', x: 126, z: 65.2, yaw: 0 },
+];
+
+const BULEVAR_BENCH_SPECS: readonly BenchSpec[] = [
+  { x: 21.0, z: 1.0, yaw: Math.PI / 2 },
+  { x: 21.0, z: 11.0, yaw: Math.PI / 2 },
+  { x: 21.0, z: 34.0, yaw: Math.PI / 2 },
+  { x: 21.0, z: 46.0, yaw: Math.PI / 2 },
+  { x: 11.5, z: 32.0, yaw: Math.PI / 2 },
+  { x: 15.5, z: 42.0, yaw: -Math.PI / 2 },
+  { x: 11.5, z: 54.0, yaw: Math.PI / 2 },
+  { x: 15.5, z: -9.5, yaw: -Math.PI / 2 },
+  { x: 14.0, z: -42.0, yaw: Math.PI / 2 },
+  { x: 14.0, z: -58.0, yaw: Math.PI / 2 },
+  { x: 14.0, z: 102.0, yaw: Math.PI / 2 },
+  { x: 14.0, z: 122.0, yaw: Math.PI / 2 },
+];
+
+const SIDEWALK_BOLLARD_COORDS: readonly Vec2[] = [
+  // Bulevar del Río west curb along Avenida Colombia (clear of free_roam spawn at 6, 14)
+  { x: 5.2, z: -13 },
+  { x: 5.2, z: -4 },
+  { x: 5.2, z: 0 },
+  { x: 5.2, z: 4 },
+  { x: 5.2, z: 20 },
+  { x: 5.2, z: 24 },
+  { x: 5.2, z: 39 },
+  { x: 5.2, z: 43 },
+  { x: 5.2, z: 57 },
+  { x: 5.2, z: 61 },
+  // Bulevar del Río riverside embankment edge
+  { x: 22.3, z: -11 },
+  { x: 22.3, z: 1 },
+  { x: 22.3, z: 11 },
+  { x: 22.3, z: 21 },
+  { x: 22.3, z: 33 },
+  { x: 22.3, z: 45 },
+  { x: 22.3, z: 51 },
+  { x: 22.3, z: 61 },
+  // Avenida Colombia downtown west sidewalk safety curb
+  { x: -13.6, z: -72 },
+  { x: -13.6, z: -50 },
+  { x: -13.6, z: -38 },
+  { x: -13.6, z: -10 },
+  { x: -13.6, z: 10 },
+  { x: -13.6, z: 22 },
+  { x: -13.6, z: 48 },
+  { x: -13.6, z: 60 },
+];
+
+const BULEVAR_PLANTER_COORDS: readonly Vec2[] = [
+  // Grounding the riverside promenade palms
+  { x: 20.5, z: -4 },
+  { x: 20.5, z: 6 },
+  { x: 20.5, z: 16 },
+  { x: 20.5, z: 28 },
+  { x: 20.5, z: 40 },
+  { x: 20.5, z: 52 },
+  // Decorative promenade planter islands
+  { x: 12.0, z: 38.0 },
+  { x: 12.0, z: 50.0 },
+  { x: 12.0, z: -10.5 },
+  { x: 12.0, z: -52.0 },
+];
+
+const ROAD_PUDDLE_SPECS: readonly RoadPuddleSpec[] = [
+  // Bulevar del Río / Avenida Colombia flat stretch
+  { x: -7.2, z: 6.0, scaleX: 2.9, scaleZ: 2.1, rotationY: 0.4, variant: 0 },
+  { x: -1.2, z: 18.5, scaleX: 3.4, scaleZ: 2.3, rotationY: 1.1, variant: 1 },
+  { x: -6.8, z: 30.0, scaleX: 2.6, scaleZ: 1.9, rotationY: 2.2, variant: 2 },
+  { x: -0.8, z: 48.0, scaleX: 3.6, scaleZ: 2.4, rotationY: 0.7, variant: 0 },
+  // Iglesia La Ermita plaza roadway (Carrera 1)
+  { x: 56.5, z: -26.5, scaleX: 3.2, scaleZ: 2.5, rotationY: 0.25, variant: 1 },
+  { x: 60.8, z: -19.5, scaleX: 2.8, scaleZ: 2.0, rotationY: 1.65, variant: 2 },
+  { x: 55.8, z: -8.0, scaleX: 3.1, scaleZ: 2.2, rotationY: 2.8, variant: 0 },
+  { x: 60.2, z: 6.5, scaleX: 2.5, scaleZ: 1.8, rotationY: 0.9, variant: 1 },
+  // Downtown Calle 5 x Avenida Colombia & Calle 13 x Avenida Colombia intersections
+  { x: -6.5, z: 74.5, scaleX: 3.8, scaleZ: 2.6, rotationY: 0.35, variant: 2 },
+  { x: 0.8, z: 80.2, scaleX: 3.1, scaleZ: 2.2, rotationY: 1.9, variant: 0 },
+  { x: -18.5, z: 75.5, scaleX: 2.9, scaleZ: 2.0, rotationY: 2.4, variant: 1 },
+  { x: 14.0, z: 79.0, scaleX: 2.7, scaleZ: 1.9, rotationY: 0.6, variant: 2 },
+  { x: -7.4, z: -21.5, scaleX: 3.5, scaleZ: 2.5, rotationY: 1.2, variant: 0 },
+  { x: 1.2, z: -26.5, scaleX: 2.8, scaleZ: 2.1, rotationY: 2.1, variant: 1 },
+  { x: -2.0, z: -52.0, scaleX: 3.2, scaleZ: 2.2, rotationY: 0.85, variant: 2 },
+  { x: 59.5, z: 75.2, scaleX: 3.4, scaleZ: 2.4, rotationY: 1.5, variant: 0 },
+];
+
+function createMioCurvedCanopyGeometry(): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape();
+  shape.moveTo(-0.92, 0.0);
+  shape.quadraticCurveTo(0.0, 0.44, 0.96, 0.08);
+  shape.lineTo(0.96, 0.2);
+  shape.quadraticCurveTo(0.0, 0.56, -0.92, 0.12);
+  shape.closePath();
+
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: 4.6,
+    bevelEnabled: false,
+    curveSegments: 10,
+  });
+  // Rotate so length runs along X (-2.3..+2.3) and front edge (+0.96) aligns with +Z fascia
+  geo.translate(0, 0, -2.3);
+  geo.rotateY(-Math.PI / 2);
+  return geo;
+}
+
+function createOrganicPuddleGeometry(variant: 0 | 1 | 2): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  const points = 28;
+  const phaseA = variant * 1.35;
+  const phaseB = variant * 2.1 + 0.7;
+
+  for (let i = 0; i <= points; i += 1) {
+    const theta = (i / points) * Math.PI * 2;
+    const radius =
+      1.0 +
+      0.22 * Math.sin(theta * 2 + phaseA) +
+      0.14 * Math.cos(theta * 3 - phaseB) +
+      0.08 * Math.sin(theta * 5 + phaseA * 0.6);
+    const px = Math.cos(theta) * radius;
+    const py = Math.sin(theta) * radius;
+    if (i === 0) {
+      shape.moveTo(px, py);
+    } else {
+      shape.lineTo(px, py);
+    }
+  }
+  shape.closePath();
+
+  const geo = new THREE.ShapeGeometry(shape, 1);
+  geo.rotateX(-Math.PI / 2);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function buildStreetPropsGroup(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'cali_street_props';
+
+  const sidewalkTopY = 0.28;
+
+  // Shared materials for MIO shelters, benches, bollards, and planters
+  const steelFrameMat = new THREE.MeshStandardMaterial({
+    color: 0x252e3b,
+    roughness: 0.36,
+    metalness: 0.78,
+  });
+  const mioWhiteMat = new THREE.MeshStandardMaterial({
+    color: 0xf0f4f8,
+    roughness: 0.44,
+    metalness: 0.14,
+  });
+  const mioBlueMat = new THREE.MeshStandardMaterial({
+    color: 0x0c5cc8,
+    roughness: 0.38,
+    metalness: 0.22,
+  });
+  const tintedGlassMat = new THREE.MeshStandardMaterial({
+    color: 0x16293d,
+    roughness: 0.08,
+    metalness: 0.36,
+    transparent: true,
+    opacity: 0.54,
+    envMapIntensity: 1.5,
+  });
+  const mioSignTex = createMioSignTexture();
+  const mioSignMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: mioSignTex,
+      emissive: 0x5cc8ff,
+      emissiveMap: mioSignTex,
+      emissiveIntensity: 0.9,
+      roughness: 0.22,
+    }),
+    { dayIntensity: 0.9, nightIntensity: 2.35 },
+  );
+  const benchWoodMat = new THREE.MeshStandardMaterial({
+    color: 0x8b5531,
+    roughness: 0.74,
+    metalness: 0.04,
+  });
+  const brushedAlumMat = new THREE.MeshStandardMaterial({
+    color: 0xbac2cc,
+    roughness: 0.32,
+    metalness: 0.84,
+  });
+  const bollardReflectorMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffd066,
+      emissive: 0xffb338,
+      emissiveIntensity: 0.35,
+      roughness: 0.28,
+    }),
+    { dayIntensity: 0.35, nightIntensity: 1.75 },
+  );
+  const planterConcreteMat = new THREE.MeshStandardMaterial({
+    color: 0xa49c90,
+    roughness: 0.88,
+    metalness: 0.04,
+  });
+  planterConcreteMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
+
+  const soilMat = new THREE.MeshStandardMaterial({
+    color: 0x3b2c20,
+    roughness: 0.96,
+  });
+  const shrubLeafMat = new THREE.MeshStandardMaterial({
+    color: 0x3d7335,
+    roughness: 0.74,
+    metalness: 0.02,
+  });
+
+  // 1. Four iconic Cali MIO Bus Stop Shelters along Avenida Colombia & Calle 5
+  const canopyGeo = createMioCurvedCanopyGeometry();
+  const shelterPadGeo = new THREE.BoxGeometry(4.8, 0.1, 1.9);
+  const shelterPostGeo = new THREE.CylinderGeometry(0.065, 0.075, 2.52, 8);
+  const backGlassGeo = new THREE.BoxGeometry(4.2, 2.05, 0.06);
+  const sideGlassGeo = new THREE.BoxGeometry(0.06, 2.05, 1.32);
+  const mioFasciaGeo = new THREE.BoxGeometry(4.65, 0.22, 0.14);
+  const signHousingGeo = new THREE.BoxGeometry(2.55, 0.72, 0.18);
+  const signFaceGeo = new THREE.PlaneGeometry(2.42, 0.62);
+  const shelterSeatGeo = new THREE.BoxGeometry(2.8, 0.09, 0.44);
+  const shelterBenchLegGeo = new THREE.BoxGeometry(0.08, 0.44, 0.38);
+
+  for (const spec of MIO_SHELTER_SPECS) {
+    const shelter = new THREE.Group();
+    shelter.name = `mio_shelter_${spec.id}`;
+    const groundY = getTerrainElevation(spec.x, spec.z) + sidewalkTopY;
+    shelter.position.set(spec.x, groundY, spec.z);
+    shelter.rotation.y = spec.yaw;
+
+    const pad = new THREE.Mesh(shelterPadGeo, planterConcreteMat);
+    pad.position.y = 0.05;
+    pad.receiveShadow = true;
+    shelter.add(pad);
+
+    for (const px of [-2.1, 0, 2.1] as const) {
+      const post = new THREE.Mesh(shelterPostGeo, steelFrameMat);
+      post.position.set(px, 1.32, -0.78);
+      post.castShadow = true;
+      shelter.add(post);
+    }
+
+    const backGlass = new THREE.Mesh(backGlassGeo, tintedGlassMat);
+    backGlass.position.set(0, 1.36, -0.72);
+    shelter.add(backGlass);
+
+    for (const sx of [-2.12, 2.12] as const) {
+      const sideGlass = new THREE.Mesh(sideGlassGeo, tintedGlassMat);
+      sideGlass.position.set(sx, 1.36, -0.06);
+      shelter.add(sideGlass);
+    }
+
+    const canopy = new THREE.Mesh(canopyGeo, mioWhiteMat);
+    canopy.position.set(0, 2.48, 0.06);
+    canopy.castShadow = true;
+    canopy.receiveShadow = true;
+    shelter.add(canopy);
+
+    const fascia = new THREE.Mesh(mioFasciaGeo, mioBlueMat);
+    fascia.position.set(0, 2.6, 0.96);
+    fascia.castShadow = true;
+    shelter.add(fascia);
+
+    const signGroup = new THREE.Group();
+    signGroup.name = `mio_shelter_sign_${spec.id}`;
+    signGroup.position.set(0, 3.02, 0.88);
+    const housing = new THREE.Mesh(signHousingGeo, mioBlueMat);
+    housing.castShadow = true;
+    signGroup.add(housing);
+
+    const frontSign = new THREE.Mesh(signFaceGeo, mioSignMat);
+    frontSign.position.z = 0.095;
+    signGroup.add(frontSign);
+
+    const backSign = new THREE.Mesh(signFaceGeo, mioSignMat);
+    backSign.position.z = -0.095;
+    backSign.rotation.y = Math.PI;
+    signGroup.add(backSign);
+    shelter.add(signGroup);
+
+    const waitSeat = new THREE.Mesh(shelterSeatGeo, benchWoodMat);
+    waitSeat.position.set(0, 0.5, -0.38);
+    waitSeat.castShadow = true;
+    shelter.add(waitSeat);
+
+    for (const lx of [-1.1, 1.1] as const) {
+      const leg = new THREE.Mesh(shelterBenchLegGeo, steelFrameMat);
+      leg.position.set(lx, 0.26, -0.38);
+      shelter.add(leg);
+    }
+
+    group.add(shelter);
+  }
+
+  // 2. Bulevar del Río wooden promenade benches
+  const benchSeatGeo = new THREE.BoxGeometry(2.1, 0.08, 0.46);
+  const benchBackGeo = new THREE.BoxGeometry(2.1, 0.4, 0.07);
+  const benchLegGeo = new THREE.BoxGeometry(0.08, 0.46, 0.44);
+  const benchArmGeo = new THREE.BoxGeometry(0.07, 0.24, 0.44);
+
+  BULEVAR_BENCH_SPECS.forEach((spec, idx) => {
+    const bench = new THREE.Group();
+    bench.name = `bulevar_bench_${idx}`;
+    const groundY = getTerrainElevation(spec.x, spec.z) + sidewalkTopY;
+    bench.position.set(spec.x, groundY, spec.z);
+    bench.rotation.y = spec.yaw;
+
+    const seat = new THREE.Mesh(benchSeatGeo, benchWoodMat);
+    seat.position.set(0, 0.46, 0);
+    seat.castShadow = true;
+    seat.receiveShadow = true;
+    bench.add(seat);
+
+    const back = new THREE.Mesh(benchBackGeo, benchWoodMat);
+    back.position.set(0, 0.76, -0.2);
+    back.rotation.x = -0.18;
+    back.castShadow = true;
+    bench.add(back);
+
+    for (const lx of [-0.88, 0.88] as const) {
+      const leg = new THREE.Mesh(benchLegGeo, steelFrameMat);
+      leg.position.set(lx, 0.23, 0);
+      leg.castShadow = true;
+      bench.add(leg);
+
+      const arm = new THREE.Mesh(benchArmGeo, steelFrameMat);
+      arm.position.set(lx, 0.62, -0.02);
+      bench.add(arm);
+    }
+
+    group.add(bench);
+  });
+
+  // 3. Architectural metal sidewalk bollards with night-reflective bands
+  const bollardBodyGeo = new THREE.CylinderGeometry(0.095, 0.11, 0.88, 8);
+  const bollardCollarGeo = new THREE.CylinderGeometry(0.104, 0.104, 0.08, 8);
+  const bollardCapGeo = new THREE.SphereGeometry(0.095, 8, 6);
+
+  SIDEWALK_BOLLARD_COORDS.forEach((coord, idx) => {
+    const bollard = new THREE.Group();
+    bollard.name = `sidewalk_bollard_${idx}`;
+    const groundY = getTerrainElevation(coord.x, coord.z) + sidewalkTopY;
+    bollard.position.set(coord.x, groundY, coord.z);
+
+    const body = new THREE.Mesh(bollardBodyGeo, steelFrameMat);
+    body.position.y = 0.44;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    bollard.add(body);
+
+    const reflector = new THREE.Mesh(bollardCollarGeo, bollardReflectorMat);
+    reflector.position.y = 0.74;
+    bollard.add(reflector);
+
+    const cap = new THREE.Mesh(bollardCapGeo, brushedAlumMat);
+    cap.position.y = 0.88;
+    bollard.add(cap);
+
+    group.add(bollard);
+  });
+
+  // 4. Concrete urban palm planters lining Bulevar del Río promenade
+  const planterBoxGeo = new THREE.BoxGeometry(1.72, 0.56, 1.72);
+  const planterRimGeo = new THREE.BoxGeometry(1.88, 0.12, 1.88);
+  const planterSoilGeo = new THREE.BoxGeometry(1.48, 0.08, 1.48);
+  const fernTuftGeo = new THREE.ConeGeometry(0.32, 0.52, 5);
+
+  BULEVAR_PLANTER_COORDS.forEach((coord, idx) => {
+    const planter = new THREE.Group();
+    planter.name = `bulevar_planter_${idx}`;
+    const groundY = getTerrainElevation(coord.x, coord.z) + sidewalkTopY;
+    planter.position.set(coord.x, groundY, coord.z);
+
+    const box = new THREE.Mesh(planterBoxGeo, planterConcreteMat);
+    box.position.y = 0.28;
+    box.castShadow = true;
+    box.receiveShadow = true;
+    box.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
+    planter.add(box);
+
+    const rim = new THREE.Mesh(planterRimGeo, planterConcreteMat);
+    rim.position.y = 0.58;
+    rim.castShadow = true;
+    rim.receiveShadow = true;
+    rim.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
+    planter.add(rim);
+
+    const soil = new THREE.Mesh(planterSoilGeo, soilMat);
+    soil.position.y = 0.54;
+    planter.add(soil);
+
+    for (let f = 0; f < 4; f += 1) {
+      const angle = (f / 4) * Math.PI * 2 + 0.4;
+      const tuft = new THREE.Mesh(fernTuftGeo, shrubLeafMat);
+      tuft.position.set(Math.cos(angle) * 0.46, 0.72, Math.sin(angle) * 0.46);
+      tuft.rotation.z = -Math.cos(angle) * 0.35;
+      tuft.rotation.x = Math.sin(angle) * 0.35;
+      planter.add(tuft);
+    }
+
+    group.add(planter);
+  });
+
+  return group;
+}
+
+function buildRoadPuddlesGroup(map: CaliMapConfig): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'cali_road_puddles';
+
+  const puddleGeometries: readonly THREE.BufferGeometry[] = [
+    createOrganicPuddleGeometry(0),
+    createOrganicPuddleGeometry(1),
+    createOrganicPuddleGeometry(2),
+  ];
+
+  const puddleMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0x1e252e,
+      roughness: 0.04,
+      metalness: 0.28,
+      envMapIntensity: 2.2,
+      transparent: true,
+      opacity: 0.44,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+      depthWrite: false,
+    }),
+    {
+      dayIntensity: 0,
+      nightIntensity: 0.08,
+      dayEmissiveHex: 0x000000,
+      nightEmissiveHex: 0x18263d,
+    },
+  );
+
+  ROAD_PUDDLE_SPECS.forEach((spec, idx) => {
+    const geo = puddleGeometries[spec.variant] ?? puddleGeometries[0];
+    if (!geo) {
+      return;
+    }
+    const mesh = new THREE.Mesh(geo, puddleMat);
+    mesh.name = `road_puddle_${idx}`;
+    const surfaceY =
+      getRoadSurfaceElevation(spec.x, spec.z, map) + NS_ROAD_TIER_OFFSET + 0.02;
+    mesh.position.set(spec.x, surfaceY, spec.z);
+    mesh.scale.set(spec.scaleX, 1, spec.scaleZ);
+    mesh.rotation.y = spec.rotationY;
+    mesh.receiveShadow = true;
+    mesh.castShadow = false;
+    group.add(mesh);
+  });
+
+  return group;
+}
+
 function isNightEmissiveSpec(value: unknown): value is NightEmissiveSpec {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -3399,6 +5189,16 @@ function isNightOpacitySpec(value: unknown): value is NightOpacitySpec {
   );
 }
 
+function isNightLightSpec(value: unknown): value is NightLightSpec {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const rec = value as Record<string, unknown>;
+  return (
+    typeof rec.dayIntensity === 'number' && typeof rec.nightIntensity === 'number'
+  );
+}
+
 /**
  * Switches Cali world emissive architectural lighting, neon signs, streetlamps & road light pools,
  * Estadio Pascual Guerrero floodlights, Cristo Rey monument uplight glow, and Río Cali GLSL water
@@ -3413,6 +5213,13 @@ export function setWorldNightLighting(
   const visited = new Set<THREE.Material>();
 
   worldGroup.traverse((node) => {
+    if (node instanceof THREE.Light) {
+      const lightSpec = node.userData.nightLight;
+      if (isNightLightSpec(lightSpec)) {
+        node.intensity = isNight ? lightSpec.nightIntensity : lightSpec.dayIntensity;
+      }
+      return;
+    }
     if (!(node instanceof THREE.Mesh)) {
       return;
     }
@@ -3492,9 +5299,11 @@ export function buildCaliWorld(map: CaliMapConfig): CaliWorldBuildResult {
 
   worldGroup.add(buildRoadsGroup(map));
   worldGroup.add(buildCrosswalksGroup(map));
+  worldGroup.add(buildRoadPuddlesGroup(map));
   worldGroup.add(buildSidewalksGroup(map, sidewalkTextures));
   worldGroup.add(buildTrafficSignalsGroup());
   worldGroup.add(buildStreetlightsGroup());
+  worldGroup.add(buildStreetPropsGroup());
   worldGroup.add(buildBuildingsGroup(map));
   worldGroup.add(buildNeonSignsGroup(map));
 

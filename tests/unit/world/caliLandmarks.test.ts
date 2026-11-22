@@ -1318,3 +1318,234 @@ describe('starlit night lighting, sculpted Ferrari liveries, curved buses/chivas
     disposeObjectTree(asset.scene);
   });
 });
+
+describe('C-07 Track E2B: 3D architectural relief, authentic Cali street props, wet road puddles, and high-craft landmarks', () => {
+  it('adds 3D architectural facade relief (window bays, balconies, awnings, pilasters, colonial eaves) to urban buildings', () => {
+    const { group } = buildCaliWorld(CALI_MAP);
+    const buildings = group.getObjectByName('cali_buildings');
+    expect(buildings).toBeInstanceOf(THREE.Group);
+    expect(buildings?.children.length).toBe(CALI_MAP.buildingColliders.length);
+
+    let windowBayCount = 0;
+    let balconyCount = 0;
+    let awningCount = 0;
+    let pilasterCount = 0;
+    let colonialEavesCount = 0;
+    let parapetCorniceCount = 0;
+    let lowRoughnessWindowPanes = 0;
+
+    buildings?.traverse((node) => {
+      if (node.name.startsWith('building_window_bay_')) windowBayCount += 1;
+      if (node.name.startsWith('building_balcony_')) balconyCount += 1;
+      if (node.name.startsWith('building_awning_')) awningCount += 1;
+      if (node.name.startsWith('building_pilaster_')) pilasterCount += 1;
+      if (node.name.startsWith('building_colonial_eaves_')) colonialEavesCount += 1;
+      if (node.name.startsWith('building_parapet_cornice_')) parapetCorniceCount += 1;
+
+      if (
+        node instanceof THREE.Mesh &&
+        node.name.includes('window_pane') &&
+        node.material instanceof THREE.MeshStandardMaterial &&
+        node.material.roughness <= 0.15 &&
+        node.material.metalness >= 0.4
+      ) {
+        lowRoughnessWindowPanes += 1;
+      }
+    });
+
+    expect(windowBayCount).toBeGreaterThanOrEqual(40);
+    expect(balconyCount).toBeGreaterThanOrEqual(20);
+    expect(awningCount).toBeGreaterThanOrEqual(15);
+    expect(pilasterCount).toBeGreaterThanOrEqual(CALI_MAP.buildingColliders.length * 4);
+    expect(colonialEavesCount).toBeGreaterThanOrEqual(5);
+    expect(parapetCorniceCount).toBeGreaterThanOrEqual(15);
+    expect(lowRoughnessWindowPanes).toBeGreaterThanOrEqual(30);
+
+    disposeObjectTree(group);
+  });
+
+  it('builds authentic Cali street props (4 MIO shelters, Bulevar benches, bollards, palm planters) cleanly outside road lanes', () => {
+    const { group } = buildCaliWorld(CALI_MAP);
+    group.updateMatrixWorld(true);
+
+    const propsGroup = group.getObjectByName('cali_street_props');
+    expect(propsGroup).toBeInstanceOf(THREE.Group);
+
+    const mioShelters: THREE.Object3D[] = [];
+    const benches: THREE.Object3D[] = [];
+    const bollards: THREE.Object3D[] = [];
+    const planters: THREE.Object3D[] = [];
+
+    propsGroup?.traverse((node) => {
+      if (node.name.startsWith('mio_shelter_') && !node.name.includes('_sign_')) {
+        mioShelters.push(node);
+      }
+      if (node.name.startsWith('bulevar_bench_')) {
+        benches.push(node);
+      }
+      if (node.name.startsWith('sidewalk_bollard_')) {
+        bollards.push(node);
+      }
+      if (node.name.startsWith('bulevar_planter_')) {
+        planters.push(node);
+      }
+    });
+
+    expect(mioShelters.length).toBe(4);
+    expect(benches.length).toBeGreaterThanOrEqual(8);
+    expect(bollards.length).toBeGreaterThanOrEqual(16);
+    expect(planters.length).toBeGreaterThanOrEqual(6);
+
+    const worldPos = new THREE.Vector3();
+    for (const prop of [...mioShelters, ...benches, ...bollards, ...planters]) {
+      expect(countGeometryVertices(prop)).toBeGreaterThan(0);
+      prop.getWorldPosition(worldPos);
+      // Must stay outside Avenida Colombia drivable lanes (x in [-12, 4])
+      const inAvColombia = worldPos.x > -12 && worldPos.x < 4;
+      expect(inAvColombia, `${prop.name} intrudes into Av. Colombia`).toBe(false);
+      // Must stay outside Calle 5 drivable lanes (z in [69, 85])
+      const inCalle5 = worldPos.z > 69 && worldPos.z < 85;
+      expect(inCalle5, `${prop.name} intrudes into Calle 5`).toBe(false);
+      // Must stay outside Río Cali channel (x in [24, 46])
+      const inRiver = worldPos.x > 24 && worldPos.x < 46;
+      expect(inRiver, `${prop.name} intrudes into Río Cali`).toBe(false);
+    }
+
+    disposeObjectTree(group);
+  });
+
+  it('places wet specular asphalt road puddles with low roughness (<= 0.08) and decal settings', () => {
+    const { group } = buildCaliWorld(CALI_MAP);
+    const puddlesGroup = group.getObjectByName('cali_road_puddles');
+    expect(puddlesGroup).toBeInstanceOf(THREE.Group);
+
+    const puddles: THREE.Mesh[] = [];
+    puddlesGroup?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.name.startsWith('road_puddle_')) {
+        puddles.push(node);
+      }
+    });
+
+    expect(puddles.length).toBeGreaterThanOrEqual(10);
+    for (const puddle of puddles) {
+      expect(puddle.material).toBeInstanceOf(THREE.MeshStandardMaterial);
+      const mat = puddle.material as THREE.MeshStandardMaterial;
+      expect(mat.roughness).toBeLessThanOrEqual(0.08);
+      expect(mat.metalness).toBeGreaterThanOrEqual(0.2);
+      expect(mat.transparent).toBe(true);
+      expect(mat.depthWrite).toBe(false);
+      expect(mat.polygonOffset).toBe(true);
+      expect(puddle.position.y).toBeGreaterThan(0.05);
+      expect(puddle.position.y).toBeLessThan(0.25);
+    }
+
+    disposeObjectTree(group);
+  });
+
+  it('upgrades La Ermita, Torre de Cali, and Cristo Rey with high-craft architectural sub-parts', () => {
+    const { group } = buildCaliWorld(CALI_MAP);
+
+    const laErmita = group.getObjectByName('landmark_la_ermita');
+    expect(laErmita).toBeInstanceOf(THREE.Group);
+    expect(laErmita?.getObjectByName('la_ermita_central_spire')).toBeDefined();
+    expect(laErmita?.getObjectByName('la_ermita_rose_window')).toBeDefined();
+    let ermitaPinnacles = 0;
+    let ermitaLancets = 0;
+    let ermitaButtresses = 0;
+    let ermitaCrosses = 0;
+    laErmita?.traverse((node) => {
+      if (node.name.startsWith('la_ermita_flanking_pinnacle_')) ermitaPinnacles += 1;
+      if (node.name.startsWith('la_ermita_lancet_window_')) ermitaLancets += 1;
+      if (node.name.startsWith('la_ermita_buttress_')) ermitaButtresses += 1;
+      if (node.name.startsWith('la_ermita_cross_finial_')) ermitaCrosses += 1;
+    });
+    expect(ermitaPinnacles).toBeGreaterThanOrEqual(2);
+    expect(ermitaLancets).toBeGreaterThanOrEqual(6);
+    expect(ermitaButtresses).toBeGreaterThanOrEqual(6);
+    expect(ermitaCrosses).toBeGreaterThanOrEqual(3);
+
+    const torre = group.getObjectByName('landmark_torre_de_cali');
+    expect(torre).toBeInstanceOf(THREE.Group);
+    expect(torre?.getObjectByName('torre_mechanical_crown')).toBeDefined();
+    expect(torre?.getObjectByName('torre_helipad')).toBeDefined();
+    let torreMullions = 0;
+    let torreBeacons = 0;
+    torre?.traverse((node) => {
+      if (node.name.startsWith('torre_mullion_fin_')) torreMullions += 1;
+      if (node.name.startsWith('torre_aviation_beacon_')) torreBeacons += 1;
+    });
+    expect(torreMullions).toBeGreaterThanOrEqual(24);
+    expect(torreBeacons).toBeGreaterThanOrEqual(2);
+
+    const cristoRey = group.getObjectByName('landmark_cristo_rey');
+    expect(cristoRey).toBeInstanceOf(THREE.Group);
+    expect(cristoRey?.getObjectByName('cristo_rey_mirador_railing')).toBeDefined();
+    expect(cristoRey?.getObjectByName('cristo_rey_approach_steps')).toBeDefined();
+    let cristoFloodlights = 0;
+    let cristoUplights = 0;
+    cristoRey?.traverse((node) => {
+      if (node.name.startsWith('cristo_rey_floodlight_')) cristoFloodlights += 1;
+      if (node.name.startsWith('cristo_rey_uplight_beam_')) cristoUplights += 1;
+    });
+    expect(cristoFloodlights).toBeGreaterThanOrEqual(4);
+    expect(cristoUplights).toBeGreaterThanOrEqual(4);
+
+    disposeObjectTree(group);
+  });
+
+  it('toggles night glow cleanly on new architectural windows, MIO signs, and upgraded landmarks via setWorldNightLighting', () => {
+    const { group, waterMesh } = buildCaliWorld(CALI_MAP);
+
+    const collectMaxEmissive = (root: THREE.Object3D | undefined): number => {
+      let maxVal = 0;
+      root?.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          const mats = Array.isArray(node.material) ? node.material : [node.material];
+          for (const mat of mats) {
+            if (mat instanceof THREE.MeshStandardMaterial) {
+              maxVal = Math.max(maxVal, mat.emissiveIntensity);
+            }
+          }
+        }
+      });
+      return maxVal;
+    };
+
+    const propsGroup = group.getObjectByName('cali_street_props');
+    const laErmita = group.getObjectByName('landmark_la_ermita');
+    const torre = group.getObjectByName('landmark_torre_de_cali');
+    const cristoRey = group.getObjectByName('landmark_cristo_rey');
+    const cristoLight = cristoRey?.getObjectByName(
+      'cristo_rey_monument_uplight',
+    ) as THREE.PointLight | undefined;
+    expect(cristoLight).toBeInstanceOf(THREE.PointLight);
+
+    expect(() => setWorldNightLighting(group, waterMesh, 'golden_hour')).not.toThrow();
+    const dayPropsGlow = collectMaxEmissive(propsGroup);
+    const dayErmitaGlow = collectMaxEmissive(laErmita);
+    const dayTorreGlow = collectMaxEmissive(torre);
+    const dayCristoGlow = collectMaxEmissive(cristoRey);
+    const dayCristoLightIntensity = cristoLight?.intensity ?? 0;
+
+    expect(() => setWorldNightLighting(group, waterMesh, 'night')).not.toThrow();
+    const nightPropsGlow = collectMaxEmissive(propsGroup);
+    const nightErmitaGlow = collectMaxEmissive(laErmita);
+    const nightTorreGlow = collectMaxEmissive(torre);
+    const nightCristoGlow = collectMaxEmissive(cristoRey);
+    const nightCristoLightIntensity = cristoLight?.intensity ?? 0;
+
+    expect(nightPropsGlow).toBeGreaterThan(dayPropsGlow);
+    expect(nightErmitaGlow).toBeGreaterThan(dayErmitaGlow);
+    expect(nightTorreGlow).toBeGreaterThan(dayTorreGlow);
+    expect(nightCristoGlow).toBeGreaterThan(dayCristoGlow);
+    expect(nightCristoLightIntensity).toBeGreaterThan(dayCristoLightIntensity);
+
+    // Switching back to golden_hour restores lower daylight intensities cleanly
+    expect(() => setWorldNightLighting(group, waterMesh, 'golden_hour')).not.toThrow();
+    expect(collectMaxEmissive(propsGroup)).toBeCloseTo(dayPropsGlow, 3);
+    expect(collectMaxEmissive(torre)).toBeCloseTo(dayTorreGlow, 3);
+    expect(cristoLight?.intensity).toBeCloseTo(dayCristoLightIntensity, 3);
+
+    disposeObjectTree(group);
+  });
+});
