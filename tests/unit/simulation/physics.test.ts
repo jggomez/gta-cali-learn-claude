@@ -287,7 +287,7 @@ describe('simulation/physics world collisions & river', () => {
 });
 
 describe('simulation/physics on-foot movement', () => {
-  it('supports crisp 6.5 m/s walking and 10.5 m/s sprinting with terrain elevation', () => {
+  it('supports a natural 4.5 m/s jog and 7.5 m/s sprint (matched to the run clip cadence) with terrain elevation', () => {
     const start = {
       x: -90,
       y: getTerrainElevation(-90, 36),
@@ -297,8 +297,8 @@ describe('simulation/physics on-foot movement', () => {
 
     const walk = stepOnFoot(start, createInput({ forward: true }), 0.1, CALI_MAP);
     expect(walk.isSprinting).toBe(false);
-    expect(walk.speedMps).toBeCloseTo(6.5, 4);
-    expect(walk.x).toBeCloseTo(start.x + 0.65, 3);
+    expect(walk.speedMps).toBeCloseTo(4.5, 4);
+    expect(walk.x).toBeCloseTo(start.x + 0.45, 3);
     expect(walk.y).toBeCloseTo(getTerrainElevation(walk.x, walk.z), 4);
 
     const sprint = stepOnFoot(
@@ -308,8 +308,8 @@ describe('simulation/physics on-foot movement', () => {
       CALI_MAP,
     );
     expect(sprint.isSprinting).toBe(true);
-    expect(sprint.speedMps).toBeCloseTo(10.5, 4);
-    expect(sprint.x).toBeCloseTo(start.x + 1.05, 3);
+    expect(sprint.speedMps).toBeCloseTo(7.5, 4);
+    expect(sprint.x).toBeCloseTo(start.x + 0.75, 3);
   });
 });
 

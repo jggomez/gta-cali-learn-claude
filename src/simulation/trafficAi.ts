@@ -765,7 +765,7 @@ const CALI_PANTS_PALETTE: readonly number[] = [
 ];
 
 /**
- * 18 safe sidewalk patrol corridors across iconic Cali districts,
+ * 31 safe sidewalk patrol corridors across iconic Cali districts (busiest on Bulevar del Río),
  * strictly outside all building colliders, solid landmarks, and Río Cali water.
  */
 const PEDESTRIAN_CORRIDORS: readonly PedestrianCorridorDef[] = [
@@ -796,6 +796,27 @@ const PEDESTRIAN_CORRIDORS: readonly PedestrianCorridorDef[] = [
   { id: 'ped_estadio_0', startX: 106, startZ: 68, endX: 158, endZ: 68, initialFraction: 0.3, walkSpeedMps: 1.6 },
   { id: 'ped_estadio_1', startX: 104, startZ: 86, endX: 134, endZ: 86, initialFraction: 0.5, walkSpeedMps: 1.7 },
   { id: 'ped_estadio_2', startX: 138, startZ: 86, endX: 166, endZ: 86, initialFraction: 0.4, walkSpeedMps: 1.6 },
+
+  // Busier Bulevar del Río riverside promenade decks (x 4.5..22.8)
+  { id: 'ped_bulevar_4', startX: 7.5, startZ: -12, endX: 7.5, endZ: 19, initialFraction: 0.7, walkSpeedMps: 1.45 },
+  { id: 'ped_bulevar_5', startX: 19.5, startZ: 2, endX: 19.5, endZ: 40, initialFraction: 0.45, walkSpeedMps: 1.6 },
+  { id: 'ped_bulevar_6', startX: 19.8, startZ: 30, endX: 19.8, endZ: 62, initialFraction: 0.2, walkSpeedMps: 1.5 },
+  { id: 'ped_bulevar_7', startX: 13.5, startZ: -100, endX: 13.5, endZ: -40, initialFraction: 0.5, walkSpeedMps: 1.65 },
+  { id: 'ped_bulevar_8', startX: 13.5, startZ: 92, endX: 13.5, endZ: 150, initialFraction: 0.4, walkSpeedMps: 1.55 },
+
+  // More life in Barrio San Antonio
+  { id: 'ped_san_antonio_4', startX: -80, startZ: 36, endX: -60, endZ: 36, initialFraction: 0.55, walkSpeedMps: 1.45 },
+  { id: 'ped_san_antonio_5', startX: -44, startZ: 36, endX: -18, endZ: 36, initialFraction: 0.3, walkSpeedMps: 1.6 },
+
+  // La Ermita plaza walkers
+  { id: 'ped_ermita_4', startX: 50, startZ: -30, endX: 50, endZ: -14, initialFraction: 0.6, walkSpeedMps: 1.5 },
+  { id: 'ped_ermita_5', startX: 70, startZ: -6, endX: 70, endZ: 18, initialFraction: 0.35, walkSpeedMps: 1.6 },
+
+  // Calle 5 sidewalks
+  { id: 'ped_calle5_0', startX: -56, startZ: 86, endX: -18, endZ: 86, initialFraction: 0.5, walkSpeedMps: 1.65 },
+  { id: 'ped_calle5_1', startX: -56, startZ: 68, endX: -20, endZ: 68, initialFraction: 0.3, walkSpeedMps: 1.55 },
+  { id: 'ped_calle5_2', startX: 68, startZ: 68, endX: 100, endZ: 68, initialFraction: 0.6, walkSpeedMps: 1.6 },
+  { id: 'ped_calle5_3', startX: 68, startZ: 86, endX: 100, endZ: 86, initialFraction: 0.45, walkSpeedMps: 1.5 },
 ];
 
 export function toPedestrianSnapshot(ped: SimPedestrian): PedestrianSnapshot {

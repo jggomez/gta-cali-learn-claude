@@ -14,6 +14,7 @@ import {
   DEFAULT_GARAGE_CONFIG,
   ROADBLOCK_ZONES,
   getTerrainElevation,
+  getWalkableGroundHeight,
 } from '../config/caliMap';
 import type {
   CaliMapConfig,
@@ -39,8 +40,18 @@ import {
   setRoadblockVisible,
   setWorldNightLighting,
   updateTrafficLightPhase,
+  BULEVAR_BENCH_SPECS,
+  CHOLADO_STAND_SPECS,
   type CaliWorldBuildResult,
 } from './caliLandmarks';
+import {
+  buildAmbientRoleSpots,
+  CHARACTER_HIDE_DISTANCE_METERS,
+  resolveCharacterLod,
+  resolveLocomotionPlayback,
+} from './calenoPeople';
+import { AmbientRoleCast } from './calenoRoles';
+import { isSharedCharacterAsset } from './calenoWardrobe';
 import { ParticleSystem, SkidMarkPool } from './particles';
 import type { QualityPreset } from '../game/qualityGovernor';
 import { RenderStatsRecorder } from './renderStats';
@@ -114,11 +125,7 @@ const BOOST_PITCH_OFFSET_RAD = -0.035;
 const BACKFIRE_AIRBORNE_THRESHOLD_METERS = 0.15;
 const BACKFIRE_HIGH_RPM_SPEED_MPS = 10;
 const BACKFIRE_HIGH_RPM_ACCEL_MPS2 = 5.5;
-const CHARACTER_RUN_SPEED_THRESHOLD_MPS = 5.2;
 const CHARACTER_CROSSFADE_SECONDS = 0.22;
-const PEDESTRIAN_CULL_DISTANCE_METERS = 95;
-const PEDESTRIAN_CULL_DISTANCE_SQ =
-  PEDESTRIAN_CULL_DISTANCE_METERS * PEDESTRIAN_CULL_DISTANCE_METERS;
 const PEDESTRIAN_CROSSFADE_SECONDS = 0.2;
 const CRISTO_REY_DANCER_ACTIVE_DISTANCE_METERS = 110;
 const CRISTO_REY_DANCER_ACTIVE_DISTANCE_SQ =
@@ -508,6 +515,9 @@ interface PooledPedestrianEntry {
   readonly shirtColorHex: number;
   readonly pantsColorHex: number;
   readonly phaseOffsetSeconds: number;
+  /** Mixer time accumulated while throttled by distance LOD. */
+  pendingAnimDt: number;
+  castShadow: boolean;
 }
 
 function disposeAnimationMixer(mixer: THREE.AnimationMixer | null): void {
@@ -537,11 +547,13 @@ function disposeRiggedCharacterGroup(root: THREE.Group): void {
     }
     const mats = Array.isArray(node.material) ? node.material : [node.material];
     for (const mat of mats) {
-      if (mat) {
+      // Variant materials/accessories are shared by many rigs and cached for reuse
+      if (mat && !isSharedCharacterAsset(mat)) {
         clonedMaterials.add(mat);
         if (
           mat instanceof THREE.MeshStandardMaterial &&
-          mat.map instanceof THREE.CanvasTexture
+          mat.map instanceof THREE.CanvasTexture &&
+          !isSharedCharacterAsset(mat.map)
         ) {
           ownedCanvasTextures.add(mat.map);
         }
@@ -692,6 +704,9 @@ export class WorldRenderer {
   private characterActions: RiggedCharacterActions = {};
   private activeCharacterState: CharacterLocomotionState = 'idle';
   private readonly riderSeatScratch = new THREE.Vector3();
+  private playerGroundY: number | null = null;
+  private ambientRoles: AmbientRoleCast | null = null;
+  private pedestrianFrameParity = 0;
   private mateoMixer: THREE.AnimationMixer | null = null;
   private mateoIsRigged = false;
   private summitDancerGroup: THREE.Group | null = null;
@@ -715,7 +730,7 @@ export class WorldRenderer {
   private readonly renderStats: RenderStatsRecorder;
   private readonly detailBatches: readonly THREE.Mesh[];
   private detailDrawDistance = DEFAULT_DETAIL_DRAW_DISTANCE_METERS;
-  private pedestrianCullDistanceSq = PEDESTRIAN_CULL_DISTANCE_SQ;
+  private pedestrianCullDistanceSq = CHARACTER_HIDE_DISTANCE_METERS ** 2;
   private viewportWidth = 1;
   private viewportHeight = 1;
 
@@ -1042,6 +1057,7 @@ export class WorldRenderer {
     this.syncVehicles(world.vehicles, activePlayerVehicleId, safeDt);
     this.syncPlayerMotorcycleRider(world, safeDt);
     this.syncPedestrians(world.pedestrians, world.player.x, world.player.z, safeDt);
+    this.ambientRoles?.update(safeDt, world.player.x, world.player.z, this.reducedMotion);
     this.syncPlayerHeadlight(world);
     this.syncCollisionSparks(world);
     this.particles.update(safeDt);
@@ -1182,6 +1198,8 @@ export class WorldRenderer {
 
     this.disposeSummitDancer();
     this.disposeRoadblockOfficers();
+    this.ambientRoles?.dispose();
+    this.ambientRoles = null;
 
     for (const entry of this.pedestrianPool.values()) {
       this.disposePedestrianEntry(entry);
@@ -1287,6 +1305,26 @@ export class WorldRenderer {
     if (assets.valeria) {
       this.mountSummitDancer(assets.valeria, assets.character);
     }
+
+    this.mountAmbientRoles(assets.valeria, assets.caleno, assets.character);
+  }
+
+  private mountAmbientRoles(
+    valeria: LoadedCharacterAsset | null,
+    caleno: LoadedCharacterAsset | null,
+    donor: LoadedCharacterAsset | null,
+  ): void {
+    this.ambientRoles?.dispose();
+    this.ambientRoles = null;
+    if (!valeria && !caleno) {
+      return;
+    }
+    this.ambientRoles = new AmbientRoleCast(
+      { valeria, caleno, donor },
+      buildAmbientRoleSpots(CHOLADO_STAND_SPECS, BULEVAR_BENCH_SPECS),
+      getWalkableGroundHeight,
+    );
+    this.scene.add(this.ambientRoles.group);
   }
 
   private applyHdriEnvironment(hdriTexture: THREE.DataTexture): void {
@@ -1372,7 +1410,8 @@ export class WorldRenderer {
       rig = createCalenoCharacterRig(this.calenoAsset, this.characterAsset, {
         outfit: this.garageAppearance.outfit,
         showBeard: true,
-        showHeadwear: true,
+        headAccessory: 'gorra',
+        headwearHex: 0x1f232e,
       });
     } else if (this.garageAppearance.avatar === 'valeria' && this.valeriaAsset) {
       rig = createValeriaPlayerMesh(this.valeriaAsset, this.characterAsset, {
@@ -1446,6 +1485,8 @@ export class WorldRenderer {
       shirtColorHex,
       pantsColorHex,
       phaseOffsetSeconds,
+      pendingAnimDt: 0,
+      castShadow: true,
     };
   }
 
@@ -1502,7 +1543,9 @@ export class WorldRenderer {
     const rig = createCalenoCharacterRig(calenoAsset, characterAsset, {
       outfit: 'escarlata',
       showBeard: true,
-      showHeadwear: true,
+      headAccessory: 'gorra_reversa',
+      headwearHex: 0x1f232e,
+      sunglasses: true,
     });
     rig.group.name = 'npc_mateo';
     if (previousMateo) {
@@ -1541,7 +1584,8 @@ export class WorldRenderer {
       const rig = createCalenoCharacterRig(calenoAsset, characterAsset, {
         outfit: 'police_uniform',
         showBeard: false,
-        showHeadwear: true,
+        headAccessory: 'gorra',
+        headwearHex: 0x0e3326,
       });
       rig.group.name = `officer_${zone.id}`;
 
@@ -1663,10 +1707,17 @@ export class WorldRenderer {
     const isOnFoot = player.mode === 'on_foot';
     this.playerMesh.visible = isOnFoot;
     if (!isOnFoot) {
+      this.playerGroundY = null;
       return;
     }
 
-    this.playerMesh.position.set(player.x, player.y, player.z);
+    // Stand on raised sidewalks instead of sinking into them; ease the curb step up/down.
+    const groundY = Math.max(player.y, getWalkableGroundHeight(player.x, player.z));
+    this.playerGroundY =
+      this.playerGroundY === null || Math.abs(groundY - this.playerGroundY) > 1
+        ? groundY
+        : this.playerGroundY + (groundY - this.playerGroundY) * Math.min(1, dt * 18);
+    this.playerMesh.position.set(player.x, this.playerGroundY, player.z);
     this.playerMesh.rotation.set(0, player.heading, 0);
 
     const absSpeed = Math.abs(player.speedMps);
@@ -1680,15 +1731,19 @@ export class WorldRenderer {
           player.z,
           CRISTO_REY_PLAYER_DANCE_DISTANCE_SQ,
         );
+      const gait = resolveLocomotionPlayback(player.speedMps, player.isSprinting);
       const targetState: CharacterLocomotionState = shouldDanceAtCristoRey
         ? 'dance'
-        : absSpeed <= 0.35
-          ? 'idle'
-          : player.isSprinting || absSpeed > CHARACTER_RUN_SPEED_THRESHOLD_MPS
-            ? 'run'
-            : 'walk';
+        : gait.state;
 
       this.transitionCharacterState(targetState);
+
+      // Match stride cadence to the simulated ground speed so feet stay planted (no sliding).
+      const activeAction = this.characterActions[this.activeCharacterState];
+      if (activeAction && this.activeCharacterState !== 'dance') {
+        activeAction.timeScale = gait.timeScale;
+      }
+
       this.characterMixer.update(this.reducedMotion ? 0 : dt);
       return;
     }
@@ -2216,6 +2271,7 @@ export class WorldRenderer {
   ): void {
     const list = pedestrians ?? [];
     const activeIds = new Set<string>();
+    this.pedestrianFrameParity = (this.pedestrianFrameParity + 1) % 2;
 
     for (let index = 0; index < list.length; index += 1) {
       const ped = list[index];
@@ -2247,29 +2303,40 @@ export class WorldRenderer {
           shirtColorHex: ped.shirtColorHex,
           pantsColorHex: ped.pantsColorHex,
           phaseOffsetSeconds: (hashPedestrianSeed(ped.id) % 100) * 0.025,
+          pendingAnimDt: 0,
+          castShadow: true,
         };
         this.scene.add(entry.group);
         this.pedestrianPool.set(ped.id, entry);
       }
 
-      entry.group.position.set(ped.x, ped.y, ped.z);
+      entry.group.position.set(ped.x, Math.max(ped.y, getWalkableGroundHeight(ped.x, ped.z)), ped.z);
       entry.group.rotation.y = ped.heading;
 
-      // Distance culling beyond 95m preserves 60fps & smooth SwiftShader frame budgets
+      // Distance LOD: full-rate animation < 25 m, half rate < 60 m, frozen beyond, hidden > 95 m
       const dx = ped.x - focusX;
       const dz = ped.z - focusZ;
-      if (dx * dx + dz * dz > this.pedestrianCullDistanceSq) {
-        entry.group.visible = false;
+      const pedDistanceSq = dx * dx + dz * dz;
+      const lod = resolveCharacterLod(pedDistanceSq);
+      entry.group.visible = lod.visible && pedDistanceSq <= this.pedestrianCullDistanceSq;
+      if (!entry.group.visible) {
         continue;
       }
-      entry.group.visible = true;
+      if (entry.castShadow !== lod.castShadow) {
+        entry.castShadow = lod.castShadow;
+        entry.group.traverse((node) => {
+          if (node instanceof THREE.Mesh && node.name !== 'contact_shadow') {
+            node.castShadow = lod.castShadow;
+          }
+        });
+      }
 
       const absSpeed = Math.abs(ped.speedMps);
 
       if (entry.isRigged && entry.mixer) {
         if (!this.reducedMotion) {
-          const targetAction: CharacterLocomotionState =
-            absSpeed < 0.2 ? 'idle' : ped.fleeing ? 'run' : 'walk';
+          const gait = resolveLocomotionPlayback(ped.speedMps, ped.fleeing);
+          const targetAction: CharacterLocomotionState = gait.state;
           if (targetAction !== entry.activeActionName) {
             const prevAction = entry.activeActionName
               ? entry.actions[entry.activeActionName]
@@ -2292,7 +2359,24 @@ export class WorldRenderer {
               entry.activeActionName = targetAction;
             }
           }
-          entry.mixer.update(dt);
+          const activeAction = entry.activeActionName
+            ? entry.actions[entry.activeActionName]
+            : undefined;
+          if (activeAction) {
+            activeAction.timeScale = gait.timeScale;
+          }
+          if (lod.updateInterval === 0) {
+            entry.pendingAnimDt = 0;
+          } else {
+            entry.pendingAnimDt += dt;
+            if (
+              lod.updateInterval === 1 ||
+              entry.variantIndex % 2 === this.pedestrianFrameParity
+            ) {
+              entry.mixer.update(entry.pendingAnimDt);
+              entry.pendingAnimDt = 0;
+            }
+          }
         }
         continue;
       }

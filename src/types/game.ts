@@ -58,7 +58,10 @@ export type CaliOutfitId =
   | 'escarlata'
   | 'azucarero'
   | 'tricolor'
-  | 'guayabera';
+  | 'guayabera'
+  | 'camiseta_seleccion'
+  | 'esqueleto_blanco'
+  | 'camisa_salsera';
 
 export type TrafficLightPhase =
   | 'ns_green'
@@ -353,6 +356,8 @@ export interface PlayerSnapshot {
   readonly vehicleId: string | null;
   readonly nearbyVehicleId: string | null;
   readonly nearbyVehicleKind?: VehicleKind | null;
+  /** Kind of the vehicle the player is currently driving or riding (null on foot). */
+  readonly activeVehicleKind?: VehicleKind | null;
   readonly canEnterVehicle: boolean;
   /** Nitro charge percentage (0..100). */
   readonly nitro: number;

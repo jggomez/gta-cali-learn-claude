@@ -400,6 +400,7 @@ export class GameWorld {
       vehicleId: this.activeVehicleId,
       nearbyVehicleId: nearby?.id ?? null,
       nearbyVehicleKind: nearby?.kind ?? null,
+      activeVehicleKind: activeVehicle?.kind ?? null,
       canEnterVehicle: nearby !== null,
       nitro: activeVehicle?.nitro ?? playerCar?.nitro ?? 0,
       isDrifting: activeVehicle?.isDrifting ?? false,

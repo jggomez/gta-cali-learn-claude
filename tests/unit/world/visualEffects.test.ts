@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { loadRealGlbForHeadlessTest } from '../../helpers/headlessGlb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaliOutfitId, PlayerCarKind, VehicleKind } from '../../../src/types/game';
 import { CALI_MAP } from '../../../src/config/caliMap';
@@ -1035,7 +1035,7 @@ describe('Valeria Mixamo retargeting and civilian pedestrians', () => {
     expect(size.y).toBeCloseTo(1.7, 2);
     expect(bounds.min.y).toBeCloseTo(0, 2);
 
-    // Verify template material was NOT mutated and cloned material is warm Morena Calena PBR
+    // Verify template material was NOT mutated and the clone keeps its albedo (no muddy whole-material tint)
     expect(templateMat.color.getHex()).toBe(origColorHex);
     expect(templateMat.roughness).toBe(origRoughness);
     expect(templateMat.metalness).toBe(origMetalness);
@@ -1045,7 +1045,7 @@ describe('Valeria Mixamo retargeting and civilian pedestrians', () => {
     expect(clonedMat).not.toBe(templateMat);
     expect(clonedMat.roughness).toBeGreaterThanOrEqual(0.72);
     expect(clonedMat.metalness).toBeLessThanOrEqual(0.04);
-    expect(clonedMat.color.getHex()).not.toBe(origColorHex);
+    expect(clonedMat.color.getHex()).toBe(origColorHex);
     expect(clonedMesh.castShadow).toBe(true);
     expect(clonedMesh.receiveShadow).toBe(true);
 
@@ -1056,149 +1056,7 @@ describe('Valeria Mixamo retargeting and civilian pedestrians', () => {
     expect(rig.actions.dance).toBeDefined();
     expect(rig.actions.idle?.isRunning()).toBe(true);
   });
-
-  it('creates alternating diverse civilian pedestrians across Valeria and Soldier templates without pitch-black materials', () => {
-    const valeriaAsset = createMinimalSkinnedCharacter('valeria_civ', 0, 0, []);
-    const soldierAsset = createMinimalSkinnedCharacter('soldier_civ', 0, 0, [
-      createLocomotionClip('Idle'),
-      createLocomotionClip('Walk'),
-      createLocomotionClip('Run'),
-    ]);
-
-    expect(createCivilianPedestrianRig(null, null, 0, 0xff5500, 0x223344)).toBeNull();
-
-    const femaleRig = createCivilianPedestrianRig(
-      valeriaAsset,
-      soldierAsset,
-      0,
-      0x121212,
-      0x222233,
-    );
-    const maleRig = createCivilianPedestrianRig(
-      valeriaAsset,
-      soldierAsset,
-      1,
-      0x2088ff,
-      0x333344,
-    );
-    const secondFemaleRig = createCivilianPedestrianRig(
-      valeriaAsset,
-      soldierAsset,
-      2,
-      0xff2e93,
-      0x1e2b45,
-    );
-
-    expect(femaleRig).not.toBeNull();
-    expect(maleRig).not.toBeNull();
-    expect(secondFemaleRig).not.toBeNull();
-
-    expect(femaleRig?.group.name).toBe('cali_civilian_valeria');
-    expect(maleRig?.group.name).toBe('cali_civilian_male');
-    expect(secondFemaleRig?.group.name).toBe('cali_civilian_valeria');
-
-    expect(femaleRig?.actions.walk).toBeDefined();
-    expect(maleRig?.actions.walk).toBeDefined();
-
-    // Even with a dark shirtColorHex=0x121212, female civilian tint must never collapse to pitch black
-    const femMesh = femaleRig?.group.getObjectByName('valeria_civ_skinned') as THREE.SkinnedMesh;
-    const femColor = (femMesh.material as THREE.MeshStandardMaterial).color;
-    const luma = femColor.r * 0.2126 + femColor.g * 0.7152 + femColor.b * 0.0722;
-    expect(luma).toBeGreaterThan(0.25);
-
-    // Distinct palettes across consecutive female variants
-    const femMesh2 = secondFemaleRig?.group.getObjectByName(
-      'valeria_civ_skinned',
-    ) as THREE.SkinnedMesh;
-    const femColor2 = (femMesh2.material as THREE.MeshStandardMaterial).color;
-    expect(femColor.getHex()).not.toBe(femColor2.getHex());
-
-    // Graceful fallback when only one asset is provided
-    const onlyValeria = createCivilianPedestrianRig(valeriaAsset, null, 3, 0x00f0ff, 0x222222);
-    expect(onlyValeria?.group.name).toBe('cali_civilian_valeria');
-
-    const onlySoldier = createCivilianPedestrianRig(null, soldierAsset, 0, 0x00f0ff, 0x222222);
-    expect(onlySoldier?.group.name).toBe('cali_civilian_male');
-  });
 });
-
-interface GlbJsonChunk {
-  images?: unknown[];
-  textures?: unknown[];
-  materials?: Array<{
-    pbrMetallicRoughness?: {
-      baseColorTexture?: unknown;
-      metallicRoughnessTexture?: unknown;
-    };
-    normalTexture?: unknown;
-    occlusionTexture?: unknown;
-    emissiveTexture?: unknown;
-  }>;
-}
-
-interface NodeFsReader {
-  readFileSync(path: URL): Uint8Array;
-}
-
-const PUBLIC_MODELS_ROOT = new URL('../../../public/', import.meta.url);
-const UTF8_DECODER = new TextDecoder('utf-8');
-const UTF8_ENCODER = new TextEncoder();
-
-async function loadRealGlbForHeadlessTest(relativePublicPath: string): Promise<LoadedCharacterAsset> {
-  const fsModuleId = 'node:fs';
-  const fsMod = (await import(/* @vite-ignore */ fsModuleId)) as NodeFsReader;
-  const fileUrl = new URL(relativePublicPath.replace(/^public\//, ''), PUBLIC_MODELS_ROOT);
-  const raw = fsMod.readFileSync(fileUrl);
-  const rawView = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
-  const jsonLength = rawView.getUint32(12, true);
-  const jsonText = UTF8_DECODER.decode(raw.subarray(20, 20 + jsonLength));
-  const parsed = JSON.parse(jsonText) as GlbJsonChunk;
-
-  // Strip only embedded image/texture references so Node GLTFLoader parses real skins, bones,
-  // meshes, materials, and animations without requiring browser ImageBitmap decoding.
-  delete parsed.images;
-  delete parsed.textures;
-  for (const mat of parsed.materials ?? []) {
-    if (mat.pbrMetallicRoughness) {
-      delete mat.pbrMetallicRoughness.baseColorTexture;
-      delete mat.pbrMetallicRoughness.metallicRoughnessTexture;
-    }
-    delete mat.normalTexture;
-    delete mat.occlusionTexture;
-    delete mat.emissiveTexture;
-  }
-
-  const rawJsonBytes = UTF8_ENCODER.encode(JSON.stringify(parsed));
-  const padBytes = (4 - (rawJsonBytes.length % 4)) % 4;
-  const strippedJson = new Uint8Array(rawJsonBytes.length + padBytes);
-  strippedJson.set(rawJsonBytes, 0);
-  strippedJson.fill(0x20, rawJsonBytes.length);
-
-  const binChunk = raw.subarray(20 + jsonLength);
-  const totalLength = 20 + strippedJson.length + binChunk.length;
-  const rebuilt = new Uint8Array(totalLength);
-  rebuilt.set(raw.subarray(0, 12), 0);
-  const outView = new DataView(rebuilt.buffer);
-  outView.setUint32(8, totalLength, true);
-  outView.setUint32(12, strippedJson.length, true);
-  outView.setUint32(16, 0x4e4f534a, true);
-  rebuilt.set(strippedJson, 20);
-  rebuilt.set(binChunk, 20 + strippedJson.length);
-
-  const loader = new GLTFLoader();
-  return new Promise<LoadedCharacterAsset>((resolveAsset, rejectAsset) => {
-    loader.parse(
-      rebuilt.buffer,
-      '',
-      (gltf) => {
-        resolveAsset({ scene: gltf.scene, animations: gltf.animations });
-      },
-      (err) => {
-        rejectAsset(err instanceof Error ? err : new Error(String(err)));
-      },
-    );
-  });
-}
 
 function createMockFerrariTemplateForPlates(): THREE.Group {
   const root = new THREE.Group();
@@ -1462,13 +1320,16 @@ describe('Caleno GLB character rig, Cali jerseys, and prefix-stripped Mixamo ret
     vi.unstubAllGlobals();
   });
 
-  it('creates 512px Cali jersey CanvasTextures across all 6 authentic styles and falls back headlessly', () => {
+  it('creates 512px Cali jersey CanvasTextures across all 9 authentic styles and falls back headlessly', () => {
     const styles: readonly CaliJerseyStyle[] = [
       'escarlata',
       'azucarero',
       'tricolor',
       'guayabera',
       'urbano_cali',
+      'camiseta_seleccion',
+      'esqueleto_blanco',
+      'camisa_salsera',
       'police_uniform',
     ];
     for (const style of styles) {
@@ -1614,6 +1475,9 @@ describe('Caleno GLB character rig, Cali jerseys, and prefix-stripped Mixamo ret
       'azucarero',
       'tricolor',
       'guayabera',
+      'camiseta_seleccion',
+      'esqueleto_blanco',
+      'camisa_salsera',
     ];
     for (const outfit of outfits) {
       const valeriaRig = createValeriaPlayerMesh(valeriaAsset, soldierAsset, { outfit });
@@ -1765,11 +1629,9 @@ describe('Automotive smoked cabin glass, solid roof/pillars, and defensive jerse
     disposeObjectTree(willys);
   });
 
-  it('disposes unused jersey CanvasTexture when a partial Caleno template lacks Wolf3D_Outfit_Top', () => {
+  it('never creates a jersey CanvasTexture when a partial Caleno template lacks Wolf3D_Outfit_Top', () => {
     const mockDoc = createMockCanvasDocument();
     vi.stubGlobal('document', mockDoc);
-
-    const disposeSpy = vi.spyOn(THREE.CanvasTexture.prototype, 'dispose');
     const partialTemplate = createSyntheticBoneCharacter(
       'partial_caleno_template',
       ['Hips', 'Spine'],
@@ -1780,7 +1642,14 @@ describe('Automotive smoked cabin glass, solid roof/pillars, and defensive jerse
       outfit: 'escarlata',
     });
 
-    expect(disposeSpy).toHaveBeenCalledTimes(1);
+    // Jersey textures are built lazily for the Outfit_Top material only
+    const jerseyMaps: THREE.Texture[] = [];
+    rig.group.getObjectByName('caleno_model_root')?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshStandardMaterial && node.material.map) {
+        jerseyMaps.push(node.material.map);
+      }
+    });
+    expect(jerseyMaps).toHaveLength(0);
     disposeObjectTree(rig.group);
     disposeObjectTree(partialTemplate.scene);
   });

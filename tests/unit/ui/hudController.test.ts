@@ -760,6 +760,9 @@ describe('HudController', () => {
       'garage-outfit-azucarero',
       'garage-outfit-tricolor',
       'garage-outfit-guayabera',
+      'garage-outfit-camiseta_seleccion',
+      'garage-outfit-esqueleto_blanco',
+      'garage-outfit-camisa_salsera',
       'btn-garage-close',
     ];
     for (const testId of requiredIds) {
@@ -881,6 +884,29 @@ describe('HudController', () => {
     expect(promptEl?.textContent).toBe(
       LOCALE_CALI.hud.enterNamedVehicle(LOCALE_CALI.vehicleNames.renault4_turbo),
     );
+
+    hud.dispose();
+  });
+
+  it('shows the moto-specific exit prompt while riding a two-wheeler and the car prompt otherwise', () => {
+    const hud = new HudController(root as unknown as HTMLElement, createCallbacks(), CALI_MAP);
+    const promptEl = root.findFirst((el) => el.dataset.testid === 'hud-vehicle-prompt');
+    const baseWorld = createWorldSnapshot(40);
+    const ride = (kind: 'yamaha_rx115' | 'mazda_323_coupe') =>
+      hud.render(
+        {
+          ...baseWorld,
+          player: { ...baseWorld.player, mode: 'driving', activeVehicleKind: kind },
+        },
+        createMissionSnapshot(),
+        DEFAULT_AUDIO,
+        'chase',
+      );
+
+    ride('yamaha_rx115');
+    expect(promptEl?.textContent).toBe(LOCALE_CALI.hud.exitMotorcyclePrompt);
+    ride('mazda_323_coupe');
+    expect(promptEl?.textContent).toBe(LOCALE_CALI.hud.exitVehiclePrompt);
 
     hud.dispose();
   });

@@ -25,6 +25,7 @@ import type {
   WorldSnapshot,
 } from '../types/game';
 import { MinimapRenderer } from './minimapRenderer';
+import { isTwoWheelerKind } from '../simulation/physics';
 
 export interface HudCallbacks {
   onStartMission(id: MissionId): void;
@@ -92,6 +93,9 @@ const GARAGE_OUTFIT_ORDER: readonly CaliOutfitId[] = [
   'azucarero',
   'tricolor',
   'guayabera',
+  'camiseta_seleccion',
+  'esqueleto_blanco',
+  'camisa_salsera',
 ];
 
 interface GaragePaintButtonRef {
@@ -117,7 +121,9 @@ export function formatTurnCue(bearingDeltaRad: number | null | undefined): strin
 
 function formatVehiclePrompt(player: PlayerSnapshot): string | null {
   if (player.mode === 'driving') {
-    return LOCALE_CALI.hud.exitVehiclePrompt;
+    return player.activeVehicleKind && isTwoWheelerKind(player.activeVehicleKind)
+      ? LOCALE_CALI.hud.exitMotorcyclePrompt
+      : LOCALE_CALI.hud.exitVehiclePrompt;
   }
   if (!player.canEnterVehicle) {
     return null;
