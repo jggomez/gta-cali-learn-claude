@@ -478,4 +478,22 @@ describe('simulation/GameWorld', () => {
     expect(peakBeforeClose).toBeGreaterThan(0.05);
     expect(afterCloseSnap.policeEvadeProgress ?? 0).toBeLessThan(peakBeforeClose);
   });
+
+  it('does not falsely escalate wantedStars when accelerating away from a nearby police cruiser', () => {
+    const world = new GameWorld(CALI_MAP);
+    // Spawn just south of police_0 (-4, -60) facing south (heading = 0, moving AWAY from police)
+    world.reset({
+      startInVehicle: true,
+      spawn: { x: -4, z: -57, heading: 0 },
+      wantedStars: 0,
+    });
+
+    let snap = world.getSnapshot();
+    for (let i = 0; i < 30; i += 1) {
+      snap = world.step(0.05, createInput({ forward: true, boost: true }));
+    }
+
+    expect(snap.player.speedMps).toBeGreaterThan(20);
+    expect(snap.wantedStars).toBe(0);
+  });
 });

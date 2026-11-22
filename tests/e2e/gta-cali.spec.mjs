@@ -298,14 +298,53 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
     await expect(page.getByTestId('gameplay-hud')).toBeVisible();
     await expect(page.getByTestId('title-screen')).toBeHidden();
 
+    // Wait for first simulation frame to enrich GPS route & pedestrians
+    await page.waitForFunction(
+      () =>
+        window.__GTA_CALI__?.mode === 'playing' &&
+        (window.__GTA_CALI__?.mission.activeObjective?.distanceMeters ?? -1) >= 0 &&
+        (window.__GTA_CALI__?.world.pedestrians?.length ?? 0) > 0,
+    );
+
     const startSnap = await page.evaluate(() => window.__GTA_CALI__);
     expect(startSnap?.mode).toBe('playing');
     expect(startSnap?.mission.activeMission).toBe('mission_1_bulevar');
 
-    // Press KeyF to board Banshee
+    // C-04 Mission 1 start HUD clarity checks
+    await expect(page.getByTestId('hud-step-progress')).toContainText('PASO 1 DE 4');
+    await expect(page.getByTestId('hud-compass')).toBeVisible();
+    await expect(page.getByTestId('hud-distance')).toBeVisible();
+    await expect(page.getByTestId('hud-distance')).toHaveText(/\d+\s*m/);
+    await expect(page.getByTestId('hud-banner')).toBeVisible();
+    await expect(page.getByTestId('hud-vehicle-prompt')).toContainText('[F] Subir a Ferrari Caleño');
+
+    // Press KeyF to board Ferrari Caleño
     await page.keyboard.press('KeyF');
-    await page.waitForFunction(() => window.__GTA_CALI__?.world.player.mode === 'driving');
+    await page.waitForFunction(
+      () =>
+        window.__GTA_CALI__?.world.player.mode === 'driving' &&
+        (window.__GTA_CALI__?.mission.activeObjective?.stepIndex ?? 0) === 1,
+    );
     await expect(page.getByTestId('hud-objective')).toContainText('Torre de Cali');
+    await expect(page.getByTestId('hud-step-progress')).toContainText('PASO 2 DE 4');
+
+    const postBoard = await page.evaluate(() => {
+      const snap = window.__GTA_CALI__;
+      return {
+        gpsLen: snap?.mission.activeObjective?.gpsRoute?.length ?? 0,
+        distanceMeters: snap?.mission.activeObjective?.distanceMeters ?? 0,
+        pedCount: snap?.world.pedestrians?.length ?? 0,
+        domDistance: document.querySelector('[data-testid="hud-distance"]')?.textContent ?? '',
+      };
+    });
+    expect(postBoard.gpsLen).toBeGreaterThanOrEqual(2);
+    expect(postBoard.distanceMeters).toBeGreaterThan(0);
+    expect(postBoard.pedCount).toBeGreaterThan(0);
+    expect(postBoard.domDistance).toMatch(/\d+\s*m/);
+    run.dataCheck(
+      'source-on-screen',
+      `gpsRoute=${postBoard.gpsLen} pts, distanceMeters=${postBoard.distanceMeters}m (${postBoard.domDistance}), pedestrians=${postBoard.pedCount}`,
+    );
 
     const beforeDrive = await page.evaluate(() => ({
       x: window.__GTA_CALI__.world.player.x,
@@ -429,8 +468,14 @@ test.describe('GTA VI: Cali — Black-Box E2E Verification', () => {
         window.__GTA_CALI__?.mode === 'playing' &&
         window.__GTA_CALI__?.mission.activeMission === 'mission_2_cristo_rey',
     );
+    await expect(page.getByTestId('hud-step-progress')).toContainText('PASO 1 DE 4');
     await page.keyboard.press('KeyF');
-    await page.waitForFunction(() => window.__GTA_CALI__?.world.player.mode === 'driving');
+    await page.waitForFunction(
+      () =>
+        window.__GTA_CALI__?.world.player.mode === 'driving' &&
+        (window.__GTA_CALI__?.mission.activeObjective?.stepIndex ?? 0) === 1,
+    );
+    await expect(page.getByTestId('hud-step-progress')).toContainText('PASO 2 DE 4');
 
     const m2Start = await page.evaluate(() => ({
       x: window.__GTA_CALI__.world.player.x,

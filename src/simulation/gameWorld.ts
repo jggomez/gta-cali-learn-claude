@@ -54,6 +54,7 @@ const BUST_DURATION_SECONDS = 3.2;
 const BUST_DECAY_PER_SECOND = 0.45;
 const POLICE_RAM_DISTANCE_METERS = 4.2;
 const POLICE_RAM_MIN_SPEED_MPS = 10;
+const POLICE_RAM_MIN_APPROACH_MPS = 2.0;
 const POLICE_RAM_COOLDOWN_SECONDS = 2.5;
 const EVADE_CLEAR_DISTANCE_METERS = 58;
 const EVADE_RESET_DISTANCE_METERS = 50;
@@ -577,6 +578,7 @@ export class GameWorld {
   }
 
   private checkPoliceRam(
+    activeVehicle: SimVehicle,
     other: SimVehicle,
     dist: number,
     playerSpeedMps: number,
@@ -588,6 +590,16 @@ export class GameWorld {
       playerSpeedMps <= POLICE_RAM_MIN_SPEED_MPS ||
       this.policeRamCooldownSeconds > 0
     ) {
+      return;
+    }
+
+    const vx = Math.sin(activeVehicle.heading) * activeVehicle.speedMps;
+    const vz = Math.cos(activeVehicle.heading) * activeVehicle.speedMps;
+    const toOtherX = other.x - activeVehicle.x;
+    const toOtherZ = other.z - activeVehicle.z;
+    const approachSpeed =
+      dist > 1e-4 ? (vx * toOtherX + vz * toOtherZ) / dist : playerSpeedMps;
+    if (approachSpeed <= POLICE_RAM_MIN_APPROACH_MPS) {
       return;
     }
 
@@ -619,7 +631,7 @@ export class GameWorld {
       const distSq = dx * dx + dz * dz;
       const dist = Math.sqrt(distSq);
 
-      this.checkPoliceRam(other, dist, playerSpeedBeforeBump);
+      this.checkPoliceRam(activeVehicle, other, dist, playerSpeedBeforeBump);
 
       if (distSq >= minSep * minSep) {
         continue;
