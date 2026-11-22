@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CALI_MAP } from '../../../src/config/caliMap';
 import type {
   CameraMode,
@@ -20,7 +20,10 @@ import {
   createPlayerMesh,
   createVehicleMesh,
 } from '../../../src/world/vehicleMeshes';
-import { WorldRenderer } from '../../../src/world/worldRenderer';
+import {
+  WorldRenderer,
+  disposeObjectTree,
+} from '../../../src/world/worldRenderer';
 
 function countGeometryVertices(root: THREE.Object3D): number {
   let vertices = 0;
@@ -469,5 +472,75 @@ describe('cinematic sky and shadow helpers', () => {
     expect(keyLight.target.position.z).toBeCloseTo(-24, 3);
     expect(keyLight.position.x).toBeCloseTo(initialLightX + 74, 3);
     expect(keyLight.position.z).toBeCloseTo(initialLightZ - 24, 3);
+  });
+
+  it('disposes lights (including shadow maps), meshes, points, lines, and PBR textures cleanly via disposeObjectTree', () => {
+    const root = new THREE.Group();
+
+    const sunLight = new THREE.DirectionalLight(0xffbe6b, 2);
+    const shadowMapTarget = new THREE.WebGLRenderTarget(64, 64);
+    sunLight.shadow.map = shadowMapTarget;
+    const lightDisposeSpy = vi.spyOn(sunLight, 'dispose');
+    const shadowMapDisposeSpy = vi.spyOn(shadowMapTarget, 'dispose');
+    root.add(sunLight);
+
+    const mapTex = new THREE.DataTexture(new Uint8Array(16), 2, 2);
+    const bumpTex = new THREE.DataTexture(new Uint8Array(16), 2, 2);
+    const roughTex = new THREE.DataTexture(new Uint8Array(16), 2, 2);
+    const emissiveTex = new THREE.DataTexture(new Uint8Array(16), 2, 2);
+    const alphaTex = new THREE.DataTexture(new Uint8Array(16), 2, 2);
+
+    const meshGeo = new THREE.BoxGeometry(1, 1, 1);
+    const meshMat = new THREE.MeshStandardMaterial({
+      map: mapTex,
+      bumpMap: bumpTex,
+      roughnessMap: roughTex,
+      emissiveMap: emissiveTex,
+      alphaMap: alphaTex,
+    });
+    const mesh = new THREE.Mesh(meshGeo, meshMat);
+    root.add(mesh);
+
+    const pointsGeo = new THREE.BufferGeometry();
+    pointsGeo.setAttribute(
+      'position',
+      new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 1, 1]), 3),
+    );
+    const pointsMat = new THREE.PointsMaterial({ color: 0x00f0ff });
+    root.add(new THREE.Points(pointsGeo, pointsMat));
+
+    const lineGeo = new THREE.BufferGeometry();
+    lineGeo.setAttribute(
+      'position',
+      new THREE.BufferAttribute(new Float32Array([0, 0, 0, 0, 1, 0]), 3),
+    );
+    const lineMat = new THREE.LineBasicMaterial({ color: 0xff2e93 });
+    root.add(new THREE.Line(lineGeo, lineMat));
+
+    const meshGeoSpy = vi.spyOn(meshGeo, 'dispose');
+    const meshMatSpy = vi.spyOn(meshMat, 'dispose');
+    const alphaTexSpy = vi.spyOn(alphaTex, 'dispose');
+    const bumpTexSpy = vi.spyOn(bumpTex, 'dispose');
+    const roughTexSpy = vi.spyOn(roughTex, 'dispose');
+    const emissiveTexSpy = vi.spyOn(emissiveTex, 'dispose');
+    const pointsGeoSpy = vi.spyOn(pointsGeo, 'dispose');
+    const pointsMatSpy = vi.spyOn(pointsMat, 'dispose');
+    const lineGeoSpy = vi.spyOn(lineGeo, 'dispose');
+    const lineMatSpy = vi.spyOn(lineMat, 'dispose');
+
+    disposeObjectTree(root);
+
+    expect(lightDisposeSpy).toHaveBeenCalledTimes(1);
+    expect(shadowMapDisposeSpy).toHaveBeenCalledTimes(1);
+    expect(meshGeoSpy).toHaveBeenCalledTimes(1);
+    expect(meshMatSpy).toHaveBeenCalledTimes(1);
+    expect(alphaTexSpy).toHaveBeenCalledTimes(1);
+    expect(bumpTexSpy).toHaveBeenCalledTimes(1);
+    expect(roughTexSpy).toHaveBeenCalledTimes(1);
+    expect(emissiveTexSpy).toHaveBeenCalledTimes(1);
+    expect(pointsGeoSpy).toHaveBeenCalledTimes(1);
+    expect(pointsMatSpy).toHaveBeenCalledTimes(1);
+    expect(lineGeoSpy).toHaveBeenCalledTimes(1);
+    expect(lineMatSpy).toHaveBeenCalledTimes(1);
   });
 });

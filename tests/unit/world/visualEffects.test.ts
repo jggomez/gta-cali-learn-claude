@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  bindRenderTargetDisposal,
   createAsphaltTextures,
   createBuildingFacadeTextures,
   createCrosswalkTexture,
@@ -298,6 +299,22 @@ describe('pbrTextures', () => {
     const envMap = createSunsetEnvironmentMap(invalidRenderer);
 
     expect(envMap).toBeNull();
+  });
+
+  it('disposes the underlying PMREM WebGLRenderTarget exactly once when its texture is disposed', () => {
+    const renderTarget = new THREE.WebGLRenderTarget(16, 16);
+    const disposeSpy = vi.spyOn(renderTarget, 'dispose');
+
+    const boundTexture = bindRenderTargetDisposal(renderTarget);
+    expect(boundTexture).toBe(renderTarget.texture);
+    expect(disposeSpy).not.toHaveBeenCalled();
+
+    boundTexture.dispose();
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+
+    // Repeated texture disposal must stay idempotent with zero recursion
+    expect(() => boundTexture.dispose()).not.toThrow();
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -52,8 +52,12 @@ const MATERIAL_TEXTURE_KEYS = [
   'bumpMap',
   'roughnessMap',
   'emissiveMap',
+  'alphaMap',
   'normalMap',
   'metalnessMap',
+  'aoMap',
+  'lightMap',
+  'clearcoatRoughnessMap',
 ] as const;
 
 function collectMaterialTextures(
@@ -69,13 +73,18 @@ function collectMaterialTextures(
   }
 }
 
-function disposeObjectTree(root: THREE.Object3D): void {
+export function disposeObjectTree(root: THREE.Object3D): void {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   const textures = new Set<THREE.Texture>();
+  const lights = new Set<THREE.Light>();
 
   root.traverse((node) => {
-    if (node instanceof THREE.Mesh) {
+    if (
+      node instanceof THREE.Mesh ||
+      node instanceof THREE.Points ||
+      node instanceof THREE.Line
+    ) {
       if (node.geometry instanceof THREE.BufferGeometry) {
         geometries.add(node.geometry);
       }
@@ -89,9 +98,25 @@ function disposeObjectTree(root: THREE.Object3D): void {
         materials.add(mat);
         collectMaterialTextures(mat, textures);
       }
+    } else if (node instanceof THREE.Light) {
+      lights.add(node);
     }
   });
 
+  for (const light of lights) {
+    const shadow = light.shadow;
+    if (shadow) {
+      if (shadow.map) {
+        shadow.map.dispose();
+        shadow.map = null;
+      }
+      if (shadow.mapPass) {
+        shadow.mapPass.dispose();
+        shadow.mapPass = null;
+      }
+    }
+    light.dispose();
+  }
   for (const texture of textures) {
     texture.dispose();
   }

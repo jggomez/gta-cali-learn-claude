@@ -1146,6 +1146,22 @@ void main() {
 }
 `;
 
+export function bindRenderTargetDisposal(
+  renderTarget: THREE.WebGLRenderTarget,
+): THREE.Texture {
+  let targetDisposed = false;
+  const handleTextureDispose = (): void => {
+    if (targetDisposed) {
+      return;
+    }
+    targetDisposed = true;
+    renderTarget.texture.removeEventListener('dispose', handleTextureDispose);
+    renderTarget.dispose();
+  };
+  renderTarget.texture.addEventListener('dispose', handleTextureDispose);
+  return renderTarget.texture;
+}
+
 export function createSunsetEnvironmentMap(
   renderer: THREE.WebGLRenderer,
 ): THREE.Texture | null {
@@ -1178,7 +1194,7 @@ export function createSunsetEnvironmentMap(
 
     tempScene.add(new THREE.Mesh(skyGeo, skyMat));
     const renderTarget = pmrem.fromScene(tempScene, 0.04);
-    return renderTarget.texture;
+    return bindRenderTargetDisposal(renderTarget);
   } catch {
     return null;
   } finally {
