@@ -4,7 +4,15 @@
  * anti-spam cooldown queuing, and safe silent no-op execution in headless environments.
  */
 
-export type VoiceProfile = 'valeria' | 'mateo' | 'police' | 'pedestrian' | 'system';
+import { LOCALE_CALI } from '../config/localeCali';
+
+export type VoiceProfile =
+  | 'valeria'
+  | 'mateo'
+  | 'police'
+  | 'pedestrian'
+  | 'system'
+  | 'narrator';
 
 export type VoicePriority = 'mission' | 'callout';
 
@@ -48,6 +56,7 @@ const FALLBACK_LANG = 'es-CO';
 const MISSION_PROTECT_WINDOW_MS = 3500;
 const POLICE_CALLOUT_COOLDOWN_MS = 8000;
 const PEDESTRIAN_CALLOUT_COOLDOWN_MS = 6500;
+const NARRATOR_CALLOUT_COOLDOWN_MS = 4000;
 
 const PEDESTRIAN_PITCH_CYCLE: readonly number[] = [0.92, 1.08, 1.18, 0.96, 1.14];
 
@@ -106,11 +115,19 @@ const STATIC_PROFILE_CONFIG: Readonly<Record<VoiceProfile, VoiceProfileConfig>> 
     preferFemale: false,
     defaultPriority: 'mission',
   },
+  narrator: {
+    rate: 1.03,
+    pitch: 0.96,
+    volume: 0.88,
+    preferFemale: false,
+    defaultPriority: 'callout',
+  },
 };
 
 const CALLOUT_COOLDOWN_BY_PROFILE_MS: Readonly<Partial<Record<VoiceProfile, number>>> = {
   police: POLICE_CALLOUT_COOLDOWN_MS,
   pedestrian: PEDESTRIAN_CALLOUT_COOLDOWN_MS,
+  narrator: NARRATOR_CALLOUT_COOLDOWN_MS,
 };
 
 const nativeUtteranceMap = new WeakMap<SpeechUtteranceLike, SpeechSynthesisUtterance>();
@@ -266,6 +283,7 @@ export class VoiceEngine {
 
   private lastMissionSpeakMs: number | null = null;
   private readonly lastCalloutByProfile = new Map<VoiceProfile, number>();
+  private readonly lineCursorByPool = new Map<string, number>();
   private pedestrianSpeakIndex = 0;
 
   public constructor(options: VoiceEngineOptions = {}) {
@@ -364,6 +382,41 @@ export class VoiceEngine {
     }
 
     return true;
+  }
+
+  public speakRandomLine(
+    lines: readonly string[],
+    profile: VoiceProfile,
+    priority?: VoicePriority,
+  ): boolean {
+    if (lines.length === 0) {
+      return false;
+    }
+    const poolKey = `${profile}:${lines[0] ?? ''}:${lines.length}`;
+    const cursor = this.lineCursorByPool.get(poolKey) ?? 0;
+    const line = lines[cursor % lines.length];
+    if (!line) {
+      return false;
+    }
+    const spoken = this.speak(line, profile, priority);
+    if (spoken) {
+      this.lineCursorByPool.set(poolKey, (cursor + 1) % lines.length);
+    }
+    return spoken;
+  }
+
+  public speakPedestrianHornReaction(
+    lines: readonly string[] = LOCALE_CALI.voiceLines.pedestrianHorn,
+  ): boolean {
+    return this.speakRandomLine(lines, 'pedestrian', 'callout');
+  }
+
+  public speakPayNSprayCallout(
+    lines: readonly string[] = LOCALE_CALI.voiceLines.payNSpray,
+    profile: VoiceProfile = 'mateo',
+    priority: VoicePriority = 'callout',
+  ): boolean {
+    return this.speakRandomLine(lines, profile, priority);
   }
 
   public dispose(): void {

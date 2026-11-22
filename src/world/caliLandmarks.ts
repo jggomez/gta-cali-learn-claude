@@ -16,8 +16,12 @@ import type {
   BridgeSpan,
   CaliMapConfig,
   LandmarkDef,
+  PayNSprayZone,
   RiverCorridor,
+  RoadblockZone,
+  StuntJumpDef,
   TimeOfDay,
+  TrafficLightPhase,
   Vec2,
 } from '../types/game';
 import type { LoadedWorldTextureSets, PhotoPbrMaterialMaps } from './assetLoader';
@@ -102,9 +106,25 @@ const NS_ROAD_TIER_OFFSET = 0.008;
 const ROAD_TILE_LENGTH_METERS = 16;
 const SIDEWALK_TILE_METERS = 8;
 
+export interface TrafficLightLensMaterials {
+  readonly red: THREE.MeshStandardMaterial;
+  readonly amber: THREE.MeshStandardMaterial;
+  readonly green: THREE.MeshStandardMaterial;
+}
+
+export interface CaliTrafficLightsController {
+  readonly group: THREE.Group;
+  readonly ns: TrafficLightLensMaterials;
+  readonly ew: TrafficLightLensMaterials;
+}
+
 export interface CaliWorldBuildResult {
   readonly group: THREE.Group;
   readonly waterMesh: THREE.Mesh;
+  readonly trafficLights?: CaliTrafficLightsController;
+  readonly roadblockGroup?: THREE.Group;
+  readonly roadblockRedMat?: THREE.MeshStandardMaterial;
+  readonly roadblockBlueMat?: THREE.MeshStandardMaterial;
 }
 
 interface CrosswalkSpec {
@@ -1274,7 +1294,9 @@ function createTrafficHeadMesh(
   return head;
 }
 
-function buildTrafficSignalsGroup(): THREE.Group {
+function buildTrafficSignalsGroup(
+  sharedNsLenses?: TrafficLightLensMaterials,
+): THREE.Group {
   const group = new THREE.Group();
   group.name = 'cali_traffic_signals';
 
@@ -1288,51 +1310,39 @@ function buildTrafficSignalsGroup(): THREE.Group {
     roughness: 0.55,
     metalness: 0.45,
   });
-  const redLitMat = new THREE.MeshStandardMaterial({
-    color: 0xff2b3d,
-    emissive: 0xff1e33,
-    emissiveIntensity: 2.6,
-    roughness: 0.16,
-  });
-  const redDimMat = new THREE.MeshStandardMaterial({
-    color: 0x3b1218,
-    emissive: 0x3b1218,
-    emissiveIntensity: 0.15,
-    roughness: 0.4,
-  });
-  const amberLitMat = new THREE.MeshStandardMaterial({
-    color: 0xffbe2e,
-    emissive: 0xffae00,
-    emissiveIntensity: 1.9,
-    roughness: 0.18,
-  });
-  const amberDimMat = new THREE.MeshStandardMaterial({
-    color: 0x3d2e10,
-    emissive: 0x3d2e10,
-    emissiveIntensity: 0.15,
-    roughness: 0.4,
-  });
-  const greenLitMat = new THREE.MeshStandardMaterial({
-    color: 0x22ff99,
-    emissive: 0x00ff88,
-    emissiveIntensity: 2.6,
-    roughness: 0.16,
-  });
-  const greenDimMat = new THREE.MeshStandardMaterial({
-    color: 0x0f3825,
-    emissive: 0x0f3825,
-    emissiveIntensity: 0.15,
-    roughness: 0.4,
-  });
+  const redLitMat =
+    sharedNsLenses?.red ??
+    new THREE.MeshStandardMaterial({
+      color: 0xff2b3d,
+      emissive: 0xff1e33,
+      emissiveIntensity: 2.6,
+      roughness: 0.16,
+    });
+  const amberLitMat =
+    sharedNsLenses?.amber ??
+    new THREE.MeshStandardMaterial({
+      color: 0xffbe2e,
+      emissive: 0xffae00,
+      emissiveIntensity: 1.9,
+      roughness: 0.18,
+    });
+  const greenLitMat =
+    sharedNsLenses?.green ??
+    new THREE.MeshStandardMaterial({
+      color: 0x22ff99,
+      emissive: 0x00ff88,
+      emissiveIntensity: 2.6,
+      roughness: 0.16,
+    });
 
   const poleGeo = new THREE.CylinderGeometry(0.14, 0.2, 6.2, 8);
   const armGeo = new THREE.CylinderGeometry(0.09, 0.12, 5.4, 8);
   armGeo.rotateZ(Math.PI / 2);
 
-  TRAFFIC_INTERSECTIONS.forEach((inter, idx) => {
-    const corners: readonly { sx: number; sz: number; yaw: number; greenActive: boolean }[] = [
-      { sx: -1, sz: -1, yaw: 0, greenActive: idx % 2 === 0 },
-      { sx: 1, sz: 1, yaw: Math.PI, greenActive: idx % 2 !== 0 },
+  TRAFFIC_INTERSECTIONS.forEach((inter) => {
+    const corners: readonly { sx: number; sz: number; yaw: number }[] = [
+      { sx: -1, sz: -1, yaw: 0 },
+      { sx: 1, sz: 1, yaw: Math.PI },
     ];
 
     corners.forEach((corner, cIdx) => {
@@ -1356,16 +1366,24 @@ function buildTrafficSignalsGroup(): THREE.Group {
       arm.castShadow = true;
       gantry.add(arm);
 
-      const redMat = corner.greenActive ? redDimMat : redLitMat;
-      const amberMat = idx === 2 && cIdx === 1 ? amberLitMat : amberDimMat;
-      const greenMat = corner.greenActive ? greenLitMat : greenDimMat;
-
-      const primaryHead = createTrafficHeadMesh(housingMat, redMat, amberMat, greenMat);
+      const primaryHead = createTrafficHeadMesh(
+        housingMat,
+        redLitMat,
+        amberLitMat,
+        greenLitMat,
+      );
       primaryHead.position.set(4.55, 5.45, 0);
+      primaryHead.userData.trafficLightAxis = 'ns';
       gantry.add(primaryHead);
 
-      const midHead = createTrafficHeadMesh(housingMat, redMat, amberMat, greenMat);
+      const midHead = createTrafficHeadMesh(
+        housingMat,
+        redLitMat,
+        amberLitMat,
+        greenLitMat,
+      );
       midHead.position.set(2.25, 5.45, 0);
+      midHead.userData.trafficLightAxis = 'ns';
       gantry.add(midHead);
 
       group.add(gantry);
@@ -5286,15 +5304,1498 @@ export function setWorldNightLighting(
   }
 }
 
+interface CholadoStandSpec {
+  readonly id: string;
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+}
+
+interface WorkingTrafficIntersectionSpec {
+  readonly id: string;
+  readonly poles: readonly {
+    readonly x: number;
+    readonly z: number;
+    readonly armYaw: number;
+  }[];
+}
+
+interface CaliMuralSpec {
+  readonly id: string;
+  readonly headline: string;
+  readonly subtitle: string;
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+  readonly bgTop: string;
+  readonly bgBottom: string;
+  readonly accentCss: string;
+  readonly accentRgb: readonly [number, number, number];
+}
+
+const CHOLADO_STAND_SPECS: readonly CholadoStandSpec[] = [
+  { id: 'bulevar_norte', x: 15.5, z: -4.5, yaw: -Math.PI / 2 },
+  { id: 'bulevar_sur', x: 16.5, z: 54.0, yaw: -Math.PI / 2 },
+  { id: 'san_antonio', x: -85.0, z: 24.0, yaw: 0 },
+  { id: 'estadio', x: 109.0, z: 93.0, yaw: -Math.PI * 0.25 },
+  { id: 'la_ermita', x: 68.5, z: -4.5, yaw: -Math.PI / 2 },
+];
+
+const WORKING_TRAFFIC_INTERSECTIONS: readonly WorkingTrafficIntersectionSpec[] = [
+  {
+    id: 'av_colombia_calle_13',
+    poles: [
+      { x: 5.4, z: -33.4, armYaw: Math.PI },
+      { x: -13.4, z: -14.6, armYaw: 0 },
+    ],
+  },
+  {
+    id: 'av_colombia_calle_5',
+    poles: [
+      { x: 5.4, z: 67.6, armYaw: Math.PI },
+      { x: -13.4, z: 86.4, armYaw: 0 },
+    ],
+  },
+  {
+    id: 'ermita_av4n',
+    poles: [
+      { x: 49.6, z: -35.0, armYaw: 0 },
+      { x: 49.6, z: -11.0, armYaw: 0 },
+    ],
+  },
+  {
+    id: 'calle5_estadio',
+    poles: [
+      { x: 87.6, z: 67.6, armYaw: 0 },
+      { x: 104.4, z: 86.4, armYaw: Math.PI },
+    ],
+  },
+];
+
+const CALI_MURAL_SPECS: readonly CaliMuralSpec[] = [
+  {
+    id: 'bulevar',
+    headline: 'CALI ES CALI,',
+    subtitle: 'LO DEMÁS ES LOMA',
+    x: 16.5,
+    z: 29.0,
+    yaw: -Math.PI / 2,
+    bgTop: '#ff5e7e',
+    bgBottom: '#261447',
+    accentCss: '#ffd166',
+    accentRgb: [255, 198, 92],
+  },
+  {
+    id: 'calle_quinta',
+    headline: 'FERIA DE CALI',
+    subtitle: 'CAPITAL MUNDIAL DE LA SALSA',
+    x: -35.0,
+    z: 65.5,
+    yaw: 0,
+    bgTop: '#d92b4b',
+    bgBottom: '#1a1038',
+    accentCss: '#00f0ff',
+    accentRgb: [217, 43, 75],
+  },
+  {
+    id: 'san_antonio',
+    headline: 'CHOLADOS Y LULADA',
+    subtitle: 'LA SUCURSAL DEL CIELO',
+    x: -79.5,
+    z: 45.8,
+    yaw: Math.PI,
+    bgTop: '#00a86b',
+    bgBottom: '#19323c',
+    accentCss: '#ffb703',
+    accentRgb: [0, 168, 107],
+  },
+  {
+    id: 'estadio',
+    headline: 'MIRADOR DE CRISTO REY',
+    subtitle: 'SANTIAGO DE CALI · VALLE DEL CAUCA',
+    x: 146.0,
+    z: 89.2,
+    yaw: Math.PI,
+    bgTop: '#ff8c42',
+    bgBottom: '#1b264f',
+    accentCss: '#fff2b0',
+    accentRgb: [255, 140, 66],
+  },
+];
+
+function createHazardChevronTexture(): THREE.Texture {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#242830';
+      ctx.fillRect(0, 0, 256, 256);
+
+      // Bold high-visibility yellow & black forward-pointing launch chevrons
+      ctx.strokeStyle = '#f5c418';
+      ctx.lineWidth = 24;
+      for (let y = -64; y < 320; y += 64) {
+        ctx.beginPath();
+        ctx.moveTo(16, y + 48);
+        ctx.lineTo(128, y);
+        ctx.lineTo(240, y + 48);
+        ctx.stroke();
+      }
+
+      // Outer hazard edge stripes
+      ctx.fillStyle = '#f5c418';
+      ctx.fillRect(0, 0, 14, 256);
+      ctx.fillRect(242, 0, 14, 256);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.needsUpdate = true;
+      return texture;
+    }
+  }
+
+  const data = new Uint8Array([
+    245, 196, 24, 255, 36, 40, 48, 255,
+    36, 40, 48, 255, 245, 196, 24, 255,
+  ]);
+  const fallback = new THREE.DataTexture(data, 2, 2, THREE.RGBAFormat);
+  fallback.colorSpace = THREE.SRGBColorSpace;
+  fallback.wrapS = THREE.RepeatWrapping;
+  fallback.wrapT = THREE.RepeatWrapping;
+  fallback.needsUpdate = true;
+  return fallback;
+}
+
+function createPayNSpraySignTexture(): THREE.Texture {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const grad = ctx.createLinearGradient(0, 0, 512, 128);
+      grad.addColorStop(0, '#052b1d');
+      grad.addColorStop(0.5, '#0a4a33');
+      grad.addColorStop(1, '#042419');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 512, 128);
+
+      ctx.strokeStyle = '#14f59f';
+      ctx.lineWidth = 8;
+      ctx.strokeRect(8, 8, 496, 112);
+
+      ctx.fillStyle = '#eafff6';
+      ctx.font = 'bold 36px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('LATONERÍA Y PINTURA', 256, 52);
+
+      ctx.fillStyle = '#ffd166';
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillText('TALLER CALI · PINTURA EXPRÉS · 24H', 256, 94);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.needsUpdate = true;
+      return texture;
+    }
+  }
+
+  const data = new Uint8Array([
+    10, 74, 51, 255, 20, 245, 159, 255,
+    20, 245, 159, 255, 255, 209, 102, 255,
+  ]);
+  const fallback = new THREE.DataTexture(data, 2, 2, THREE.RGBAFormat);
+  fallback.colorSpace = THREE.SRGBColorSpace;
+  fallback.needsUpdate = true;
+  return fallback;
+}
+
+function createCheckeredPadTexture(): THREE.Texture {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const cells = 8;
+      const cellSize = 256 / cells;
+      for (let r = 0; r < cells; r += 1) {
+        for (let c = 0; c < cells; c += 1) {
+          ctx.fillStyle = (r + c) % 2 === 0 ? '#f4c41c' : '#1b1e24';
+          ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+        }
+      }
+      // Subtle concrete workshop bay center lane tint
+      ctx.fillStyle = 'rgba(28, 34, 42, 0.72)';
+      ctx.fillRect(36, 36, 184, 184);
+      ctx.strokeStyle = '#14f59f';
+      ctx.lineWidth = 6;
+      ctx.strokeRect(42, 42, 172, 172);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.needsUpdate = true;
+      return texture;
+    }
+  }
+
+  const data = new Uint8Array([
+    244, 196, 28, 255, 27, 30, 36, 255,
+    27, 30, 36, 255, 244, 196, 28, 255,
+  ]);
+  const fallback = new THREE.DataTexture(data, 2, 2, THREE.RGBAFormat);
+  fallback.colorSpace = THREE.SRGBColorSpace;
+  fallback.needsUpdate = true;
+  return fallback;
+}
+
+function createCholadoUmbrellaTexture(): THREE.Texture {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const palette = ['#e63946', '#ffb703', '#00a86b', '#fff4d6'] as const;
+      const segments = 8;
+      const segW = canvas.width / segments;
+      for (let i = 0; i < segments; i += 1) {
+        ctx.fillStyle = palette[i % palette.length] ?? '#e63946';
+        ctx.fillRect(i * segW, 0, segW, canvas.height);
+      }
+      const shade = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      shade.addColorStop(0, 'rgba(255, 255, 255, 0.12)');
+      shade.addColorStop(1, 'rgba(0, 0, 0, 0.22)');
+      ctx.fillStyle = shade;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.needsUpdate = true;
+      return texture;
+    }
+  }
+
+  const data = new Uint8Array([
+    230, 57, 70, 255, 255, 183, 3, 255,
+    0, 168, 107, 255, 255, 244, 214, 255,
+  ]);
+  const fallback = new THREE.DataTexture(data, 4, 1, THREE.RGBAFormat);
+  fallback.colorSpace = THREE.SRGBColorSpace;
+  fallback.wrapS = THREE.RepeatWrapping;
+  fallback.needsUpdate = true;
+  return fallback;
+}
+
+function createCholadoCartSignTexture(): THREE.Texture {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 96;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#0e6b48';
+      ctx.fillRect(0, 0, 256, 96);
+      ctx.fillStyle = '#ffb703';
+      ctx.fillRect(0, 0, 256, 12);
+      ctx.fillRect(0, 84, 256, 12);
+
+      ctx.fillStyle = '#fff9eb';
+      ctx.font = 'bold 22px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('CHOLADOS Y LULADA', 128, 38);
+
+      ctx.fillStyle = '#ffd166';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText('LULO • MARACUYÁ • FRESA', 128, 66);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.needsUpdate = true;
+      return texture;
+    }
+  }
+
+  const data = new Uint8Array([
+    14, 107, 72, 255, 255, 183, 3, 255,
+    230, 57, 70, 255, 255, 249, 235, 255,
+  ]);
+  const fallback = new THREE.DataTexture(data, 2, 2, THREE.RGBAFormat);
+  fallback.colorSpace = THREE.SRGBColorSpace;
+  fallback.needsUpdate = true;
+  return fallback;
+}
+
+function createPoliceBarricadeTexture(): THREE.Texture {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 96;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#f8ca18';
+      ctx.fillRect(0, 0, 256, 96);
+
+      ctx.fillStyle = '#15181e';
+      for (let x = -96; x < 320; x += 48) {
+        ctx.beginPath();
+        ctx.moveTo(x, 96);
+        ctx.lineTo(x + 24, 96);
+        ctx.lineTo(x + 68, 0);
+        ctx.lineTo(x + 44, 0);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.fillStyle = 'rgba(14, 18, 26, 0.9)';
+      ctx.fillRect(28, 22, 200, 52);
+      ctx.strokeStyle = '#f8ca18';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(30, 24, 196, 48);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 24px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('POLICÍA · PARE', 128, 49);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.needsUpdate = true;
+      return texture;
+    }
+  }
+
+  const data = new Uint8Array([
+    248, 202, 24, 255, 21, 24, 30, 255,
+    21, 24, 30, 255, 248, 202, 24, 255,
+  ]);
+  const fallback = new THREE.DataTexture(data, 2, 2, THREE.RGBAFormat);
+  fallback.colorSpace = THREE.SRGBColorSpace;
+  fallback.needsUpdate = true;
+  return fallback;
+}
+
+function createCaliMuralTexture(spec: CaliMuralSpec): THREE.Texture {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const grad = ctx.createLinearGradient(0, 0, 0, 256);
+      grad.addColorStop(0, spec.bgTop);
+      grad.addColorStop(1, spec.bgBottom);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 512, 256);
+
+      // Stylized Cali sunset sun disc & tropical hills backdrop
+      ctx.fillStyle = 'rgba(255, 214, 102, 0.24)';
+      ctx.beginPath();
+      ctx.arc(256, 138, 86, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(12, 10, 24, 0.42)';
+      ctx.beginPath();
+      ctx.moveTo(0, 256);
+      ctx.lineTo(0, 195);
+      ctx.quadraticCurveTo(130, 150, 256, 188);
+      ctx.quadraticCurveTo(385, 146, 512, 192);
+      ctx.lineTo(512, 256);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = spec.accentCss;
+      ctx.lineWidth = 8;
+      ctx.strokeRect(12, 12, 488, 232);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 34px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(spec.headline, 256, 104);
+
+      ctx.fillStyle = spec.accentCss;
+      ctx.font = 'bold 22px sans-serif';
+      ctx.fillText(spec.subtitle, 256, 158);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.needsUpdate = true;
+      return texture;
+    }
+  }
+
+  const [r, g, b] = spec.accentRgb;
+  const data = new Uint8Array([
+    r, g, b, 255, 28, 20, 52, 255,
+    28, 20, 52, 255, r, g, b, 255,
+  ]);
+  const fallback = new THREE.DataTexture(data, 2, 2, THREE.RGBAFormat);
+  fallback.colorSpace = THREE.SRGBColorSpace;
+  fallback.needsUpdate = true;
+  return fallback;
+}
+
+function buildSingleStuntRamp(
+  jump: StuntJumpDef,
+  map: CaliMapConfig,
+  materials: {
+    readonly concreteMat: THREE.MeshStandardMaterial;
+    readonly deckMat: THREE.MeshStandardMaterial;
+    readonly railMat: THREE.MeshStandardMaterial;
+    readonly lipBeaconMat: THREE.MeshStandardMaterial;
+    readonly sideEdgeMat: THREE.MeshStandardMaterial;
+  },
+): THREE.Group {
+  const halfLen = jump.length * 0.5;
+  const halfWidth = jump.width * 0.5;
+  const rampHeight = 2.05;
+
+  const fwdX = Math.sin(jump.heading);
+  const fwdZ = Math.cos(jump.heading);
+  const entryY = getRoadSurfaceElevation(
+    jump.x - fwdX * halfLen,
+    jump.z - fwdZ * halfLen,
+    map,
+  );
+  const exitY = getRoadSurfaceElevation(
+    jump.x + fwdX * halfLen,
+    jump.z + fwdZ * halfLen,
+    map,
+  );
+  const midY = (entryY + exitY) * 0.5;
+  const roadPitch = -Math.atan2(exitY - entryY, jump.length);
+
+  const rampGroup = new THREE.Group();
+  rampGroup.name = `stunt_ramp_${jump.id}`;
+  rampGroup.position.set(jump.x, midY, jump.z);
+  rampGroup.rotation.y = jump.heading;
+
+  const pitched = new THREE.Group();
+  pitched.rotation.x = roadPitch;
+  rampGroup.add(pitched);
+
+  // Extruded concrete & steel wedge flush at entry (-Z) rising cleanly to launch lip (+Z)
+  const wedgeShape = new THREE.Shape();
+  wedgeShape.moveTo(-halfLen, 0.02);
+  wedgeShape.lineTo(halfLen, rampHeight);
+  wedgeShape.lineTo(halfLen, -1.25);
+  wedgeShape.lineTo(-halfLen, -1.25);
+  wedgeShape.closePath();
+
+  const wedgeGeo = new THREE.ExtrudeGeometry(wedgeShape, {
+    depth: jump.width,
+    bevelEnabled: false,
+  });
+  wedgeGeo.translate(0, 0, -halfWidth);
+  wedgeGeo.rotateY(-Math.PI / 2);
+  const wedgeMesh = new THREE.Mesh(wedgeGeo, materials.concreteMat);
+  wedgeMesh.castShadow = true;
+  wedgeMesh.receiveShadow = true;
+  pitched.add(wedgeMesh);
+
+  // High-visibility yellow/black chevron sloped launch deck
+  const slopedLength = Math.hypot(jump.length, rampHeight);
+  const slopeAngle = -Math.atan2(rampHeight, jump.length);
+  const deck = new THREE.Mesh(
+    new THREE.BoxGeometry(jump.width - 0.16, 0.08, slopedLength),
+    materials.deckMat,
+  );
+  deck.position.set(0, rampHeight * 0.5 + 0.04, 0);
+  deck.rotation.x = slopeAngle;
+  deck.receiveShadow = true;
+  pitched.add(deck);
+
+  // Galvanized steel side guard rails + side cyan/gold LED beacon strips
+  const postGeo = new THREE.CylinderGeometry(0.055, 0.065, 0.92, 6);
+  const railGeo = new THREE.CylinderGeometry(0.045, 0.045, slopedLength + 0.1, 6);
+  railGeo.rotateX(Math.PI / 2);
+  const sideStripGeo = new THREE.BoxGeometry(0.08, 0.1, slopedLength - 0.2);
+
+  for (const side of [-1, 1] as const) {
+    const railX = side * (halfWidth + 0.14);
+    for (const frac of [0.1, 0.4, 0.7, 0.96] as const) {
+      const zPos = -halfLen + frac * jump.length;
+      const deckY = frac * rampHeight;
+      const post = new THREE.Mesh(postGeo, materials.railMat);
+      post.position.set(railX, deckY + 0.44, zPos);
+      post.castShadow = true;
+      pitched.add(post);
+    }
+
+    const topRail = new THREE.Mesh(railGeo, materials.railMat);
+    topRail.position.set(railX, rampHeight * 0.5 + 0.86, 0);
+    topRail.rotation.x = slopeAngle;
+    topRail.castShadow = true;
+    pitched.add(topRail);
+
+    const midRail = new THREE.Mesh(railGeo, materials.railMat);
+    midRail.position.set(railX, rampHeight * 0.5 + 0.46, 0);
+    midRail.rotation.x = slopeAngle;
+    pitched.add(midRail);
+
+    const sideLed = new THREE.Mesh(sideStripGeo, materials.sideEdgeMat);
+    sideLed.position.set(side * (halfWidth + 0.04), rampHeight * 0.5 + 0.1, 0);
+    sideLed.rotation.x = slopeAngle;
+    pitched.add(sideLed);
+  }
+
+  // Cyan/gold glowing lip beacon bar at launch apex
+  const lipStrip = new THREE.Mesh(
+    new THREE.BoxGeometry(jump.width + 0.12, 0.12, 0.18),
+    materials.lipBeaconMat,
+  );
+  lipStrip.position.set(0, rampHeight + 0.06, halfLen - 0.08);
+  pitched.add(lipStrip);
+
+  return rampGroup;
+}
+
+function buildStuntRampsGroup(map: CaliMapConfig): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'cali_stunt_ramps';
+
+  const jumps = map.stuntJumps ?? [];
+  if (jumps.length === 0) {
+    return group;
+  }
+
+  const chevronTex = createHazardChevronTexture();
+  const concreteMat = new THREE.MeshStandardMaterial({
+    color: 0x626770,
+    roughness: 0.86,
+    metalness: 0.16,
+  });
+  const deckMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: chevronTex,
+    roughness: 0.72,
+    metalness: 0.14,
+  });
+  const railMat = new THREE.MeshStandardMaterial({
+    color: 0xaab4c0,
+    roughness: 0.32,
+    metalness: 0.84,
+  });
+  const lipBeaconMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0x00f0ff,
+      emissive: 0x00e6ff,
+      emissiveIntensity: 0.9,
+      roughness: 0.2,
+    }),
+    { dayIntensity: 0.9, nightIntensity: 2.8 },
+  );
+  const sideEdgeMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffc83d,
+      emissive: 0xffb800,
+      emissiveIntensity: 0.7,
+      roughness: 0.24,
+    }),
+    { dayIntensity: 0.7, nightIntensity: 2.3 },
+  );
+
+  for (const jump of jumps) {
+    group.add(
+      buildSingleStuntRamp(jump, map, {
+        concreteMat,
+        deckMat,
+        railMat,
+        lipBeaconMat,
+        sideEdgeMat,
+      }),
+    );
+  }
+
+  return group;
+}
+
+function buildSinglePayNSprayBay(
+  zone: PayNSprayZone,
+  materials: {
+    readonly plinthMat: THREE.MeshStandardMaterial;
+    readonly padMat: THREE.MeshStandardMaterial;
+    readonly steelMat: THREE.MeshStandardMaterial;
+    readonly roofMat: THREE.MeshStandardMaterial;
+    readonly emeraldTrimMat: THREE.MeshStandardMaterial;
+    readonly signMat: THREE.MeshStandardMaterial;
+    readonly cabinetRedMat: THREE.MeshStandardMaterial;
+    readonly liftBlueMat: THREE.MeshStandardMaterial;
+    readonly chromeMat: THREE.MeshStandardMaterial;
+    readonly boothLightMat: THREE.MeshStandardMaterial;
+    readonly glowPoolMat: THREE.MeshBasicMaterial;
+  },
+): THREE.Group {
+  const bay = new THREE.Group();
+  bay.name = `pay_n_spray_${zone.id}`;
+  const groundY = getTerrainElevation(zone.x, zone.z);
+  bay.position.set(zone.x, groundY, zone.z);
+  bay.rotation.y = zone.heading;
+
+  // Grounded concrete foundation skirt + checkered drive-through bay floor pad
+  const plinth = new THREE.Mesh(
+    new THREE.BoxGeometry(10.8, 1.6, 11.4),
+    materials.plinthMat,
+  );
+  plinth.position.y = -0.74;
+  plinth.receiveShadow = true;
+  bay.add(plinth);
+
+  const floorPad = new THREE.Mesh(
+    new THREE.BoxGeometry(9.4, 0.08, 10.6),
+    materials.padMat,
+  );
+  floorPad.position.y = 0.09;
+  floorPad.receiveShadow = true;
+  bay.add(floorPad);
+
+  const glowPool = new THREE.Mesh(
+    new THREE.PlaneGeometry(8.6, 9.4),
+    materials.glowPoolMat,
+  );
+  glowPool.rotation.x = -Math.PI / 2;
+  glowPool.position.y = 0.145;
+  bay.add(glowPool);
+
+  // Open 4-corner industrial steel portal frame (completely clear front +Z, back -Z, and side bays!)
+  const columnGeo = new THREE.BoxGeometry(0.42, 4.85, 0.42);
+  const bumperGeo = new THREE.BoxGeometry(0.66, 0.48, 0.66);
+  const beamGeo = new THREE.BoxGeometry(9.8, 0.36, 0.38);
+  const sideGirderGeo = new THREE.BoxGeometry(0.32, 0.34, 9.4);
+
+  for (const pz of [-4.6, 4.6] as const) {
+    for (const side of [-1, 1] as const) {
+      const col = new THREE.Mesh(columnGeo, materials.steelMat);
+      col.position.set(side * 4.65, 2.48, pz);
+      col.castShadow = true;
+      col.receiveShadow = true;
+      bay.add(col);
+
+      const bumper = new THREE.Mesh(bumperGeo, materials.plinthMat);
+      bumper.position.set(side * 4.65, 0.28, pz);
+      bay.add(bumper);
+    }
+
+    const truss = new THREE.Mesh(beamGeo, materials.steelMat);
+    truss.position.set(0, 4.78, pz);
+    truss.castShadow = true;
+    bay.add(truss);
+  }
+
+  for (const side of [-1, 1] as const) {
+    const girder = new THREE.Mesh(sideGirderGeo, materials.steelMat);
+    girder.position.set(side * 4.65, 4.78, 0);
+    girder.castShadow = true;
+    bay.add(girder);
+  }
+
+  // Corrugated steel canopy roof + glowing emerald perimeter fascia
+  const roof = new THREE.Mesh(
+    new THREE.BoxGeometry(10.6, 0.28, 11.2),
+    materials.roofMat,
+  );
+  roof.position.y = 5.06;
+  roof.castShadow = true;
+  roof.receiveShadow = true;
+  bay.add(roof);
+
+  for (const side of [-1, 1] as const) {
+    const sideFascia = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.26, 11.25),
+      materials.emeraldTrimMat,
+    );
+    sideFascia.position.set(side * 5.26, 4.96, 0);
+    bay.add(sideFascia);
+  }
+
+  // Glowing emerald header sign boards mounted on both front (+Z) and back (-Z) portals
+  const signBackGeo = new THREE.BoxGeometry(7.6, 1.32, 0.26);
+  const signFaceGeo = new THREE.PlaneGeometry(7.35, 1.15);
+  const neonTubeGeo = new THREE.BoxGeometry(7.7, 0.1, 0.14);
+
+  for (const endSign of [-1, 1] as const) {
+    const signZ = endSign * 5.22;
+    const signBack = new THREE.Mesh(signBackGeo, materials.steelMat);
+    signBack.position.set(0, 5.58, signZ);
+    signBack.castShadow = true;
+    bay.add(signBack);
+
+    const signFace = new THREE.Mesh(signFaceGeo, materials.signMat);
+    signFace.name = endSign > 0 ? 'latoneria_sign_front' : 'latoneria_sign_back';
+    signFace.position.set(0, 5.58, signZ + endSign * 0.14);
+    if (endSign < 0) {
+      signFace.rotation.y = Math.PI;
+    }
+    bay.add(signFace);
+
+    const neonBar = new THREE.Mesh(neonTubeGeo, materials.emeraldTrimMat);
+    neonBar.position.set(0, 4.86, signZ + endSign * 0.08);
+    bay.add(neonBar);
+  }
+
+  // Interior red tool cabinets & hydraulic steel 2-post lift columns tucked along side bays
+  const cabinetGeo = new THREE.BoxGeometry(0.68, 1.18, 1.55);
+  const cabinetTopGeo = new THREE.BoxGeometry(0.72, 0.07, 1.6);
+  const liftPostGeo = new THREE.BoxGeometry(0.28, 3.45, 0.34);
+  const liftArmGeo = new THREE.BoxGeometry(0.14, 0.12, 1.15);
+
+  for (const side of [-1, 1] as const) {
+    const cab = new THREE.Mesh(cabinetGeo, materials.cabinetRedMat);
+    cab.position.set(side * 4.12, 0.72, -2.25);
+    cab.castShadow = true;
+    bay.add(cab);
+
+    const cabTop = new THREE.Mesh(cabinetTopGeo, materials.chromeMat);
+    cabTop.position.set(side * 4.12, 1.34, -2.25);
+    bay.add(cabTop);
+
+    const liftPost = new THREE.Mesh(liftPostGeo, materials.liftBlueMat);
+    liftPost.position.set(side * 4.18, 1.84, 1.75);
+    liftPost.castShadow = true;
+    bay.add(liftPost);
+
+    const liftArm = new THREE.Mesh(liftArmGeo, materials.steelMat);
+    liftArm.position.set(side * 3.98, 0.32, 1.75);
+    bay.add(liftArm);
+  }
+
+  // Overhead spray-booth light bars
+  const lightBarGeo = new THREE.BoxGeometry(0.26, 0.12, 7.8);
+  for (const lx of [-2.4, 2.4] as const) {
+    const bar = new THREE.Mesh(lightBarGeo, materials.boothLightMat);
+    bar.position.set(lx, 4.62, 0);
+    bay.add(bar);
+  }
+
+  return bay;
+}
+
+function buildPayNSprayGroup(map: CaliMapConfig): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'cali_pay_n_spray';
+
+  const zones = map.payNSprayZones ?? [];
+  if (zones.length === 0) {
+    return group;
+  }
+
+  const signTex = createPayNSpraySignTexture();
+  const padTex = createCheckeredPadTexture();
+  const glowTex = createSoftGlowPoolTexture(
+    'rgba(20, 245, 159, 0.52)',
+    'rgba(12, 196, 124, 0.18)',
+  );
+
+  const plinthMat = new THREE.MeshStandardMaterial({
+    color: 0x6f737a,
+    roughness: 0.9,
+    metalness: 0.05,
+  });
+  const padMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: padTex,
+    roughness: 0.76,
+    metalness: 0.08,
+  });
+  const steelMat = new THREE.MeshStandardMaterial({
+    color: 0x26313d,
+    roughness: 0.38,
+    metalness: 0.78,
+  });
+  const roofMat = new THREE.MeshStandardMaterial({
+    color: 0x5c6670,
+    roughness: 0.56,
+    metalness: 0.62,
+  });
+  const emeraldTrimMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0x10e898,
+      emissive: 0x00e68a,
+      emissiveIntensity: 1.0,
+      roughness: 0.22,
+    }),
+    { dayIntensity: 1.0, nightIntensity: 2.9 },
+  );
+  const signMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: signTex,
+      emissive: 0x18f5a4,
+      emissiveMap: signTex,
+      emissiveIntensity: 1.1,
+      roughness: 0.22,
+    }),
+    { dayIntensity: 1.1, nightIntensity: 2.85 },
+  );
+  const cabinetRedMat = new THREE.MeshStandardMaterial({
+    color: 0xc81e2b,
+    roughness: 0.34,
+    metalness: 0.42,
+  });
+  const liftBlueMat = new THREE.MeshStandardMaterial({
+    color: 0x1e5c8a,
+    roughness: 0.36,
+    metalness: 0.64,
+  });
+  const chromeMat = new THREE.MeshStandardMaterial({
+    color: 0xd0d8e0,
+    roughness: 0.22,
+    metalness: 0.88,
+  });
+  const boothLightMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xf4fffb,
+      emissive: 0xb8ffe6,
+      emissiveIntensity: 0.75,
+      roughness: 0.2,
+    }),
+    { dayIntensity: 0.75, nightIntensity: 2.5 },
+  );
+  const glowPoolMat = tagNightOpacity(
+    new THREE.MeshBasicMaterial({
+      map: glowTex,
+      transparent: true,
+      opacity: 0.14,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    }),
+    0.14,
+    0.44,
+  );
+
+  for (const zone of zones) {
+    group.add(
+      buildSinglePayNSprayBay(zone, {
+        plinthMat,
+        padMat,
+        steelMat,
+        roofMat,
+        emeraldTrimMat,
+        signMat,
+        cabinetRedMat,
+        liftBlueMat,
+        chromeMat,
+        boothLightMat,
+        glowPoolMat,
+      }),
+    );
+  }
+
+  return group;
+}
+
+function buildCholadoStandsGroup(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'cali_cholado_stands';
+
+  const umbrellaTex = createCholadoUmbrellaTexture();
+  const signTex = createCholadoCartSignTexture();
+
+  const woodCartMat = new THREE.MeshStandardMaterial({
+    color: 0x9c5a2d,
+    roughness: 0.72,
+    metalness: 0.05,
+  });
+  const steelMat = new THREE.MeshStandardMaterial({
+    color: 0xc6ced6,
+    roughness: 0.28,
+    metalness: 0.86,
+  });
+  const wheelMat = new THREE.MeshStandardMaterial({
+    color: 0x1e2228,
+    roughness: 0.82,
+    metalness: 0.12,
+  });
+  const glassCaseMat = new THREE.MeshStandardMaterial({
+    color: 0xd9f4ff,
+    roughness: 0.08,
+    metalness: 0.15,
+    transparent: true,
+    opacity: 0.46,
+  });
+  const umbrellaMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: umbrellaTex,
+    roughness: 0.78,
+    side: THREE.DoubleSide,
+  });
+  const cartSignMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: signTex,
+    roughness: 0.5,
+  });
+  const iceMat = new THREE.MeshStandardMaterial({
+    color: 0xf4fbff,
+    roughness: 0.26,
+    metalness: 0.04,
+  });
+  const syrupMats: readonly THREE.MeshStandardMaterial[] = [
+    new THREE.MeshStandardMaterial({ color: 0x65d936, roughness: 0.22 }), // Lulo
+    new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.22 }), // Maracuyá
+    new THREE.MeshStandardMaterial({ color: 0xe63946, roughness: 0.22 }), // Fresa
+    new THREE.MeshStandardMaterial({ color: 0xf8f5eb, roughness: 0.28 }), // Guanábana
+  ];
+  const stringBulbMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffe49e,
+      emissive: 0xffb845,
+      emissiveIntensity: 0.45,
+      roughness: 0.2,
+    }),
+    { dayIntensity: 0.45, nightIntensity: 2.75 },
+  );
+
+  const cartBodyGeo = new THREE.BoxGeometry(1.85, 0.86, 0.96);
+  const worktopGeo = new THREE.BoxGeometry(1.94, 0.08, 1.04);
+  const wheelGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.08, 10);
+  wheelGeo.rotateZ(Math.PI / 2);
+  const signPlaneGeo = new THREE.PlaneGeometry(1.68, 0.62);
+  const glassCaseGeo = new THREE.BoxGeometry(1.26, 0.48, 0.54);
+  const jarGeo = new THREE.CylinderGeometry(0.085, 0.09, 0.28, 8);
+  const iceMoundGeo = new THREE.SphereGeometry(0.2, 8, 6);
+  const poleGeo = new THREE.CylinderGeometry(0.045, 0.055, 2.8, 8);
+  const canopyGeo = new THREE.ConeGeometry(1.78, 0.62, 8, 1, true);
+  const bulbGeo = new THREE.SphereGeometry(0.065, 6, 5);
+
+  for (const spec of CHOLADO_STAND_SPECS) {
+    const stand = new THREE.Group();
+    stand.name = `cholado_stand_${spec.id}`;
+    const groundY = getTerrainElevation(spec.x, spec.z) + 0.22;
+    stand.position.set(spec.x, groundY, spec.z);
+    stand.rotation.y = spec.yaw;
+
+    const body = new THREE.Mesh(cartBodyGeo, woodCartMat);
+    body.position.set(0, 0.64, 0);
+    body.castShadow = true;
+    body.receiveShadow = true;
+    stand.add(body);
+
+    const top = new THREE.Mesh(worktopGeo, steelMat);
+    top.position.set(0, 1.1, 0);
+    top.castShadow = true;
+    stand.add(top);
+
+    const frontSign = new THREE.Mesh(signPlaneGeo, cartSignMat);
+    frontSign.position.set(0, 0.64, 0.49);
+    stand.add(frontSign);
+
+    for (const side of [-1, 1] as const) {
+      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+      wheel.position.set(side * 0.96, 0.24, 0);
+      wheel.castShadow = true;
+      stand.add(wheel);
+    }
+
+    const displayCase = new THREE.Mesh(glassCaseGeo, glassCaseMat);
+    displayCase.position.set(-0.18, 1.38, 0.1);
+    stand.add(displayCase);
+
+    const iceMound = new THREE.Mesh(iceMoundGeo, iceMat);
+    iceMound.position.set(0.62, 1.24, 0.04);
+    stand.add(iceMound);
+
+    syrupMats.forEach((jarMat, idx) => {
+      const jar = new THREE.Mesh(jarGeo, jarMat);
+      jar.position.set(-0.62 + idx * 0.28, 1.28, 0.08);
+      stand.add(jar);
+    });
+
+    const pole = new THREE.Mesh(poleGeo, steelMat);
+    pole.position.set(0, 1.55, -0.18);
+    pole.castShadow = true;
+    stand.add(pole);
+
+    const canopy = new THREE.Mesh(canopyGeo, umbrellaMat);
+    canopy.position.set(0, 2.86, -0.18);
+    canopy.castShadow = true;
+    stand.add(canopy);
+
+    for (let b = 0; b < 6; b += 1) {
+      const angle = (b / 6) * Math.PI * 2;
+      const bulb = new THREE.Mesh(bulbGeo, stringBulbMat);
+      bulb.position.set(
+        Math.cos(angle) * 1.56,
+        2.5,
+        -0.18 + Math.sin(angle) * 1.56,
+      );
+      stand.add(bulb);
+    }
+
+    group.add(stand);
+  }
+
+  return group;
+}
+
+function createTrafficLightLensMaterials(): TrafficLightLensMaterials {
+  return {
+    red: new THREE.MeshStandardMaterial({
+      color: 0x3b1218,
+      emissive: 0xff1e33,
+      emissiveIntensity: 0.12,
+      roughness: 0.18,
+    }),
+    amber: new THREE.MeshStandardMaterial({
+      color: 0x3d2e10,
+      emissive: 0xffae00,
+      emissiveIntensity: 0.12,
+      roughness: 0.18,
+    }),
+    green: new THREE.MeshStandardMaterial({
+      color: 0x0f3825,
+      emissive: 0x00ff88,
+      emissiveIntensity: 0.12,
+      roughness: 0.18,
+    }),
+  };
+}
+
+function buildWorkingTrafficLightsGroup(): CaliTrafficLightsController {
+  const group = new THREE.Group();
+  group.name = 'cali_traffic_lights';
+
+  const ns = createTrafficLightLensMaterials();
+  const ew = createTrafficLightLensMaterials();
+
+  const galvanizedSteelMat = new THREE.MeshStandardMaterial({
+    color: 0x7d8896,
+    roughness: 0.34,
+    metalness: 0.82,
+  });
+  const darkHousingMat = new THREE.MeshStandardMaterial({
+    color: 0x151820,
+    roughness: 0.5,
+    metalness: 0.45,
+  });
+
+  const baseGeo = new THREE.CylinderGeometry(0.28, 0.34, 0.32, 8);
+  const poleGeo = new THREE.CylinderGeometry(0.13, 0.19, 6.2, 8);
+  const armGeo = new THREE.CylinderGeometry(0.085, 0.115, 4.8, 8);
+  armGeo.rotateZ(Math.PI / 2);
+
+  for (const inter of WORKING_TRAFFIC_INTERSECTIONS) {
+    const interGroup = new THREE.Group();
+    interGroup.name = `traffic_light_${inter.id}`;
+
+    inter.poles.forEach((poleSpec, pIdx) => {
+      const groundY = getTerrainElevation(poleSpec.x, poleSpec.z);
+      const poleNode = new THREE.Group();
+      poleNode.name = `traffic_light_${inter.id}_pole_${pIdx}`;
+      poleNode.position.set(poleSpec.x, groundY, poleSpec.z);
+      poleNode.rotation.y = poleSpec.armYaw;
+
+      const base = new THREE.Mesh(baseGeo, galvanizedSteelMat);
+      base.position.y = 0.16;
+      poleNode.add(base);
+
+      const mast = new THREE.Mesh(poleGeo, galvanizedSteelMat);
+      mast.position.y = 3.1;
+      mast.castShadow = true;
+      poleNode.add(mast);
+
+      const boom = new THREE.Mesh(armGeo, galvanizedSteelMat);
+      boom.position.set(2.35, 5.95, 0);
+      boom.castShadow = true;
+      poleNode.add(boom);
+
+      const nsHead = createTrafficHeadMesh(
+        darkHousingMat,
+        ns.red,
+        ns.amber,
+        ns.green,
+      );
+      nsHead.name = `traffic_head_ns_${inter.id}_${pIdx}`;
+      nsHead.position.set(3.9, 5.45, 0);
+      nsHead.userData.trafficLightAxis = 'ns';
+      poleNode.add(nsHead);
+
+      const ewHead = createTrafficHeadMesh(
+        darkHousingMat,
+        ew.red,
+        ew.amber,
+        ew.green,
+      );
+      ewHead.name = `traffic_head_ew_${inter.id}_${pIdx}`;
+      ewHead.position.set(1.65, 5.45, 0);
+      ewHead.rotation.y = Math.PI / 2;
+      ewHead.userData.trafficLightAxis = 'ew';
+      poleNode.add(ewHead);
+
+      interGroup.add(poleNode);
+    });
+
+    group.add(interGroup);
+  }
+
+  return { group, ns, ew };
+}
+
+function applyAxisLensState(
+  lenses: TrafficLightLensMaterials,
+  activeLens: 'red' | 'amber' | 'green',
+): void {
+  const redLit = activeLens === 'red';
+  const amberLit = activeLens === 'amber';
+  const greenLit = activeLens === 'green';
+
+  lenses.red.color.setHex(redLit ? 0xff2b3d : 0x3b1218);
+  lenses.red.emissiveIntensity = redLit ? 3.0 : 0.12;
+
+  lenses.amber.color.setHex(amberLit ? 0xffbe2e : 0x3d2e10);
+  lenses.amber.emissiveIntensity = amberLit ? 2.8 : 0.12;
+
+  lenses.green.color.setHex(greenLit ? 0x22ff99 : 0x0f3825);
+  lenses.green.emissiveIntensity = greenLit ? 3.0 : 0.12;
+}
+
+/**
+ * Updates all working 3-lens Cali traffic lights to the active TrafficLightPhase
+ * using pure in-place material property writes (zero heap allocations per frame).
+ */
+export function updateTrafficLightPhase(
+  world: CaliWorldBuildResult,
+  phase: TrafficLightPhase,
+): void {
+  const controller = world.trafficLights;
+  if (!controller) {
+    return;
+  }
+
+  switch (phase) {
+    case 'ns_green':
+      applyAxisLensState(controller.ns, 'green');
+      applyAxisLensState(controller.ew, 'red');
+      break;
+    case 'ns_yellow':
+      applyAxisLensState(controller.ns, 'amber');
+      applyAxisLensState(controller.ew, 'red');
+      break;
+    case 'ew_green':
+      applyAxisLensState(controller.ns, 'red');
+      applyAxisLensState(controller.ew, 'green');
+      break;
+    case 'ew_yellow':
+      applyAxisLensState(controller.ns, 'red');
+      applyAxisLensState(controller.ew, 'amber');
+      break;
+  }
+}
+
+function buildCaliMuralsGroup(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'cali_murals';
+
+  const frameSteelMat = new THREE.MeshStandardMaterial({
+    color: 0x20252f,
+    roughness: 0.42,
+    metalness: 0.78,
+  });
+  const plinthMat = new THREE.MeshStandardMaterial({
+    color: 0x847d74,
+    roughness: 0.88,
+    metalness: 0.04,
+  });
+  const uplightMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffe4a8,
+      emissive: 0xffb84d,
+      emissiveIntensity: 0.35,
+      roughness: 0.22,
+    }),
+    { dayIntensity: 0.35, nightIntensity: 2.35 },
+  );
+
+  const postGeo = new THREE.BoxGeometry(0.24, 3.6, 0.24);
+  const plinthGeo = new THREE.BoxGeometry(0.65, 1.1, 0.65);
+  const boardFrameGeo = new THREE.BoxGeometry(6.4, 3.1, 0.28);
+  const artFaceGeo = new THREE.PlaneGeometry(6.05, 2.8);
+  const lightBarGeo = new THREE.BoxGeometry(5.6, 0.1, 0.14);
+
+  for (const spec of CALI_MURAL_SPECS) {
+    const mural = new THREE.Group();
+    mural.name = `mural_${spec.id}`;
+    const groundY = getTerrainElevation(spec.x, spec.z);
+    mural.position.set(spec.x, groundY, spec.z);
+    mural.rotation.y = spec.yaw;
+
+    for (const side of [-1, 1] as const) {
+      const plinth = new THREE.Mesh(plinthGeo, plinthMat);
+      plinth.position.set(side * 2.55, -0.15, 0);
+      mural.add(plinth);
+
+      const post = new THREE.Mesh(postGeo, frameSteelMat);
+      post.position.set(side * 2.55, 1.8, 0);
+      post.castShadow = true;
+      mural.add(post);
+    }
+
+    const frame = new THREE.Mesh(boardFrameGeo, frameSteelMat);
+    frame.position.set(0, 3.15, 0);
+    frame.castShadow = true;
+    frame.receiveShadow = true;
+    mural.add(frame);
+
+    const artTex = createCaliMuralTexture(spec);
+    const artMat = tagNightEmissive(
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: artTex,
+        emissive: 0xffffff,
+        emissiveMap: artTex,
+        emissiveIntensity: 0.22,
+        roughness: 0.42,
+      }),
+      { dayIntensity: 0.22, nightIntensity: 0.95 },
+    );
+
+    const frontFace = new THREE.Mesh(artFaceGeo, artMat);
+    frontFace.position.set(0, 3.15, 0.15);
+    mural.add(frontFace);
+
+    const backFace = new THREE.Mesh(artFaceGeo, artMat);
+    backFace.position.set(0, 3.15, -0.15);
+    backFace.rotation.y = Math.PI;
+    mural.add(backFace);
+
+    const bottomBar = new THREE.Mesh(lightBarGeo, uplightMat);
+    bottomBar.position.set(0, 1.56, 0.24);
+    mural.add(bottomBar);
+
+    const topBar = new THREE.Mesh(lightBarGeo, uplightMat);
+    topBar.position.set(0, 4.74, 0.24);
+    mural.add(topBar);
+
+    group.add(mural);
+  }
+
+  return group;
+}
+
+function buildSingleRoadblock(
+  zone: RoadblockZone,
+  map: CaliMapConfig,
+  materials: {
+    readonly plankMat: THREE.MeshStandardMaterial;
+    readonly frameMat: THREE.MeshStandardMaterial;
+    readonly coneOrangeMat: THREE.MeshStandardMaterial;
+    readonly coneWhiteMat: THREE.MeshStandardMaterial;
+    readonly coneBaseMat: THREE.MeshStandardMaterial;
+    readonly redBeaconMat: THREE.MeshStandardMaterial;
+    readonly blueBeaconMat: THREE.MeshStandardMaterial;
+  },
+): THREE.Group {
+  const rb = new THREE.Group();
+  rb.name = `roadblock_${zone.id}`;
+  const surfaceY = getRoadSurfaceElevation(zone.x, zone.z, map);
+  rb.position.set(zone.x, surfaceY, zone.z);
+  rb.rotation.y = zone.heading;
+
+  const span = Math.max(3.6, zone.halfWidth * 0.58);
+  const plankGeo = new THREE.BoxGeometry(2.6, 0.54, 0.14);
+  const legGeo = new THREE.BoxGeometry(0.12, 1.08, 0.12);
+  const coneBaseGeo = new THREE.BoxGeometry(0.46, 0.08, 0.46);
+  const coneBodyGeo = new THREE.ConeGeometry(0.18, 0.72, 8);
+  const coneCollarGeo = new THREE.CylinderGeometry(0.1, 0.135, 0.16, 8);
+  const beaconBaseGeo = new THREE.CylinderGeometry(0.11, 0.13, 0.14, 8);
+  const beaconDomeGeo = new THREE.SphereGeometry(0.12, 8, 6);
+
+  // Three staggered "POLICÍA · PARE" sawhorse barricades across the bridge lane
+  const barricadeOffsets: readonly { readonly x: number; readonly z: number; readonly yaw: number }[] = [
+    { x: -span, z: -0.55, yaw: 0.12 },
+    { x: 0, z: 0.45, yaw: -0.06 },
+    { x: span, z: -0.55, yaw: -0.14 },
+  ];
+
+  barricadeOffsets.forEach((bSpec, bIdx) => {
+    const horse = new THREE.Group();
+    horse.position.set(bSpec.x, 0, bSpec.z);
+    horse.rotation.y = bSpec.yaw;
+
+    const plank = new THREE.Mesh(plankGeo, materials.plankMat);
+    plank.position.y = 0.82;
+    plank.castShadow = true;
+    horse.add(plank);
+
+    for (const lx of [-1.05, 1.05] as const) {
+      for (const tilt of [-0.22, 0.22] as const) {
+        const leg = new THREE.Mesh(legGeo, materials.frameMat);
+        leg.position.set(lx, 0.5, tilt * 0.55);
+        leg.rotation.x = tilt;
+        leg.castShadow = true;
+        horse.add(leg);
+      }
+    }
+
+    // Portable red & blue flashing beacons mounted on the barricades
+    const beaconMat = bIdx % 2 === 0 ? materials.redBeaconMat : materials.blueBeaconMat;
+    const beaconBase = new THREE.Mesh(beaconBaseGeo, materials.frameMat);
+    beaconBase.position.set(0, 1.16, 0);
+    horse.add(beaconBase);
+
+    const beaconDome = new THREE.Mesh(beaconDomeGeo, beaconMat);
+    beaconDome.position.set(0, 1.28, 0);
+    horse.add(beaconDome);
+
+    if (bIdx === 1) {
+      const twinBeacon = new THREE.Mesh(beaconDomeGeo, materials.redBeaconMat);
+      twinBeacon.position.set(0.95, 1.22, 0);
+      horse.add(twinBeacon);
+    }
+
+    rb.add(horse);
+  });
+
+  // Six reflective orange-and-white traffic cones flanking and staging the retén approach
+  const conePositions: readonly [number, number][] = [
+    [-span - 1.35, -1.65],
+    [-span * 0.45, 1.8],
+    [span * 0.45, -1.85],
+    [span + 1.35, -1.65],
+    [-span * 0.85, 1.9],
+    [span * 0.85, 1.9],
+  ];
+
+  for (const [cx, cz] of conePositions) {
+    const cone = new THREE.Group();
+    cone.position.set(cx, 0, cz);
+
+    const base = new THREE.Mesh(coneBaseGeo, materials.coneBaseMat);
+    base.position.y = 0.04;
+    cone.add(base);
+
+    const body = new THREE.Mesh(coneBodyGeo, materials.coneOrangeMat);
+    body.position.y = 0.42;
+    body.castShadow = true;
+    cone.add(body);
+
+    const collar = new THREE.Mesh(coneCollarGeo, materials.coneWhiteMat);
+    collar.position.y = 0.46;
+    cone.add(collar);
+
+    rb.add(cone);
+  }
+
+  return rb;
+}
+
+function buildRoadblocksGroup(map: CaliMapConfig): {
+  readonly roadblockGroup: THREE.Group;
+  readonly roadblockRedMat: THREE.MeshStandardMaterial;
+  readonly roadblockBlueMat: THREE.MeshStandardMaterial;
+} {
+  const roadblockGroup = new THREE.Group();
+  roadblockGroup.name = 'cali_roadblocks';
+  roadblockGroup.visible = false;
+
+  const barricadeTex = createPoliceBarricadeTexture();
+  const plankMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: barricadeTex,
+    roughness: 0.48,
+    metalness: 0.16,
+  });
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: 0x202630,
+    roughness: 0.44,
+    metalness: 0.72,
+  });
+  const coneOrangeMat = new THREE.MeshStandardMaterial({
+    color: 0xff5a1f,
+    emissive: 0xff4500,
+    emissiveIntensity: 0.25,
+    roughness: 0.42,
+  });
+  const coneWhiteMat = new THREE.MeshStandardMaterial({
+    color: 0xf8fafc,
+    emissive: 0xe2e8f0,
+    emissiveIntensity: 0.38,
+    roughness: 0.26,
+  });
+  const coneBaseMat = new THREE.MeshStandardMaterial({
+    color: 0x16181e,
+    roughness: 0.88,
+  });
+  const roadblockRedMat = new THREE.MeshStandardMaterial({
+    color: 0xff2438,
+    emissive: 0xff1128,
+    emissiveIntensity: 0.2,
+    roughness: 0.18,
+  });
+  const roadblockBlueMat = new THREE.MeshStandardMaterial({
+    color: 0x1c7cff,
+    emissive: 0x0d66ff,
+    emissiveIntensity: 0.2,
+    roughness: 0.18,
+  });
+
+  for (const zone of map.roadblockZones ?? []) {
+    roadblockGroup.add(
+      buildSingleRoadblock(zone, map, {
+        plankMat,
+        frameMat,
+        coneOrangeMat,
+        coneWhiteMat,
+        coneBaseMat,
+        redBeaconMat: roadblockRedMat,
+        blueBeaconMat: roadblockBlueMat,
+      }),
+    );
+  }
+
+  return { roadblockGroup, roadblockRedMat, roadblockBlueMat };
+}
+
+/**
+ * Toggles the 3-star Policía Nacional retén roadblocks and alternates red/blue portable beacons
+ * with zero per-frame heap allocations.
+ */
+export function setRoadblockVisible(
+  world: CaliWorldBuildResult,
+  active: boolean,
+  timeSeconds = 0,
+): void {
+  const group = world.roadblockGroup ?? world.group.getObjectByName('cali_roadblocks');
+  if (group) {
+    group.visible = active;
+  }
+
+  const redMat = world.roadblockRedMat;
+  const blueMat = world.roadblockBlueMat;
+  if (!redMat || !blueMat) {
+    return;
+  }
+
+  if (!active) {
+    redMat.emissiveIntensity = 0.2;
+    blueMat.emissiveIntensity = 0.2;
+    return;
+  }
+
+  const safeTime = Number.isFinite(timeSeconds) ? timeSeconds : 0;
+  const flashA = Math.floor(safeTime * 6) % 2 === 0;
+  redMat.emissiveIntensity = flashA ? 3.4 : 0.25;
+  blueMat.emissiveIntensity = flashA ? 0.25 : 3.4;
+}
+
 /**
  * Builds the complete procedural 3D Santiago de Cali world graph from a CaliMapConfig.
- * Returns the root world group and a direct reference to the animated GLSL Río Cali water mesh.
+ * Returns the root world group and direct references to Río Cali water, traffic lights, and roadblocks.
  */
 export function buildCaliWorld(map: CaliMapConfig): CaliWorldBuildResult {
   const worldGroup = new THREE.Group();
   worldGroup.name = 'cali_world';
 
   const sidewalkTextures = createSidewalkTextures();
+  const trafficLights = buildWorkingTrafficLightsGroup();
 
   worldGroup.add(buildTerrainMesh(map));
 
@@ -5306,9 +6807,19 @@ export function buildCaliWorld(map: CaliMapConfig): CaliWorldBuildResult {
   worldGroup.add(buildCrosswalksGroup(map));
   worldGroup.add(buildRoadPuddlesGroup(map));
   worldGroup.add(buildSidewalksGroup(map, sidewalkTextures));
-  worldGroup.add(buildTrafficSignalsGroup());
+  worldGroup.add(buildTrafficSignalsGroup(trafficLights.ns));
+  worldGroup.add(trafficLights.group);
   worldGroup.add(buildStreetlightsGroup());
   worldGroup.add(buildStreetPropsGroup());
+  worldGroup.add(buildStuntRampsGroup(map));
+  worldGroup.add(buildPayNSprayGroup(map));
+  worldGroup.add(buildCholadoStandsGroup());
+  worldGroup.add(buildCaliMuralsGroup());
+
+  const { roadblockGroup, roadblockRedMat, roadblockBlueMat } =
+    buildRoadblocksGroup(map);
+  worldGroup.add(roadblockGroup);
+
   worldGroup.add(buildBuildingsGroup(map));
   worldGroup.add(buildNeonSignsGroup(map));
 
@@ -5318,5 +6829,14 @@ export function buildCaliWorld(map: CaliMapConfig): CaliWorldBuildResult {
 
   worldGroup.add(buildPalmTreesGroup());
 
-  return { group: worldGroup, waterMesh };
+  const result: CaliWorldBuildResult = {
+    group: worldGroup,
+    waterMesh,
+    trafficLights,
+    roadblockGroup,
+    roadblockRedMat,
+    roadblockBlueMat,
+  };
+  updateTrafficLightPhase(result, 'ns_green');
+  return result;
 }

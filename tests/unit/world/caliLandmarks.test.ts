@@ -9,7 +9,9 @@ import type {
 import {
   applyPhotographicAssets,
   buildCaliWorld,
+  setRoadblockVisible,
   setWorldNightLighting,
+  updateTrafficLightPhase,
 } from '../../../src/world/caliLandmarks';
 import type {
   LoadedCharacterAsset,
@@ -1546,6 +1548,288 @@ describe('C-07 Track E2B: 3D architectural relief, authentic Cali street props, 
     expect(collectMaxEmissive(propsGroup)).toBeCloseTo(dayPropsGlow, 3);
     expect(collectMaxEmissive(torre)).toBeCloseTo(dayTorreGlow, 3);
     expect(cristoLight?.intensity).toBeCloseTo(dayCristoLightIntensity, 3);
+
+    disposeObjectTree(group);
+  });
+});
+
+describe('C-08 Track F3: Living Cali City (stunt ramps, Latonería bays, cholado stands, working semáforos, murals, dynamic retén)', () => {
+  it('builds 3 sloped stunt ramps at every StuntJumpDef with hazard decks, guard rails, and night-boosted lip beacons', () => {
+    const built = buildCaliWorld(CALI_MAP);
+    const { group, waterMesh } = built;
+
+    const rampsGroup = group.getObjectByName('cali_stunt_ramps');
+    expect(rampsGroup).toBeInstanceOf(THREE.Group);
+
+    const expectedJumps = CALI_MAP.stuntJumps ?? [];
+    expect(expectedJumps.length).toBe(3);
+    expect(rampsGroup?.children.length).toBe(expectedJumps.length);
+
+    for (const jump of expectedJumps) {
+      const ramp = group.getObjectByName(`stunt_ramp_${jump.id}`);
+      expect(ramp, `missing stunt_ramp_${jump.id}`).toBeInstanceOf(THREE.Group);
+      expect(ramp?.position.x).toBeCloseTo(jump.x, 2);
+      expect(ramp?.position.z).toBeCloseTo(jump.z, 2);
+      expect(ramp?.rotation.y).toBeCloseTo(jump.heading, 4);
+      expect(countGeometryVertices(ramp as THREE.Object3D)).toBeGreaterThan(24);
+    }
+
+    const collectMaxEmissive = (root: THREE.Object3D | undefined): number => {
+      let maxVal = 0;
+      root?.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          const mats = Array.isArray(node.material) ? node.material : [node.material];
+          for (const mat of mats) {
+            if (mat instanceof THREE.MeshStandardMaterial) {
+              maxVal = Math.max(maxVal, mat.emissiveIntensity);
+            }
+          }
+        }
+      });
+      return maxVal;
+    };
+
+    setWorldNightLighting(group, waterMesh, 'golden_hour');
+    const dayGlow = collectMaxEmissive(rampsGroup);
+    setWorldNightLighting(group, waterMesh, 'night');
+    const nightGlow = collectMaxEmissive(rampsGroup);
+    expect(nightGlow).toBeGreaterThan(dayGlow);
+
+    disposeObjectTree(group);
+  });
+
+  it('builds 2 open drive-through Latonería y Pintura bays at every PayNSprayZone with glowing emerald signage', () => {
+    const { group, waterMesh } = buildCaliWorld(CALI_MAP);
+
+    const sprayGroup = group.getObjectByName('cali_pay_n_spray');
+    expect(sprayGroup).toBeInstanceOf(THREE.Group);
+
+    const expectedZones = CALI_MAP.payNSprayZones ?? [];
+    expect(expectedZones.length).toBe(2);
+    expect(sprayGroup?.children.length).toBe(expectedZones.length);
+
+    for (const zone of expectedZones) {
+      const bay = group.getObjectByName(`pay_n_spray_${zone.id}`);
+      expect(bay, `missing pay_n_spray_${zone.id}`).toBeInstanceOf(THREE.Group);
+      expect(bay?.position.x).toBeCloseTo(zone.x, 2);
+      expect(bay?.position.z).toBeCloseTo(zone.z, 2);
+      expect(bay?.rotation.y).toBeCloseTo(zone.heading, 4);
+      expect(countGeometryVertices(bay as THREE.Object3D)).toBeGreaterThan(80);
+    }
+
+    let emeraldSignMeshes = 0;
+    sprayGroup?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.name.includes('latoneria_sign')) {
+        emeraldSignMeshes += 1;
+      }
+    });
+    expect(emeraldSignMeshes).toBeGreaterThanOrEqual(4);
+
+    setWorldNightLighting(group, waterMesh, 'golden_hour');
+    let dayMax = 0;
+    sprayGroup?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshStandardMaterial) {
+        dayMax = Math.max(dayMax, node.material.emissiveIntensity);
+      }
+    });
+    setWorldNightLighting(group, waterMesh, 'night');
+    let nightMax = 0;
+    sprayGroup?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshStandardMaterial) {
+        nightMax = Math.max(nightMax, node.material.emissiveIntensity);
+      }
+    });
+    expect(nightMax).toBeGreaterThan(dayMax);
+
+    disposeObjectTree(group);
+  });
+
+  it('places 5 authentic Puestos de Cholado y Lulada strictly outside road lanes and river with night string bulbs', () => {
+    const { group, waterMesh } = buildCaliWorld(CALI_MAP);
+    group.updateMatrixWorld(true);
+
+    const choladoGroup = group.getObjectByName('cali_cholado_stands');
+    expect(choladoGroup).toBeInstanceOf(THREE.Group);
+    expect(choladoGroup?.children.length).toBe(5);
+
+    const worldPos = new THREE.Vector3();
+    for (const stand of choladoGroup?.children ?? []) {
+      expect(stand.name.startsWith('cholado_stand_')).toBe(true);
+      expect(countGeometryVertices(stand)).toBeGreaterThan(40);
+      stand.getWorldPosition(worldPos);
+      // Clear of Av. Colombia (x in [-12, 4]), Río Cali (x in [24, 46]), Calle 5 (z in [69, 85])
+      expect(worldPos.x > -12 && worldPos.x < 4, `${stand.name} intrudes Av. Colombia`).toBe(false);
+      expect(worldPos.x > 24 && worldPos.x < 46, `${stand.name} intrudes Río Cali`).toBe(false);
+      expect(worldPos.z > 69 && worldPos.z < 85, `${stand.name} intrudes Calle 5`).toBe(false);
+      // Clear of Calle 13 (z in [-32, -16]) & Carrera 1 (x in [51, 65])
+      expect(worldPos.z > -32 && worldPos.z < -16, `${stand.name} intrudes Calle 13`).toBe(false);
+      expect(worldPos.x > 51 && worldPos.x < 65, `${stand.name} intrudes Carrera 1`).toBe(false);
+    }
+
+    setWorldNightLighting(group, waterMesh, 'golden_hour');
+    let dayMax = 0;
+    choladoGroup?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshStandardMaterial) {
+        dayMax = Math.max(dayMax, node.material.emissiveIntensity);
+      }
+    });
+    setWorldNightLighting(group, waterMesh, 'night');
+    let nightMax = 0;
+    choladoGroup?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshStandardMaterial) {
+        nightMax = Math.max(nightMax, node.material.emissiveIntensity);
+      }
+    });
+    expect(nightMax).toBeGreaterThan(dayMax);
+
+    disposeObjectTree(group);
+  });
+
+  it('builds 4 working 3-lens semáforo intersections and toggles NS/EW lenses across all 4 TrafficLightPhases', () => {
+    const built = buildCaliWorld(CALI_MAP);
+    const { group, trafficLights } = built;
+
+    const lightsGroup = group.getObjectByName('cali_traffic_lights');
+    expect(lightsGroup).toBeInstanceOf(THREE.Group);
+    expect(lightsGroup?.children.length).toBe(4);
+    expect(trafficLights).toBeDefined();
+
+    let nsHeadCount = 0;
+    let ewHeadCount = 0;
+    const poleWorldPos = new THREE.Vector3();
+    group.updateMatrixWorld(true);
+    lightsGroup?.traverse((node) => {
+      if (node.userData.trafficLightAxis === 'ns') nsHeadCount += 1;
+      if (node.userData.trafficLightAxis === 'ew') ewHeadCount += 1;
+      if (node.name.includes('_pole_')) {
+        node.getWorldPosition(poleWorldPos);
+        expect(
+          poleWorldPos.x > -12 && poleWorldPos.x < 4,
+          `${node.name} intrudes Av. Colombia`,
+        ).toBe(false);
+        expect(
+          poleWorldPos.z > 69 && poleWorldPos.z < 85,
+          `${node.name} intrudes Calle 5`,
+        ).toBe(false);
+        expect(
+          poleWorldPos.x > 24 && poleWorldPos.x < 46,
+          `${node.name} intrudes Río Cali`,
+        ).toBe(false);
+      }
+    });
+    expect(nsHeadCount).toBeGreaterThanOrEqual(4);
+    expect(ewHeadCount).toBeGreaterThanOrEqual(4);
+
+    // ns_green: NS green lit, EW red lit
+    updateTrafficLightPhase(built, 'ns_green');
+    expect(trafficLights?.ns.green.emissiveIntensity).toBeGreaterThan(2.0);
+    expect(trafficLights?.ns.amber.emissiveIntensity).toBeLessThan(0.5);
+    expect(trafficLights?.ns.red.emissiveIntensity).toBeLessThan(0.5);
+    expect(trafficLights?.ew.red.emissiveIntensity).toBeGreaterThan(2.0);
+    expect(trafficLights?.ew.amber.emissiveIntensity).toBeLessThan(0.5);
+    expect(trafficLights?.ew.green.emissiveIntensity).toBeLessThan(0.5);
+
+    // ns_yellow: NS amber lit, EW red lit
+    updateTrafficLightPhase(built, 'ns_yellow');
+    expect(trafficLights?.ns.amber.emissiveIntensity).toBeGreaterThan(2.0);
+    expect(trafficLights?.ns.green.emissiveIntensity).toBeLessThan(0.5);
+    expect(trafficLights?.ns.red.emissiveIntensity).toBeLessThan(0.5);
+    expect(trafficLights?.ew.red.emissiveIntensity).toBeGreaterThan(2.0);
+
+    // ew_green: EW green lit, NS red lit
+    updateTrafficLightPhase(built, 'ew_green');
+    expect(trafficLights?.ew.green.emissiveIntensity).toBeGreaterThan(2.0);
+    expect(trafficLights?.ew.amber.emissiveIntensity).toBeLessThan(0.5);
+    expect(trafficLights?.ew.red.emissiveIntensity).toBeLessThan(0.5);
+    expect(trafficLights?.ns.red.emissiveIntensity).toBeGreaterThan(2.0);
+    expect(trafficLights?.ns.green.emissiveIntensity).toBeLessThan(0.5);
+
+    // ew_yellow: EW amber lit, NS red lit
+    updateTrafficLightPhase(built, 'ew_yellow');
+    expect(trafficLights?.ew.amber.emissiveIntensity).toBeGreaterThan(2.0);
+    expect(trafficLights?.ew.green.emissiveIntensity).toBeLessThan(0.5);
+    expect(trafficLights?.ns.red.emissiveIntensity).toBeGreaterThan(2.0);
+
+    disposeObjectTree(group);
+  });
+
+  it('mounts 4 iconic Cali murals & billboards with textured art and night uplight glow', () => {
+    const { group, waterMesh } = buildCaliWorld(CALI_MAP);
+
+    const muralsGroup = group.getObjectByName('cali_murals');
+    expect(muralsGroup).toBeInstanceOf(THREE.Group);
+    expect(muralsGroup?.children.length).toBe(4);
+
+    let texturedArtworkMeshes = 0;
+    for (const mural of muralsGroup?.children ?? []) {
+      expect(mural.name.startsWith('mural_')).toBe(true);
+      expect(countGeometryVertices(mural)).toBeGreaterThan(20);
+      mural.traverse((node) => {
+        if (
+          node instanceof THREE.Mesh &&
+          node.material instanceof THREE.MeshStandardMaterial &&
+          node.material.map !== null
+        ) {
+          texturedArtworkMeshes += 1;
+        }
+      });
+    }
+    expect(texturedArtworkMeshes).toBeGreaterThanOrEqual(4);
+
+    setWorldNightLighting(group, waterMesh, 'golden_hour');
+    let dayMax = 0;
+    muralsGroup?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshStandardMaterial) {
+        dayMax = Math.max(dayMax, node.material.emissiveIntensity);
+      }
+    });
+    setWorldNightLighting(group, waterMesh, 'night');
+    let nightMax = 0;
+    muralsGroup?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshStandardMaterial) {
+        nightMax = Math.max(nightMax, node.material.emissiveIntensity);
+      }
+    });
+    expect(nightMax).toBeGreaterThan(dayMax);
+
+    disposeObjectTree(group);
+  });
+
+  it('creates dynamic 3-star retén policial hidden by default and toggles visibility and flashing beacons via setRoadblockVisible', () => {
+    const built = buildCaliWorld(CALI_MAP);
+    const { group, roadblockGroup } = built;
+
+    expect(roadblockGroup).toBeInstanceOf(THREE.Group);
+    expect(group.getObjectByName('cali_roadblocks')).toBe(roadblockGroup);
+    expect(roadblockGroup?.visible).toBe(false);
+
+    const expectedZones = CALI_MAP.roadblockZones ?? [];
+    expect(expectedZones.length).toBe(2);
+    expect(roadblockGroup?.children.length).toBe(expectedZones.length);
+
+    for (const zone of expectedZones) {
+      const node = roadblockGroup?.getObjectByName(`roadblock_${zone.id}`);
+      expect(node, `missing roadblock_${zone.id}`).toBeInstanceOf(THREE.Group);
+      expect(node?.position.x).toBeCloseTo(zone.x, 2);
+      expect(node?.position.z).toBeCloseTo(zone.z, 2);
+      expect(countGeometryVertices(node as THREE.Object3D)).toBeGreaterThan(60);
+    }
+
+    setRoadblockVisible(built, true, 0.05);
+    expect(roadblockGroup?.visible).toBe(true);
+    const redAtT1 = built.roadblockRedMat?.emissiveIntensity ?? 0;
+    const blueAtT1 = built.roadblockBlueMat?.emissiveIntensity ?? 0;
+    expect(Math.max(redAtT1, blueAtT1)).toBeGreaterThan(2.0);
+    expect(Math.abs(redAtT1 - blueAtT1)).toBeGreaterThan(1.5);
+
+    setRoadblockVisible(built, true, 0.25);
+    const redAtT2 = built.roadblockRedMat?.emissiveIntensity ?? 0;
+    const blueAtT2 = built.roadblockBlueMat?.emissiveIntensity ?? 0;
+    expect(redAtT2).not.toBeCloseTo(redAtT1, 1);
+    expect(blueAtT2).not.toBeCloseTo(blueAtT1, 1);
+
+    setRoadblockVisible(built, false, 0.5);
+    expect(roadblockGroup?.visible).toBe(false);
 
     disposeObjectTree(group);
   });

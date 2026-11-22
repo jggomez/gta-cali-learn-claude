@@ -6,6 +6,7 @@ import {
   type SpeechUtteranceLike,
   type SpeechVoiceLike,
 } from '../../../src/audio/voiceEngine';
+import { LOCALE_CALI } from '../../../src/config/localeCali';
 
 class MockSpeechSynthesis implements SpeechSynthesisLike {
   public voices: SpeechVoiceLike[];
@@ -270,5 +271,49 @@ describe('VoiceEngine', () => {
     engine.dispose();
     expect(synth.cancel).toHaveBeenCalledTimes(5);
     expect(engine.speak('Post dispose', 'valeria')).toBe(false);
+  });
+
+  it('supports narrator profile and callout helpers for pedestrianHorn and payNSpray lines with cooldown safety', () => {
+    let now = 20_000;
+    const synth = new MockSpeechSynthesis([
+      { lang: 'es-CO', name: 'Gonzalo' },
+      { lang: 'es-CO', name: 'Camila' },
+    ]);
+    const engine = new VoiceEngine({
+      synthFactory: () => synth,
+      utteranceFactory: createMockUtterance,
+      nowMs: () => now,
+    });
+
+    // Narrator profile speaks cleanly with es-CO voice and callout cooldown
+    expect(engine.speak('¡Salto acrobático coronado en Cali!', 'narrator')).toBe(true);
+    expect(synth.spoken[0]?.lang).toBe('es-CO');
+    expect(engine.speak('Spam inmediato bloqueado', 'narrator')).toBe(false);
+
+    now += 4500;
+    expect(engine.speak('¡Segundo anuncio habilitado!', 'narrator')).toBe(true);
+
+    // Pedestrian horn reaction cycles through LOCALE_CALI.voiceLines.pedestrianHorn
+    expect(engine.speakPedestrianHornReaction()).toBe(true);
+    const firstHornText = synth.spoken[synth.spoken.length - 1]?.text ?? '';
+    expect(LOCALE_CALI.voiceLines.pedestrianHorn).toContain(firstHornText);
+    // Blocked during pedestrian cooldown
+    expect(engine.speakPedestrianHornReaction()).toBe(false);
+
+    now += 7000;
+    expect(engine.speakPedestrianHornReaction()).toBe(true);
+    const secondHornText = synth.spoken[synth.spoken.length - 1]?.text ?? '';
+    expect(LOCALE_CALI.voiceLines.pedestrianHorn).toContain(secondHornText);
+    expect(secondHornText).not.toBe(firstHornText);
+
+    // Pay 'n' Spray callout speaks authentic LOCALE_CALI.voiceLines.payNSpray line
+    expect(engine.speakPayNSprayCallout()).toBe(true);
+    const sprayText = synth.spoken[synth.spoken.length - 1]?.text ?? '';
+    expect(LOCALE_CALI.voiceLines.payNSpray).toContain(sprayText);
+
+    // Empty line array safely returns false
+    expect(engine.speakRandomLine([], 'pedestrian')).toBe(false);
+
+    engine.dispose();
   });
 });

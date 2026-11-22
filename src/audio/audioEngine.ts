@@ -119,6 +119,8 @@ const DRIFT_MIN_SPEED_KMH = 18;
 const DRIFT_FILTER_BASE_HZ = 1250;
 const DRIFT_FILTER_Q = 4.5;
 const COLLISION_COOLDOWN_SECONDS = 0.16;
+const REGULAR_HORN_COOLDOWN_SECONDS = 0.28;
+const CHIVA_HORN_COOLDOWN_SECONDS = 1.6;
 const SIREN_ATTENUATION_SCALE_METERS = 26;
 const SIREN_YELP_THRESHOLD_METERS = 28;
 const SIREN_WAIL_RATE_HZ = 0.55;
@@ -131,21 +133,40 @@ const CROWD_MURMUR_MAX_GAIN = 0.026;
 const CROWD_MURMUR_FILTER_HZ = 420;
 const CROWD_MURMUR_SATURATION_PEDS = 8;
 
+const TURBOCHARGED_VEHICLES: ReadonlySet<VehicleKind> = new Set([
+  'renault4_turbo',
+  'spark_gt_turbo',
+]);
+
+// Playful 6-note Colombian Chiva "La Cucaracha" airhorn motif (C5-C5-C5-F5-A5-F5)
+const CHIVA_CUCARACHA_NOTES: readonly {
+  readonly freqHz: number;
+  readonly offsetSec: number;
+  readonly durationSec: number;
+}[] = [
+  { freqHz: 523.25, offsetSec: 0.0, durationSec: 0.11 },
+  { freqHz: 523.25, offsetSec: 0.14, durationSec: 0.11 },
+  { freqHz: 523.25, offsetSec: 0.28, durationSec: 0.11 },
+  { freqHz: 698.46, offsetSec: 0.42, durationSec: 0.26 },
+  { freqHz: 880.0, offsetSec: 0.72, durationSec: 0.28 },
+  { freqHz: 698.46, offsetSec: 1.06, durationSec: 0.24 },
+];
+
 const VEHICLE_ENGINE_CURVES: Readonly<Record<VehicleKind, VehicleEngineCurve>> = {
   renault4_turbo: {
-    thresholdsKmh: [0, 42, 84, 128, 174, 224],
-    minHz: 74,
-    maxHz: 285,
+    thresholdsKmh: [0, 38, 78, 122, 168, 222],
+    minHz: 82,
+    maxHz: 315,
   },
   spark_gt_turbo: {
-    thresholdsKmh: [0, 40, 80, 122, 166, 214],
-    minHz: 78,
-    maxHz: 295,
+    thresholdsKmh: [0, 36, 74, 116, 162, 216],
+    minHz: 86,
+    maxHz: 325,
   },
   willys_v8: {
-    thresholdsKmh: [0, 38, 76, 118, 160, 206],
-    minHz: 52,
-    maxHz: 215,
+    thresholdsKmh: [0, 42, 84, 128, 172, 214],
+    minHz: 46,
+    maxHz: 186,
   },
   banshee: {
     thresholdsKmh: [0, 44, 86, 130, 174, 230],
@@ -420,6 +441,8 @@ export class AudioEngine {
   private stepIndex = 0;
   private barIndex = 0;
   private lastCollisionTimeSec: number | null = null;
+  private lastHornTimeSec: number | null = null;
+  private activeHornCooldownSec = REGULAR_HORN_COOLDOWN_SECONDS;
 
   public constructor(options: AudioEngineOptions = {}) {
     this.station = options.station ?? 'salsa_brava';
@@ -592,6 +615,83 @@ export class AudioEngine {
     this.scheduleTone('sine', 1800, 0.055, 0.075, now + 0.065);
   }
 
+  public playHorn(vehicleKind: VehicleKind): void {
+    if (!this.isPlayable() || !this.context) {
+      return;
+    }
+
+    const now = this.context.currentTime;
+    if (
+      this.lastHornTimeSec !== null &&
+      now >= this.lastHornTimeSec &&
+      now - this.lastHornTimeSec < this.activeHornCooldownSec
+    ) {
+      return;
+    }
+
+    const isChiva = vehicleKind === 'chiva';
+    this.lastHornTimeSec = now;
+    this.activeHornCooldownSec = isChiva
+      ? CHIVA_HORN_COOLDOWN_SECONDS
+      : REGULAR_HORN_COOLDOWN_SECONDS;
+
+    if (isChiva) {
+      for (const note of CHIVA_CUCARACHA_NOTES) {
+        this.scheduleFilteredTone(
+          'sawtooth',
+          note.freqHz,
+          note.durationSec,
+          0.11,
+          2200,
+          1.2,
+          now + note.offsetSec,
+        );
+      }
+      return;
+    }
+
+    if (vehicleKind === 'mio_bus') {
+      // Deep Colombian transit airhorn (185 Hz + 233 Hz)
+      this.scheduleFilteredTone('sawtooth', 185, 0.42, 0.11, 950, 1.1, now);
+      this.scheduleFilteredTone('square', 233, 0.42, 0.095, 950, 1.1, now);
+      return;
+    }
+
+    // Realistic dual-harmonic Colombian street car horn (415 Hz + 522 Hz)
+    this.scheduleFilteredTone('square', 415, 0.22, 0.095, 1650, 1.0, now);
+    this.scheduleFilteredTone('sawtooth', 522, 0.22, 0.09, 1650, 1.0, now);
+  }
+
+  public playPayNSpray(): void {
+    if (!this.isPlayable() || !this.context) {
+      return;
+    }
+    const now = this.context.currentTime;
+    // Pressurized aerosol spray-paint hiss bursts
+    this.scheduleFilteredNoiseBurst(0.38, 0.085, 'bandpass', 2800, 2.4, now);
+    this.scheduleFilteredNoiseBurst(0.34, 0.075, 'bandpass', 3400, 2.8, now + 0.22);
+    // Bright emerald workshop completion chime
+    this.scheduleTone('triangle', 523.25, 0.12, 0.12, now + 0.42);
+    this.scheduleTone('triangle', 659.25, 0.13, 0.12, now + 0.5);
+    this.scheduleTone('triangle', 783.99, 0.14, 0.13, now + 0.58);
+    this.scheduleTone('sine', 1046.5, 0.28, 0.15, now + 0.66);
+  }
+
+  public playStuntJump(): void {
+    if (!this.isPlayable() || !this.context) {
+      return;
+    }
+    const now = this.context.currentTime;
+    // Rising synth + air whoosh launch sweep
+    this.scheduleSweep('sawtooth', 180, 920, 0.34, 0.1, now);
+    this.scheduleFilteredNoiseBurst(0.32, 0.07, 'bandpass', 1400, 1.6, now);
+    // Upbeat GTA stunt bonus cash chord
+    this.scheduleTone('triangle', 659.25, 0.14, 0.13, now + 0.24);
+    this.scheduleTone('triangle', 830.61, 0.14, 0.13, now + 0.32);
+    this.scheduleTone('triangle', 987.77, 0.16, 0.14, now + 0.4);
+    this.scheduleTone('sine', 1318.51, 0.32, 0.16, now + 0.48);
+  }
+
   public getState(): Readonly<AudioState> {
     return {
       station: this.station,
@@ -648,6 +748,8 @@ export class AudioEngine {
     this.crowdGain = null;
 
     this.noiseBuffer = null;
+    this.lastCollisionTimeSec = null;
+    this.lastHornTimeSec = null;
 
     this.disconnectNode(this.masterGain);
     this.masterGain = null;
@@ -775,6 +877,9 @@ export class AudioEngine {
       telemetry.gear !== this.lastEngineGear
     ) {
       this.triggerExhaustPop(now);
+      if (telemetry.gear > this.lastEngineGear && TURBOCHARGED_VEHICLES.has(vehicleKind)) {
+        this.triggerTurboBlowOffValve(now);
+      }
     }
     this.lastEngineGear = telemetry.gear;
     this.lastVehicleId = world.player.vehicleId;
@@ -845,6 +950,14 @@ export class AudioEngine {
   private triggerExhaustPop(now: number): void {
     this.scheduleSweep('triangle', 165, 52, 0.055, 0.055, now);
     this.scheduleFilteredNoiseBurst(0.06, 0.065, 'bandpass', 620, 1.8, now);
+  }
+
+  private triggerTurboBlowOffValve(now: number): void {
+    // Crisp high-frequency turbocharger blow-off valve ("pssshh!") flutter bursts + compressor drop
+    this.scheduleFilteredNoiseBurst(0.075, 0.065, 'bandpass', 3200, 3.2, now + 0.01);
+    this.scheduleFilteredNoiseBurst(0.065, 0.046, 'bandpass', 2750, 3.2, now + 0.055);
+    this.scheduleFilteredNoiseBurst(0.055, 0.028, 'bandpass', 2350, 3.0, now + 0.1);
+    this.scheduleSweep('sine', 2900, 1400, 0.14, 0.022, now + 0.01);
   }
 
   private updateDriftAndTurbo(world: WorldSnapshot, dt: number): void {
@@ -1170,6 +1283,43 @@ export class AudioEngine {
 
     osc.connect(gain);
     gain.connect(this.masterGain);
+
+    osc.start(startTime);
+    osc.stop(startTime + duration + 0.01);
+  }
+
+  private scheduleFilteredTone(
+    type: OscillatorType,
+    frequency: number,
+    duration: number,
+    peakGain: number,
+    filterFreqHz: number,
+    filterQ: number,
+    startTime: number,
+  ): void {
+    if (!this.context || !this.masterGain) {
+      return;
+    }
+    const osc = this.context.createOscillator();
+    const gain = this.context.createGain();
+
+    osc.type = type;
+    osc.frequency.setValueAtTime(frequency, startTime);
+
+    gain.gain.setValueAtTime(peakGain, startTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+    gain.connect(this.masterGain);
+
+    if (typeof this.context.createBiquadFilter === 'function') {
+      const filter = this.context.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(filterFreqHz, startTime);
+      filter.Q.setValueAtTime(filterQ, startTime);
+      osc.connect(filter);
+      filter.connect(gain);
+    } else {
+      osc.connect(gain);
+    }
 
     osc.start(startTime);
     osc.stop(startTime + duration + 0.01);

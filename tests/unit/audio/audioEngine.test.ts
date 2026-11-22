@@ -855,4 +855,166 @@ describe('AudioEngine', () => {
     expect(sirenOsc?.stoppedAt).not.toBeNull();
     expect(turboOsc?.stoppedAt).not.toBeNull();
   });
+
+  it('tunes snappy high-rev 4-cyl turbo curves for renault4_turbo & spark_gt_turbo and deep V8 growl for willys_v8', () => {
+    const r4 = computeEngineTelemetry(95, 'renault4_turbo');
+    const spark = computeEngineTelemetry(95, 'spark_gt_turbo');
+    const banshee = computeEngineTelemetry(95, 'banshee');
+    const willys = computeEngineTelemetry(95, 'willys_v8');
+    const mioBus = computeEngineTelemetry(95, 'mio_bus');
+
+    expect(r4.fundamentalHz).toBeGreaterThan(banshee.fundamentalHz);
+    expect(spark.fundamentalHz).toBeGreaterThan(banshee.fundamentalHz);
+    expect(willys.fundamentalHz).toBeLessThan(banshee.fundamentalHz);
+    expect(willys.fundamentalHz).toBeGreaterThan(mioBus.fundamentalHz);
+
+    // Idle fundamentals preserve snappy turbo > banshee > deep willys V8 > diesel bus
+    expect(computeEngineTelemetry(0, 'renault4_turbo').fundamentalHz).toBeGreaterThan(
+      computeEngineTelemetry(0, 'banshee').fundamentalHz,
+    );
+    expect(computeEngineTelemetry(0, 'willys_v8').fundamentalHz).toBeLessThan(
+      computeEngineTelemetry(0, 'banshee').fundamentalHz,
+    );
+    expect(computeEngineTelemetry(0, 'willys_v8').fundamentalHz).toBeGreaterThan(
+      computeEngineTelemetry(0, 'mio_bus').fundamentalHz,
+    );
+  });
+
+  it('triggers a crisp turbo blow-off valve flutter on renault4_turbo & spark_gt_turbo upshift but not on banshee', () => {
+    const turboCtx = new FullMockAudioContext();
+    const turboEngine = new AudioEngine({ station: 'off', contextFactory: () => turboCtx });
+    turboEngine.unlock();
+
+    // Gear 1 -> Gear 2 upshift on renault4_turbo
+    turboEngine.update(makeWorld({ mode: 'driving', speedKmh: 34, vehicleKind: 'renault4_turbo' }), 0.05);
+    const sourcesBeforeTurboShift = turboCtx.bufferSources.length;
+    const filtersBeforeTurboShift = turboCtx.filters.length;
+    turboCtx.currentTime += 0.05;
+    turboEngine.update(makeWorld({ mode: 'driving', speedKmh: 46, vehicleKind: 'renault4_turbo' }), 0.05);
+    const turboAddedSources = turboCtx.bufferSources.length - sourcesBeforeTurboShift;
+    const turboAddedFilters = turboCtx.filters.slice(filtersBeforeTurboShift);
+    // 1 exhaust pop + 3 turbo BOV flutter bursts = >= 4 buffer sources, with high-freq BOV bandpass (>= 2000 Hz)
+    expect(turboAddedSources).toBeGreaterThanOrEqual(4);
+    expect(
+      turboAddedFilters.some((f) => f.type === 'bandpass' && f.frequency.value >= 2000),
+    ).toBe(true);
+
+    // Compare against downshift on spark_gt_turbo (exhaust pop only, no BOV flutter) and upshift (BOV flutter!)
+    const sparkCtx = new FullMockAudioContext();
+    const sparkEngine = new AudioEngine({ station: 'off', contextFactory: () => sparkCtx });
+    sparkEngine.unlock();
+    sparkEngine.update(makeWorld({ mode: 'driving', speedKmh: 30, vehicleKind: 'spark_gt_turbo' }), 0.05);
+    const sparkBeforeUp = sparkCtx.bufferSources.length;
+    sparkCtx.currentTime += 0.05;
+    sparkEngine.update(makeWorld({ mode: 'driving', speedKmh: 45, vehicleKind: 'spark_gt_turbo' }), 0.05);
+    expect(sparkCtx.bufferSources.length - sparkBeforeUp).toBeGreaterThanOrEqual(4);
+
+    const sparkBeforeDown = sparkCtx.bufferSources.length;
+    sparkCtx.currentTime += 0.05;
+    sparkEngine.update(makeWorld({ mode: 'driving', speedKmh: 28, vehicleKind: 'spark_gt_turbo' }), 0.05);
+    expect(sparkCtx.bufferSources.length - sparkBeforeDown).toBe(1);
+
+    // Compare against naturally aspirated banshee upshift (only exhaust pop, no BOV flutter)
+    const naCtx = new FullMockAudioContext();
+    const naEngine = new AudioEngine({ station: 'off', contextFactory: () => naCtx });
+    naEngine.unlock();
+    naEngine.update(makeWorld({ mode: 'driving', speedKmh: 40, vehicleKind: 'banshee' }), 0.05);
+    const sourcesBeforeNaShift = naCtx.bufferSources.length;
+    naCtx.currentTime += 0.05;
+    naEngine.update(makeWorld({ mode: 'driving', speedKmh: 50, vehicleKind: 'banshee' }), 0.05);
+    expect(naCtx.bufferSources.length - sourcesBeforeNaShift).toBe(1);
+
+    turboEngine.dispose();
+    sparkEngine.dispose();
+    naEngine.dispose();
+  });
+
+  it('plays interactive [H] Colombian horns across renault4_turbo, mio_bus, and chiva La Cucaracha with cooldowns', () => {
+    const fullCtx = new FullMockAudioContext();
+    const engine = new AudioEngine({ station: 'off', contextFactory: () => fullCtx });
+    engine.unlock();
+
+    // 1. Regular/tuned car dual-harmonic horn (415 Hz + 522 Hz) with 280ms cooldown
+    const oscBeforeCarHorn = fullCtx.oscillators.length;
+    engine.playHorn('renault4_turbo');
+    const carHornOscs = fullCtx.oscillators.slice(oscBeforeCarHorn);
+    expect(carHornOscs.length).toBe(2);
+    const carFreqs = carHornOscs.map((o) => o.node.frequency.setCalls[0]?.value ?? 0).sort((a, b) => a - b);
+    expect(carFreqs[0]).toBeCloseTo(415, 0);
+    expect(carFreqs[1]).toBeCloseTo(522, 0);
+
+    // Blocked within 280ms cooldown
+    const afterCarHorn = fullCtx.oscillators.length;
+    fullCtx.currentTime += 0.15;
+    engine.playHorn('renault4_turbo');
+    expect(fullCtx.oscillators.length).toBe(afterCarHorn);
+
+    // 2. MIO transit deep airhorn (185 Hz + 233 Hz) allowed after 280ms
+    fullCtx.currentTime += 0.2;
+    const oscBeforeMioHorn = fullCtx.oscillators.length;
+    engine.playHorn('mio_bus');
+    const mioHornOscs = fullCtx.oscillators.slice(oscBeforeMioHorn);
+    expect(mioHornOscs.length).toBe(2);
+    const mioFreqs = mioHornOscs.map((o) => o.node.frequency.setCalls[0]?.value ?? 0).sort((a, b) => a - b);
+    expect(mioFreqs[0]).toBeCloseTo(185, 0);
+    expect(mioFreqs[1]).toBeCloseTo(233, 0);
+
+    // 3. Chiva "La Cucaracha" 6-note musical phrase (C5-C5-C5-F5-A5-...) with 1600ms cooldown
+    fullCtx.currentTime += 0.4;
+    const oscBeforeChiva = fullCtx.oscillators.length;
+    engine.playHorn('chiva');
+    const chivaOscs = fullCtx.oscillators.slice(oscBeforeChiva);
+    expect(chivaOscs.length).toBe(6);
+    const chivaFreqs = chivaOscs.map((o) => o.node.frequency.setCalls[0]?.value ?? 0);
+    expect(chivaFreqs[0]).toBeCloseTo(523.25, 1);
+    expect(chivaFreqs[1]).toBeCloseTo(523.25, 1);
+    expect(chivaFreqs[2]).toBeCloseTo(523.25, 1);
+    expect(chivaFreqs[3]).toBeCloseTo(698.46, 1);
+    expect(chivaFreqs[4]).toBeCloseTo(880.0, 1);
+    // Verify notes are staggered across time
+    const startTimes = chivaOscs.map((o) => o.startedAt ?? 0);
+    for (let i = 1; i < startTimes.length; i += 1) {
+      expect(startTimes[i] ?? 0).toBeGreaterThan(startTimes[i - 1] ?? 0);
+    }
+
+    // Blocked within 1600ms Chiva cooldown
+    const afterChiva = fullCtx.oscillators.length;
+    fullCtx.currentTime += 1.0;
+    engine.playHorn('chiva');
+    expect(fullCtx.oscillators.length).toBe(afterChiva);
+
+    // Allowed after 1600ms cooldown
+    fullCtx.currentTime += 0.7;
+    engine.playHorn('chiva');
+    expect(fullCtx.oscillators.length).toBe(afterChiva + 6);
+
+    engine.dispose();
+  });
+
+  it('plays Pay n Spray pressurized hiss + chime and Stunt Jump whoosh + cash chord safely even when headless', () => {
+    const headless = new AudioEngine({ contextFactory: () => null });
+    expect(() => {
+      headless.playHorn('chiva');
+      headless.playPayNSpray();
+      headless.playStuntJump();
+    }).not.toThrow();
+
+    const fullCtx = new FullMockAudioContext();
+    const engine = new AudioEngine({ station: 'off', contextFactory: () => fullCtx });
+    engine.unlock();
+
+    const srcBeforeSpray = fullCtx.bufferSources.length;
+    const oscBeforeSpray = fullCtx.oscillators.length;
+    engine.playPayNSpray();
+    expect(fullCtx.bufferSources.length).toBeGreaterThanOrEqual(srcBeforeSpray + 2);
+    expect(fullCtx.oscillators.length).toBeGreaterThanOrEqual(oscBeforeSpray + 3);
+
+    const srcBeforeStunt = fullCtx.bufferSources.length;
+    const oscBeforeStunt = fullCtx.oscillators.length;
+    engine.playStuntJump();
+    expect(fullCtx.bufferSources.length).toBeGreaterThanOrEqual(srcBeforeStunt + 1);
+    expect(fullCtx.oscillators.length).toBeGreaterThanOrEqual(oscBeforeStunt + 4);
+
+    engine.dispose();
+  });
 });
