@@ -9,6 +9,7 @@ import type {
   LandmarkId,
   MissionId,
   RadioStationId,
+  VehicleKind,
 } from '../types/game';
 
 export interface ControlHintItem {
@@ -95,6 +96,9 @@ export const LOCALE_CALI = {
       enterVehicleDetail: 'Presiona [F] para subirte al deportivo y activar el nitro.',
       stageLabel: 'Recoge a Mateo en el Estadio Pascual',
       stageDetail: 'Cruza el puente sur hacia la Calle 5 frente al Estadio Pascual Guerrero.',
+      rampLabel: 'Toma la rampa hacia Cristo Rey',
+      rampDetail:
+        'Gira al oeste en Av. Circunvalar (Calle 13) para subir al Cerro Los Cristales.',
       summitLabel: 'Sube al Mirador de Cristo Rey',
       summitDetail: 'Toma la rampa oeste hacia el Cerro Los Cristales hasta la cima.',
     },
@@ -138,6 +142,10 @@ export const LOCALE_CALI = {
       speaker: 'mateo' as const,
       text: '¡Arriba ese sonido, ve! La tomba quiere dañar la rumba: ¡dale oeste por la rampa hasta Cristo Rey!',
     },
+    m2Ramp: {
+      speaker: 'valeria' as const,
+      text: '¡Esa es la rampa al Cerro Los Cristales, parce! Métele nitro hasta el Mirador de Cristo Rey.',
+    },
     m2Passed: {
       speaker: 'valeria' as const,
       text: '¡Mirá esa vista desde Cristo Rey! Salsa brava a todo taco y toda Santiago de Cali a nuestros pies.',
@@ -146,6 +154,14 @@ export const LOCALE_CALI = {
       speaker: 'valeria' as const,
       text: '¡Relájate, oís! Tienes toda Cali pa’ vos: San Antonio, el Bulevar, La Ermita, el Pascual y Cristo Rey.',
     },
+    freeRoamWanted: {
+      speaker: 'mateo' as const,
+      text: '¡Ojo, ve! Se prendió la tomba por toda Cali. ¡Acelera y piérdelos entre las cuadras!',
+    },
+    freeRoamEscaped: {
+      speaker: 'valeria' as const,
+      text: '¡Los dejamos viendo un chispero, oís! Ya puedes rumbear tranquilo por Cali.',
+    },
     landmarkDiscovered: (landmarkName: string) => ({
       speaker: 'system' as const,
       text: `¡Descubriste ${landmarkName}! Qué orgullo caleño, parce.`,
@@ -153,6 +169,41 @@ export const LOCALE_CALI = {
     riverWarning: {
       speaker: 'mateo' as const,
       text: '¡Pilas, ve! Ese es el Río Cali: usa los puentes que el carro no es lancha.',
+    },
+  },
+
+  banners: {
+    m1Start: {
+      title: 'FUGA EN EL BULEVAR',
+      subtitle: 'Arranca desde San Antonio hacia la Torre de Cali.',
+    },
+    m1Pickup: {
+      title: '¡VINILO ASEGURADO!',
+      subtitle: 'La tomba viene detrás — cruza el Bulevar del Río.',
+    },
+    m1Bulevar: {
+      title: '¡BULEVAR SUPERADO!',
+      subtitle: 'Cruza el Puente de La Ermita para escapar.',
+    },
+    m2Start: {
+      title: 'NOCHE DE SALSA',
+      subtitle: 'Recoge a Mateo frente al Estadio Pascual Guerrero.',
+    },
+    m2Stage: {
+      title: '¡PARLANTES A BORDO!',
+      subtitle: 'Escapa hacia la rampa de Av. Circunvalar.',
+    },
+    m2Ramp: {
+      title: '¡RUMBO A CRISTO REY!',
+      subtitle: 'Sube a toda mecha por el Cerro Los Cristales.',
+    },
+    freeRoamWanted: {
+      title: '¡ALERTA DE LA TOMBA!',
+      subtitle: 'Piérdelos en las calles de Cali para bajar estrellas.',
+    },
+    freeRoamEscaped: {
+      title: '¡ESCAPASTE DE LA TOMBA!',
+      subtitle: 'Camino despejado en La Sucursal del Cielo.',
     },
   },
 
@@ -187,16 +238,33 @@ export const LOCALE_CALI = {
     cristo_rey: 'Mirador de Cristo Rey',
   } as Readonly<Record<LandmarkId, string>>,
 
+  vehicleNames: {
+    banshee: 'Ferrari Caleño',
+    taxi: 'Taxi Amarillito',
+    mio_bus: 'Bus MIO',
+    chiva: 'Chiva Rumbera',
+    police: 'Patrulla Policía',
+  } as Readonly<Record<VehicleKind, string>>,
+
   hud: {
     objectiveTag: 'OBJETIVO',
     tickerTag: 'CALIVIRAL',
     wantedLabel: 'SE BUSCA',
     bustWarning: '¡LA TOMBA TE CIERRA EL PASO!',
+    evadingPoliceLabel: 'ESCAPANDO DE LA TOMBA',
     speedUnit: 'km/h',
+    metersUnit: 'm',
     nitroLabel: 'NITRO',
     cashCurrency: 'COP',
+    stepProgress: (current: number, total: number) => `PASO ${current} DE ${total}`,
     enterVehiclePrompt: '[F] Subir al carro',
+    enterNamedVehicle: (name: string) => `[F] Subir a ${name}`,
+    hijackNamedVehicle: (name: string) => `[F] Tomar ${name}`,
     exitVehiclePrompt: '[F] Bajar del carro',
+    directionStraight: 'Sigue derecho',
+    directionLeft: 'Gira a la izquierda',
+    directionRight: 'Gira a la derecha',
+    directionBack: 'Da la vuelta',
     driftLabel: 'DERRAPE',
     landmarksLabel: 'Íconos',
     audioMutedBadge: 'Silencio',

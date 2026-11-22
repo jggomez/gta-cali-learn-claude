@@ -44,7 +44,35 @@ export type ObjectiveKind =
   | 'escape_police'
   | 'explore';
 
+export type ObjectivePropKind =
+  | 'none'
+  | 'vinyl_briefcase'
+  | 'mateo_speakers'
+  | 'summit_stage';
+
+export type BannerAccent = 'gold' | 'cyan' | 'police' | 'emerald';
+
 export type DialogueSpeaker = 'valeria' | 'mateo' | 'radio' | 'system';
+
+export interface CheckpointBanner {
+  readonly id: string;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly accent: BannerAccent;
+  readonly remainingSeconds: number;
+}
+
+export interface PedestrianSnapshot {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly heading: number;
+  readonly speedMps: number;
+  readonly fleeing: boolean;
+  readonly shirtColorHex: number;
+  readonly pantsColorHex: number;
+}
 
 export interface Vec2 {
   readonly x: number;
@@ -137,6 +165,7 @@ export interface MissionWaypointsConfig {
   readonly mission1Escape: MissionWaypoint;
   readonly mission1Finish: MissionWaypoint;
   readonly mission2Stage: MissionWaypoint;
+  readonly mission2RampEntry: MissionWaypoint;
   readonly mission2Summit: MissionWaypoint;
 }
 
@@ -202,6 +231,7 @@ export interface PlayerSnapshot {
   readonly speedKmh: number;
   readonly vehicleId: string | null;
   readonly nearbyVehicleId: string | null;
+  readonly nearbyVehicleKind?: VehicleKind | null;
   readonly canEnterVehicle: boolean;
   /** Nitro charge percentage (0..100). */
   readonly nitro: number;
@@ -215,8 +245,10 @@ export interface WorldSnapshot {
   readonly timeSeconds: number;
   readonly player: PlayerSnapshot;
   readonly vehicles: readonly VehicleSnapshot[];
+  readonly pedestrians?: readonly PedestrianSnapshot[];
   readonly wantedStars: WantedLevel;
   readonly bustProgress: number;
+  readonly policeEvadeProgress?: number;
   readonly isBusted: boolean;
   readonly driftScore: number;
   readonly topSpeedKmh: number;
@@ -235,6 +267,10 @@ export interface ObjectiveSnapshot {
   readonly stepIndex: number;
   readonly totalSteps: number;
   readonly beaconColorHex: number;
+  readonly distanceMeters?: number | null;
+  readonly bearingDeltaRad?: number | null;
+  readonly gpsRoute?: readonly Vec2[];
+  readonly propKind?: ObjectivePropKind;
 }
 
 export interface DialogueToast {
@@ -256,6 +292,7 @@ export interface MissionSnapshot {
   readonly bestTimes: BestTimesMap;
   readonly discoveredLandmarks: readonly LandmarkId[];
   readonly dialogue: DialogueToast | null;
+  readonly banner?: CheckpointBanner | null;
   readonly viralTicker: string;
   readonly rewardCop: number;
   readonly cashCop: number;

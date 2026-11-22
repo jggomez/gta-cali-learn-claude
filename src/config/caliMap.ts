@@ -388,6 +388,14 @@ export const MISSION_WAYPOINTS: MissionWaypointsConfig = {
     radius: 15,
     district: 'Estadio Pascual Guerrero',
   },
+  mission2RampEntry: {
+    id: 'm2_cristo_rey_ramp',
+    landmarkId: 'cristo_rey',
+    x: -68,
+    z: -24,
+    radius: 18,
+    district: 'Avenida Circunvalar',
+  },
   mission2Summit: {
     id: 'm2_cristo_rey_summit',
     landmarkId: 'cristo_rey',
