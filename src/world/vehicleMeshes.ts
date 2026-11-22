@@ -24,6 +24,9 @@ interface MeshPlacement {
   readonly rx?: number;
   readonly ry?: number;
   readonly rz?: number;
+  readonly sx?: number;
+  readonly sy?: number;
+  readonly sz?: number;
   readonly name?: string;
   readonly castShadow?: boolean;
   readonly receiveShadow?: boolean;
@@ -110,6 +113,9 @@ function addMesh(
   mesh.position.set(placement.x ?? 0, placement.y ?? 0, placement.z ?? 0);
   if (placement.rx !== undefined || placement.ry !== undefined || placement.rz !== undefined) {
     mesh.rotation.set(placement.rx ?? 0, placement.ry ?? 0, placement.rz ?? 0);
+  }
+  if (placement.sx !== undefined || placement.sy !== undefined || placement.sz !== undefined) {
+    mesh.scale.set(placement.sx ?? 1, placement.sy ?? 1, placement.sz ?? 1);
   }
   if (placement.name) {
     mesh.name = placement.name;
@@ -205,6 +211,71 @@ function createCheckerTrimTexture(): THREE.CanvasTexture | null {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+/**
+ * Procedural axial fade texture for open headlight beam cones:
+ * bright at UV v = 1 (canvas top, headlight lens) and fully transparent well before v = 0 (far rim).
+ */
+function createHeadlightBeamTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+  ctx.clearRect(0, 0, 64, 256);
+  const gradient = ctx.createLinearGradient(0, 0, 0, 256);
+  gradient.addColorStop(0.0, 'rgba(255, 255, 255, 0.92)');
+  gradient.addColorStop(0.18, 'rgba(255, 255, 255, 0.65)');
+  gradient.addColorStop(0.45, 'rgba(255, 255, 255, 0.26)');
+  gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.06)');
+  gradient.addColorStop(0.88, 'rgba(0, 0, 0, 0)');
+  gradient.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 64, 256);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+/**
+ * Procedural soft radial alpha glow texture fading cleanly to transparent well inside the edges,
+ * eliminating sharp rectangular corners on underbody neon and asphalt headlight pools.
+ */
+function createSoftRadialGlowTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+  ctx.clearRect(0, 0, 256, 256);
+  const gradient = ctx.createRadialGradient(128, 128, 6, 128, 128, 114);
+  gradient.addColorStop(0.0, 'rgba(255, 255, 255, 0.95)');
+  gradient.addColorStop(0.36, 'rgba(255, 255, 255, 0.58)');
+  gradient.addColorStop(0.68, 'rgba(255, 255, 255, 0.16)');
+  gradient.addColorStop(0.9, 'rgba(255, 255, 255, 0.02)');
+  gradient.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 256, 256);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
   return texture;
 }
@@ -383,7 +454,8 @@ function attachSideMirrors(
 }
 
 /**
- * Attaches soft translucent additive road beam cones ahead of xenon headlights (zero shadows).
+ * Attaches low-profile, edge-faded additive headlight beams and a soft asphalt light pool
+ * fanning forward from the xenon lenses (zero shadows, zero hard circular rim).
  */
 function attachHeadlightCones(
   parent: THREE.Group,
@@ -396,27 +468,43 @@ function attachHeadlightCones(
   const conesGroup = new THREE.Group();
   conesGroup.name = 'headlight_cones';
 
+  const beamTex = createHeadlightBeamTexture();
+  const roadPoolTex = createSoftRadialGlowTexture();
+
   const outerBeamMat = new THREE.MeshBasicMaterial({
     color: 0xffefc4,
+    ...(beamTex ? { map: beamTex } : {}),
     transparent: true,
-    opacity: 0.1,
+    opacity: 0.08,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
   });
   const coreBeamMat = new THREE.MeshBasicMaterial({
     color: 0xfff7dc,
+    ...(beamTex ? { map: beamTex } : {}),
     transparent: true,
-    opacity: 0.16,
+    opacity: 0.13,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.FrontSide,
+  });
+  const roadPoolMat = new THREE.MeshBasicMaterial({
+    color: 0xfff0c8,
+    ...(roadPoolTex ? { map: roadPoolTex } : {}),
+    transparent: true,
+    opacity: 0.24,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
 
   const outerGeo = new THREE.ConeGeometry(coneRadius, coneLength, 16, 1, true);
-  const coreGeo = new THREE.ConeGeometry(coneRadius * 0.48, coneLength * 0.82, 12, 1, true);
+  const coreGeo = new THREE.ConeGeometry(coneRadius * 0.48, coneLength * 0.8, 12, 1, true);
 
-  const pitchDown = 0.1;
+  // ConeGeometry apex (+y, v=1) maps to headlight lens (-z); open base (-y, v=0) fans forward (+z).
+  // Flattening local z (world y after -PI/2 X rotation) keeps the beam skimming low along the road.
+  const pitchDown = 0.09;
   const centerDrop = Math.sin(pitchDown) * (coneLength * 0.5);
   const centerForward = Math.cos(pitchDown) * (coneLength * 0.5);
 
@@ -426,18 +514,35 @@ function attachHeadlightCones(
       y: lightY - centerDrop,
       z: frontZ + centerForward,
       rx: -Math.PI / 2 + pitchDown,
+      sz: 0.24,
       castShadow: false,
       receiveShadow: false,
     });
     addMesh(conesGroup, coreGeo, coreBeamMat, {
       x: side * xOffset,
-      y: lightY - centerDrop * 0.82,
-      z: frontZ + centerForward * 0.82,
+      y: lightY - centerDrop * 0.8,
+      z: frontZ + centerForward * 0.8,
       rx: -Math.PI / 2 + pitchDown,
+      sz: 0.24,
       castShadow: false,
       receiveShadow: false,
     });
   }
+
+  // Soft elliptical road-surface illumination ahead of the headlights
+  const roadPool = addMesh(
+    conesGroup,
+    new THREE.PlaneGeometry(xOffset * 3.5, coneLength * 1.1),
+    roadPoolMat,
+    {
+      y: 0.09,
+      z: frontZ + coneLength * 0.52,
+      rx: -Math.PI / 2,
+      castShadow: false,
+      receiveShadow: false,
+    },
+  );
+  roadPool.renderOrder = 1;
 
   parent.add(conesGroup);
   return conesGroup;
@@ -695,13 +800,15 @@ function buildBansheeMesh(colorHex: number, accentHex: number): THREE.Group {
       receiveShadow: false,
     });
   }
+  const underglowTex = createSoftRadialGlowTexture();
   const underglow = addMesh(
     group,
-    new THREE.PlaneGeometry(2.45, 4.65),
+    new THREE.PlaneGeometry(2.6, 4.9),
     new THREE.MeshBasicMaterial({
       color: 0x00f0ff,
+      ...(underglowTex ? { map: underglowTex } : {}),
       transparent: true,
-      opacity: 0.36,
+      opacity: 0.55,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       depthWrite: false,
