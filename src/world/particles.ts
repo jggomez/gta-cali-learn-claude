@@ -574,20 +574,26 @@ function finiteSkidOr(value: number | undefined, fallback: number): number {
 
 /**
  * Pre-allocated ring buffer of translucent asphalt tire-track ribbon quads laid flush
- * above road elevation during drifting/hard braking with zero per-frame allocations.
+ * above road elevation during drifting/hard braking. Every ribbon is one instance of a
+ * single InstancedMesh (one draw call) with a per-instance opacity attribute, so the pool
+ * performs zero per-frame allocations and no per-mark material switches.
  */
 export class SkidMarkPool {
   readonly group: THREE.Group;
+  readonly mesh: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
 
   private readonly capacity: number;
   private readonly fadeStartSeconds: number;
   private readonly maxLifetimeSeconds: number;
-  private readonly geometry: THREE.PlaneGeometry;
-  private readonly meshes: THREE.Mesh[];
-  private readonly materials: THREE.MeshBasicMaterial[];
+  private readonly opacityAttr: THREE.InstancedBufferAttribute;
   private readonly active: Uint8Array;
   private readonly age: Float32Array;
   private readonly baseOpacity: Float32Array;
+  private readonly scratchMatrix = new THREE.Matrix4();
+  private readonly scratchPosition = new THREE.Vector3();
+  private readonly scratchQuaternion = new THREE.Quaternion();
+  private readonly scratchScale = new THREE.Vector3();
+  private readonly scratchEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 
   private activeCount = 0;
   private cursor = 0;
@@ -614,35 +620,43 @@ export class SkidMarkPool {
     this.group = new THREE.Group();
     this.group.name = 'cali_skid_marks';
 
-    this.geometry = new THREE.PlaneGeometry(widthMeters, 1);
-    this.meshes = [];
-    this.materials = [];
+    const geometry = new THREE.PlaneGeometry(widthMeters, 1);
+    this.opacityAttr = new THREE.InstancedBufferAttribute(
+      new Float32Array(this.capacity),
+      1,
+    );
+    this.opacityAttr.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('instanceOpacity', this.opacityAttr);
+
+    const material = new THREE.MeshBasicMaterial({
+      color: SKID_RUBBER_COLOR_HEX,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    material.onBeforeCompile = injectInstanceOpacity;
+    material.customProgramCacheKey = () => 'cali_skid_instance_opacity';
+
+    this.mesh = new THREE.InstancedMesh(geometry, material, this.capacity);
+    this.mesh.name = 'cali_skid_marks_instanced';
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.castShadow = false;
+    this.mesh.receiveShadow = false;
+    this.mesh.renderOrder = 1;
+    // Instances are scattered across the whole city; the single draw call is cheaper than culling.
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+
     this.active = new Uint8Array(this.capacity);
     this.age = new Float32Array(this.capacity);
     this.baseOpacity = new Float32Array(this.capacity);
-
     for (let i = 0; i < this.capacity; i += 1) {
-      const material = new THREE.MeshBasicMaterial({
-        color: SKID_RUBBER_COLOR_HEX,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -2,
-        polygonOffsetUnits: -2,
-      });
-      const mesh = new THREE.Mesh(this.geometry, material);
-      mesh.rotation.order = 'YXZ';
-      mesh.rotation.set(-Math.PI / 2, 0, 0);
-      mesh.visible = false;
-      mesh.castShadow = false;
-      mesh.receiveShadow = false;
-      mesh.renderOrder = 1;
-
-      this.materials.push(material);
-      this.meshes.push(mesh);
-      this.group.add(mesh);
+      this.hideSlot(i);
     }
+    this.group.add(this.mesh);
   }
 
   emitPair(
@@ -682,6 +696,9 @@ export class SkidMarkPool {
 
     this.stampStrip(rearLeftX, rearLeftY, rearLeftZ, heading, safeLength, safeOpacity);
     this.stampStrip(rearRightX, rearRightY, rearRightZ, heading, safeLength, safeOpacity);
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.opacityAttr.needsUpdate = true;
+    this.mesh.visible = true;
   }
 
   update(dt: number): void {
@@ -690,6 +707,8 @@ export class SkidMarkPool {
     }
 
     const fadeDuration = Math.max(0.001, this.maxLifetimeSeconds - this.fadeStartSeconds);
+    let opacityDirty = false;
+    let matrixDirty = false;
 
     for (let i = 0; i < this.capacity; i += 1) {
       if ((this.active[i] ?? 0) === 0) {
@@ -697,41 +716,43 @@ export class SkidMarkPool {
       }
 
       const nextAge = (this.age[i] ?? 0) + dt;
-      const mesh = this.meshes[i];
-      const material = this.materials[i];
 
       if (nextAge >= this.maxLifetimeSeconds) {
         this.active[i] = 0;
         this.age[i] = 0;
         this.baseOpacity[i] = 0;
         this.activeCount = Math.max(0, this.activeCount - 1);
-        if (mesh) {
-          mesh.visible = false;
-        }
-        if (material) {
-          material.opacity = 0;
-        }
+        this.hideSlot(i);
+        matrixDirty = true;
+        opacityDirty = true;
         continue;
       }
 
       this.age[i] = nextAge;
-      if (!material) {
-        continue;
-      }
-
-      const initialOpacity = this.baseOpacity[i] ?? 0;
       if (nextAge > this.fadeStartSeconds) {
         const t = Math.min(1, (nextAge - this.fadeStartSeconds) / fadeDuration);
         const smoothRemaining = 1 - t * t * (3 - 2 * t);
-        material.opacity = initialOpacity * smoothRemaining;
-      } else {
-        material.opacity = initialOpacity;
+        this.opacityAttr.setX(i, (this.baseOpacity[i] ?? 0) * smoothRemaining);
+        opacityDirty = true;
       }
     }
+
+    this.opacityAttr.needsUpdate ||= opacityDirty;
+    this.mesh.instanceMatrix.needsUpdate ||= matrixDirty;
+    this.mesh.visible = this.activeCount > 0;
   }
 
   getActiveCount(): number {
     return this.activeCount;
+  }
+
+  getSlotOpacity(slot: number): number {
+    return this.opacityAttr.getX(slot);
+  }
+
+  isSlotVisible(slot: number): boolean {
+    this.mesh.getMatrixAt(slot, this.scratchMatrix);
+    return this.scratchMatrix.determinant() !== 0 && this.getSlotOpacity(slot) > 0;
   }
 
   clear(): void {
@@ -742,15 +763,11 @@ export class SkidMarkPool {
     this.cursor = 0;
 
     for (let i = 0; i < this.capacity; i += 1) {
-      const mesh = this.meshes[i];
-      const material = this.materials[i];
-      if (mesh) {
-        mesh.visible = false;
-      }
-      if (material) {
-        material.opacity = 0;
-      }
+      this.hideSlot(i);
     }
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.opacityAttr.needsUpdate = true;
+    this.mesh.visible = false;
   }
 
   dispose(): void {
@@ -759,10 +776,15 @@ export class SkidMarkPool {
     }
     this.clear();
     this.disposed = true;
-    this.geometry.dispose();
-    for (const material of this.materials) {
-      material.dispose();
-    }
+    this.mesh.geometry.dispose();
+    this.mesh.material.dispose();
+    this.mesh.dispose();
+  }
+
+  private hideSlot(slot: number): void {
+    this.scratchMatrix.makeScale(0, 0, 0);
+    this.mesh.setMatrixAt(slot, this.scratchMatrix);
+    this.opacityAttr.setX(slot, 0);
   }
 
   private stampStrip(
@@ -784,17 +806,31 @@ export class SkidMarkPool {
     this.age[slot] = 0;
     this.baseOpacity[slot] = opacity;
 
-    const mesh = this.meshes[slot];
-    const material = this.materials[slot];
-    if (mesh) {
-      mesh.position.set(x, y + SKID_SURFACE_OFFSET_METERS, z);
-      mesh.rotation.order = 'YXZ';
-      mesh.rotation.set(-Math.PI / 2, heading, 0);
-      mesh.scale.set(1, segmentLength, 1);
-      mesh.visible = true;
-    }
-    if (material) {
-      material.opacity = opacity;
-    }
+    this.scratchPosition.set(x, y + SKID_SURFACE_OFFSET_METERS, z);
+    this.scratchEuler.set(-Math.PI / 2, heading, 0, 'YXZ');
+    this.scratchQuaternion.setFromEuler(this.scratchEuler);
+    this.scratchScale.set(1, segmentLength, 1);
+    this.scratchMatrix.compose(this.scratchPosition, this.scratchQuaternion, this.scratchScale);
+    this.mesh.setMatrixAt(slot, this.scratchMatrix);
+    this.opacityAttr.setX(slot, opacity);
   }
+}
+
+/** Multiplies the material opacity by the per-instance `instanceOpacity` attribute. */
+function injectInstanceOpacity(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.vertexShader = shader.vertexShader
+    .replace(
+      'void main() {',
+      'attribute float instanceOpacity;\nvarying float vSkidOpacity;\nvoid main() {',
+    )
+    .replace(
+      '#include <begin_vertex>',
+      '#include <begin_vertex>\n\tvSkidOpacity = instanceOpacity;',
+    );
+  shader.fragmentShader = shader.fragmentShader
+    .replace('void main() {', 'varying float vSkidOpacity;\nvoid main() {')
+    .replace(
+      'vec4 diffuseColor = vec4( diffuse, opacity );',
+      'vec4 diffuseColor = vec4( diffuse, opacity * vSkidOpacity );',
+    );
 }
