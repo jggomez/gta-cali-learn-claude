@@ -10,6 +10,7 @@ export interface InputActionCallbacks {
   readonly onCycleCamera?: () => void;
   readonly onToggleMute?: () => void;
   readonly onTogglePause?: () => void;
+  readonly onToggleTimeOfDay?: () => void;
   readonly onAnyUserGesture?: () => void;
   readonly isPlaying?: () => boolean;
 }
@@ -56,8 +57,13 @@ function isEditableTarget(target: EventTarget | null): boolean {
   if (!target || typeof target !== 'object') {
     return false;
   }
-  const tagName = (target as { tagName?: unknown }).tagName;
-  return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
+  const candidate = target as { tagName?: unknown; isContentEditable?: unknown };
+  return (
+    candidate.tagName === 'INPUT' ||
+    candidate.tagName === 'TEXTAREA' ||
+    candidate.tagName === 'SELECT' ||
+    candidate.isContentEditable === true
+  );
 }
 
 function finiteOrZero(value: unknown): number {
@@ -313,6 +319,11 @@ export class InputManager {
         break;
       case 'KeyM':
         this.callbacks.onToggleMute?.();
+        break;
+      case 'KeyT':
+        if (isPlaying) {
+          this.callbacks.onToggleTimeOfDay?.();
+        }
         break;
       case 'Escape':
       case 'KeyP':

@@ -496,4 +496,139 @@ describe('simulation/GameWorld', () => {
     expect(snap.player.speedMps).toBeGreaterThan(20);
     expect(snap.wantedStars).toBe(0);
   });
+
+  it('positions player and Banshee cleanly at distinct per-mission spawn and carSpawn poses', () => {
+    const world = new GameWorld(CALI_MAP);
+
+    // Mission 1: on foot at Torre de Cali with Banshee parked at getaway carSpawn
+    const m1Start = CALI_MAP.missionStarts.mission_1_bulevar;
+    world.reset({
+      spawn: m1Start.playerSpawn,
+      carSpawn: m1Start.carSpawn,
+      startInVehicle: m1Start.startInVehicle,
+      wantedStars: m1Start.initialWantedStars,
+    });
+    const m1Snap = world.getSnapshot();
+    const m1Car = m1Snap.vehicles.find((v) => v.id === 'player_banshee');
+    expect(m1Snap.player.mode).toBe('on_foot');
+    expect(m1Snap.player.vehicleId).toBeNull();
+    expect(m1Snap.player.x).toBe(m1Start.playerSpawn.x);
+    expect(m1Snap.player.z).toBe(m1Start.playerSpawn.z);
+    expect(m1Snap.player.y).toBeCloseTo(
+      getTerrainElevation(m1Start.playerSpawn.x, m1Start.playerSpawn.z),
+      5,
+    );
+    expect(m1Snap.player.heading).toBe(m1Start.playerSpawn.heading);
+    expect(m1Snap.currentDistrict).toBe('Avenida Las Américas');
+    expect(m1Car).toBeDefined();
+    expect(m1Car!.x).toBe(m1Start.carSpawn.x);
+    expect(m1Car!.z).toBe(m1Start.carSpawn.z);
+    expect(m1Car!.y).toBeCloseTo(
+      getTerrainElevation(m1Start.carSpawn.x, m1Start.carSpawn.z),
+      5,
+    );
+    expect(m1Car!.heading).toBe(m1Start.carSpawn.heading);
+    expect(m1Car!.speedMps).toBe(0);
+
+    // Mission 2: driving at Estadio Pascual Guerrero with 3 wanted stars
+    const m2Start = CALI_MAP.missionStarts.mission_2_cristo_rey;
+    world.reset({
+      spawn: m2Start.playerSpawn,
+      carSpawn: m2Start.carSpawn,
+      startInVehicle: m2Start.startInVehicle,
+      wantedStars: m2Start.initialWantedStars,
+    });
+    const m2Snap = world.getSnapshot();
+    const m2Car = m2Snap.vehicles.find((v) => v.id === 'player_banshee');
+    expect(m2Snap.player.mode).toBe('driving');
+    expect(m2Snap.player.vehicleId).toBe('player_banshee');
+    expect(m2Snap.player.x).toBe(m2Start.carSpawn.x);
+    expect(m2Snap.player.z).toBe(m2Start.carSpawn.z);
+    expect(m2Snap.player.heading).toBe(m2Start.carSpawn.heading);
+    expect(m2Snap.wantedStars).toBe(3);
+    expect(m2Snap.currentDistrict).toBe('Estadio Pascual Guerrero');
+    expect(m2Car!.x).toBe(m2Start.carSpawn.x);
+    expect(m2Car!.z).toBe(m2Start.carSpawn.z);
+    expect(m2Car!.heading).toBe(m2Start.carSpawn.heading);
+
+    // Elevated hillside carSpawn takes precedence when startInVehicle is true
+    const elevatedCarSpawn = { x: -96, z: 32, heading: 1.25 };
+    world.reset({
+      spawn: { x: 0, z: 0, heading: 0 },
+      carSpawn: elevatedCarSpawn,
+      startInVehicle: true,
+    });
+    const elevatedSnap = world.getSnapshot();
+    const elevatedCar = elevatedSnap.vehicles.find((v) => v.id === 'player_banshee');
+    expect(elevatedSnap.player.x).toBe(elevatedCarSpawn.x);
+    expect(elevatedSnap.player.z).toBe(elevatedCarSpawn.z);
+    expect(elevatedSnap.player.y).toBeCloseTo(
+      getTerrainElevation(elevatedCarSpawn.x, elevatedCarSpawn.z),
+      5,
+    );
+    expect(elevatedSnap.player.y).toBeGreaterThan(2);
+    expect(elevatedCar!.heading).toBe(elevatedCarSpawn.heading);
+
+    // Free Roam: on foot at Bulevar del Río with Banshee parked nearby
+    const roamStart = CALI_MAP.missionStarts.free_roam;
+    world.reset({
+      spawn: roamStart.playerSpawn,
+      carSpawn: roamStart.carSpawn,
+      startInVehicle: roamStart.startInVehicle,
+      wantedStars: roamStart.initialWantedStars,
+    });
+    const roamSnap = world.getSnapshot();
+    const roamCar = roamSnap.vehicles.find((v) => v.id === 'player_banshee');
+    expect(roamSnap.player.mode).toBe('on_foot');
+    expect(roamSnap.player.x).toBe(roamStart.playerSpawn.x);
+    expect(roamSnap.player.z).toBe(roamStart.playerSpawn.z);
+    expect(roamSnap.currentDistrict).toBe('Bulevar del Río');
+    expect(roamCar!.x).toBe(roamStart.carSpawn.x);
+    expect(roamCar!.z).toBe(roamStart.carSpawn.z);
+    expect(roamCar!.heading).toBe(roamStart.carSpawn.heading);
+  });
+
+  it('refills nitro cleanly to 100 for both player Banshee and active hijacked vehicles', () => {
+    const world = new GameWorld(CALI_MAP);
+    const initialTaxi = world
+      .getSnapshot()
+      .vehicles.find((v) => v.kind === 'taxi')!;
+    world.reset({
+      startInVehicle: true,
+      spawn: { x: -4, z: 40, heading: Math.PI },
+    });
+
+    // Burn nitro while boosting north along Av. Colombia
+    let snap = world.getSnapshot();
+    for (let i = 0; i < 40; i += 1) {
+      snap = world.step(0.05, createInput({ forward: true, boost: true }));
+    }
+    const drainedBanshee = snap.vehicles.find((v) => v.id === 'player_banshee');
+    expect(snap.player.nitro).toBeLessThan(80);
+    expect(drainedBanshee!.nitro).toBeLessThan(80);
+
+    world.refillNitro();
+    const refilledSnap = world.getSnapshot();
+    const refilledBanshee = refilledSnap.vehicles.find((v) => v.id === 'player_banshee');
+    expect(refilledSnap.player.nitro).toBe(100);
+    expect(refilledBanshee!.nitro).toBe(100);
+
+    // Hijack a taxi, drain its nitro, and verify refillNitro restores the active vehicle too
+    world.reset({
+      startInVehicle: false,
+      spawn: { x: initialTaxi.x - 2.5, z: initialTaxi.z, heading: Math.PI / 2 },
+    });
+    world.step(0.05, createInput({ interactPressed: true }));
+    for (let i = 0; i < 30; i += 1) {
+      snap = world.step(0.05, createInput({ forward: true, boost: true }));
+    }
+    expect(snap.player.vehicleId).toBe(initialTaxi.id);
+    expect(snap.player.nitro).toBeLessThan(90);
+
+    world.refillNitro();
+    const refilledTaxiSnap = world.getSnapshot();
+    const refilledTaxi = refilledTaxiSnap.vehicles.find((v) => v.id === initialTaxi.id);
+    expect(refilledTaxiSnap.player.nitro).toBe(100);
+    expect(refilledTaxi!.nitro).toBe(100);
+  });
 });

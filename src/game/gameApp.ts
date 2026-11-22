@@ -137,6 +137,7 @@ export class GameApp {
         onToggleMute: () => this.toggleMute(),
         onCycleCamera: () => this.cycleCamera(),
         onTogglePause: () => this.togglePause(),
+        onToggleTimeOfDay: () => this.toggleTimeOfDay(),
         onRetryWebgl: () => this.retryWebgl(),
       },
       this.map,
@@ -148,6 +149,7 @@ export class GameApp {
         onCycleCamera: () => this.cycleCamera(),
         onToggleMute: () => this.toggleMute(),
         onTogglePause: () => this.togglePause(),
+        onToggleTimeOfDay: () => this.toggleTimeOfDay(),
         onAnyUserGesture: () => {
           this.audioEngine.unlock();
         },
@@ -252,7 +254,13 @@ export class GameApp {
 
   private startMission(missionId: MissionId): void {
     this.audioEngine.unlock();
-    this.world.reset({ startInVehicle: false, wantedStars: 0 });
+    const start = this.map.missionStarts[missionId];
+    this.world.reset({
+      spawn: start.playerSpawn,
+      carSpawn: start.carSpawn,
+      startInVehicle: start.startInVehicle,
+      wantedStars: start.initialWantedStars,
+    });
     this.missionDirector.startMission(missionId);
     this.inputManager.clearKeys();
     blurFocusedElementInside(this.hudRoot);
@@ -310,6 +318,14 @@ export class GameApp {
     const currentIndex = PLAYABLE_CAMERA_MODES.indexOf(this.cameraMode);
     this.cameraMode =
       PLAYABLE_CAMERA_MODES[(currentIndex + 1) % PLAYABLE_CAMERA_MODES.length] ?? 'chase';
+    this.renderPresentState(0);
+  }
+
+  private toggleTimeOfDay(): void {
+    if (this.missionDirector.getSnapshot().mode !== 'playing') {
+      return;
+    }
+    this.missionDirector.toggleTimeOfDay();
     this.renderPresentState(0);
   }
 
@@ -381,8 +397,25 @@ export class GameApp {
     let worldSnap = this.world.step(dt, input);
     const missionSnap = this.missionDirector.update(worldSnap, dt);
 
+    const nextObjectiveStep = missionSnap.activeObjective?.stepIndex ?? -1;
+    let worldMutated = false;
+
+    if (
+      missionSnap.mode === 'playing' &&
+      missionSnap.activeMission === 'mission_2_cristo_rey' &&
+      prevObjectiveStep >= 0 &&
+      nextObjectiveStep > prevObjectiveStep
+    ) {
+      this.world.refillNitro();
+      worldMutated = true;
+    }
+
     if (worldSnap.wantedStars !== missionSnap.targetWantedStars) {
       this.world.setWantedStars(missionSnap.targetWantedStars);
+      worldMutated = true;
+    }
+
+    if (worldMutated) {
       worldSnap = this.world.getSnapshot();
     }
 

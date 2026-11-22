@@ -5,7 +5,14 @@ import { InputManager, type InputTargetLike } from '../../src/game/inputManager'
 import { MissionDirector, StorageAdapter, type StorageLike } from '../../src/missions/missionDirector';
 import { GameWorld } from '../../src/simulation/gameWorld';
 import { normalizeAngle } from '../../src/simulation/physics';
-import type { InputState, MissionSnapshot, Vec2, WorldSnapshot } from '../../src/types/game';
+import type {
+  CaliMapConfig,
+  InputState,
+  MissionId,
+  MissionSnapshot,
+  Vec2,
+  WorldSnapshot,
+} from '../../src/types/game';
 
 const STEP_DT = 1 / 60;
 
@@ -110,40 +117,117 @@ interface LoopContext {
   readonly audio: AudioEngine;
 }
 
+interface LoopSnapshot {
+  readonly world: Readonly<WorldSnapshot>;
+  readonly mission: Readonly<MissionSnapshot>;
+}
+
+function startMissionInLoop(
+  ctx: LoopContext,
+  missionId: MissionId,
+  map: CaliMapConfig = CALI_MAP,
+): LoopSnapshot {
+  const start = map.missionStarts[missionId];
+  ctx.world.reset({
+    spawn: start.playerSpawn,
+    carSpawn: start.carSpawn,
+    startInVehicle: start.startInVehicle,
+    wantedStars: start.initialWantedStars,
+  });
+  const mission = ctx.mission.startMission(missionId);
+  return { world: ctx.world.getSnapshot(), mission };
+}
+
 function stepLoopOnce(
   ctx: LoopContext,
   input: InputState,
   dt: number = STEP_DT,
-): { world: Readonly<WorldSnapshot>; mission: Readonly<MissionSnapshot> } {
+): LoopSnapshot {
+  const prevMission = ctx.mission.getSnapshot();
+  const prevObjectiveStep = prevMission.activeObjective?.stepIndex ?? -1;
+
   let worldSnap = ctx.world.step(dt, input);
   const missionSnap = ctx.mission.update(worldSnap, dt);
+  const nextObjectiveStep = missionSnap.activeObjective?.stepIndex ?? -1;
+  let worldMutated = false;
+
+  if (
+    missionSnap.mode === 'playing' &&
+    missionSnap.activeMission === 'mission_2_cristo_rey' &&
+    prevObjectiveStep >= 0 &&
+    nextObjectiveStep > prevObjectiveStep
+  ) {
+    ctx.world.refillNitro();
+    worldMutated = true;
+  }
+
   if (worldSnap.wantedStars !== missionSnap.targetWantedStars) {
     ctx.world.setWantedStars(missionSnap.targetWantedStars);
+    worldMutated = true;
+  }
+
+  if (worldMutated) {
     worldSnap = ctx.world.getSnapshot();
   }
+
   ctx.audio.update(worldSnap, dt);
   return { world: worldSnap, mission: missionSnap };
 }
 
-function boardBansheeFromStart(ctx: LoopContext): {
-  world: Readonly<WorldSnapshot>;
-  mission: Readonly<MissionSnapshot>;
-} {
-  let latest = {
+function walkToTarget(
+  ctx: LoopContext,
+  target: Vec2,
+  stopWhen: (snap: LoopSnapshot) => boolean,
+  maxSteps: number = 600,
+): LoopSnapshot {
+  let latest: LoopSnapshot = {
     world: ctx.world.getSnapshot(),
     mission: ctx.mission.getSnapshot(),
   };
 
-  for (let i = 0; i < 120 && !latest.world.player.canEnterVehicle; i += 1) {
-    latest = stepLoopOnce(ctx, { ...IDLE_INPUT, forward: true });
+  for (let i = 0; i < maxSteps && !stopWhen(latest); i += 1) {
+    if (latest.mission.mode !== 'playing') {
+      break;
+    }
+    const dx = target.x - latest.world.player.x;
+    const dz = target.z - latest.world.player.z;
+    const desiredHeading = Math.atan2(dx, dz);
+    const headingError = normalizeAngle(desiredHeading - latest.world.player.heading);
+    const input: InputState = {
+      ...IDLE_INPUT,
+      forward: Math.abs(headingError) < 0.7,
+      left: headingError > 0.05,
+      right: headingError < -0.05,
+      boost: true,
+    };
+    latest = stepLoopOnce(ctx, input);
   }
 
+  return latest;
+}
+
+function walkAndBoardBanshee(ctx: LoopContext): LoopSnapshot {
+  const initialCar = ctx.world
+    .getSnapshot()
+    .vehicles.find((v) => v.id === 'player_banshee');
+  expect(initialCar).toBeDefined();
+
+  let latest = walkToTarget(
+    ctx,
+    { x: initialCar!.x, z: initialCar!.z },
+    (snap) =>
+      snap.world.player.canEnterVehicle &&
+      snap.world.player.nearbyVehicleId === 'player_banshee',
+  );
+
   expect(latest.world.player.canEnterVehicle).toBe(true);
+  expect(latest.world.player.nearbyVehicleId).toBe('player_banshee');
 
   latest = stepLoopOnce(ctx, { ...IDLE_INPUT, interactPressed: true });
   latest = stepLoopOnce(ctx, IDLE_INPUT);
 
   expect(latest.world.player.mode).toBe('driving');
+  expect(latest.world.player.vehicleId).toBe('player_banshee');
   return latest;
 }
 
@@ -176,7 +260,12 @@ function computeSteeringInput(world: WorldSnapshot, target: Vec2, useBoost: bool
 function driveRoute(
   ctx: LoopContext,
   waypoints: readonly Vec2[],
-  options: { readonly arrivalRadius?: number; readonly maxSteps?: number; readonly useBoost?: boolean } = {},
+  options: {
+    readonly arrivalRadius?: number;
+    readonly maxSteps?: number;
+    readonly useBoost?: boolean;
+    readonly stopWhen?: (snap: LoopSnapshot) => boolean;
+  } = {},
 ): { world: Readonly<WorldSnapshot>; mission: Readonly<MissionSnapshot>; steps: number } {
   const arrivalRadius = options.arrivalRadius ?? 10;
   const maxSteps = options.maxSteps ?? 4200;
@@ -184,13 +273,13 @@ function driveRoute(
 
   let waypointIndex = 0;
   let steps = 0;
-  let latest = {
+  let latest: LoopSnapshot = {
     world: ctx.world.getSnapshot(),
     mission: ctx.mission.getSnapshot(),
   };
 
   while (waypointIndex < waypoints.length && steps < maxSteps) {
-    if (latest.mission.mode !== 'playing') {
+    if (latest.mission.mode !== 'playing' || options.stopWhen?.(latest)) {
       break;
     }
 
@@ -219,7 +308,7 @@ function driveRoute(
 }
 
 describe('GTA VI: Cali headless game loop integration', () => {
-  it('completes Mission 1 (Fuga en el Bulevar) end-to-end with real steering inputs and persists best time', () => {
+  it('completes Mission 1 (Golpe en la Torre) on foot to pickup, getaway Ferrari, Puente La Ermita, and San Antonio hideout', () => {
     const rawStorage = createMemoryStorage();
     const storage = new StorageAdapter(rawStorage);
     const world = new GameWorld(CALI_MAP);
@@ -227,64 +316,67 @@ describe('GTA VI: Cali headless game loop integration', () => {
     const audio = new AudioEngine({ contextFactory: () => null });
     const ctx: LoopContext = { world, mission, audio };
 
-    world.reset({ startInVehicle: false, wantedStars: 0 });
-    mission.startMission('mission_1_bulevar');
+    const initial = startMissionInLoop(ctx, 'mission_1_bulevar');
+    const m1Start = CALI_MAP.missionStarts.mission_1_bulevar;
+    expect(initial.world.player.mode).toBe('on_foot');
+    expect(initial.world.player.x).toBe(m1Start.playerSpawn.x);
+    expect(initial.world.player.z).toBe(m1Start.playerSpawn.z);
+    expect(initial.world.wantedStars).toBe(0);
+    expect(initial.mission.activeObjective?.id).toBe('m1_torre_pickup');
 
-    // Step 0 -> Step 1: Board Valeria's Banshee in Barrio San Antonio
-    const afterBoard = boardBansheeFromStart(ctx);
-    expect(afterBoard.mission.activeObjective?.id).toBe('m1_torre_pickup');
-    expect(afterBoard.world.wantedStars).toBe(0);
-
-    // Step 1 -> Step 2: Drive Calle 2 San Antonio -> Avenida Colombia North to Torre de Cali
-    const atTorre = driveRoute(
+    // Step 0 -> Step 1: Walk on foot at Torre de Cali to (-4, -112) to trigger 2 wanted stars
+    const atPickup = walkToTarget(
       ctx,
-      [
-        { x: -4, z: 36 },
-        { x: -4, z: -40 },
-        { x: -4, z: -112 },
-      ],
-      { arrivalRadius: 12 },
+      { x: -4, z: -112 },
+      (snap) => snap.mission.activeObjective?.id !== 'm1_torre_pickup',
     );
+    expect(atPickup.world.player.mode).toBe('on_foot');
+    expect(atPickup.mission.mode).toBe('playing');
+    expect(atPickup.mission.activeObjective?.id).toBe('m1_board_getaway');
+    expect(atPickup.mission.targetWantedStars).toBe(2);
+    expect(atPickup.world.wantedStars).toBe(2);
 
-    expect(atTorre.mission.mode).toBe('playing');
-    expect(atTorre.mission.activeObjective?.id).toBe('m1_bulevar_checkpoint');
-    expect(atTorre.mission.targetWantedStars).toBe(2);
-    expect(atTorre.world.wantedStars).toBe(2);
+    // Step 1 -> Step 2: Walk to parked Ferrari getaway car and board with F
+    const afterBoard = walkAndBoardBanshee(ctx);
+    expect(afterBoard.mission.mode).toBe('playing');
+    expect(afterBoard.mission.activeObjective?.id).toBe('m1_ermita_finish');
+    expect(afterBoard.world.wantedStars).toBeGreaterThanOrEqual(2);
 
-    // Step 2 -> Step 3: Escape south down Avenida Colombia through Bulevar del Río
-    const atBulevar = driveRoute(
-      ctx,
-      [
-        { x: -4, z: -70 },
-        { x: -4, z: -24 },
-        { x: -4, z: 12 },
-      ],
-      { arrivalRadius: 12 },
-    );
-
-    expect(atBulevar.mission.mode).toBe('playing');
-    expect(atBulevar.mission.activeObjective?.id).toBe('m1_ermita_finish');
-    expect(atBulevar.world.wantedStars).toBeGreaterThanOrEqual(2);
-    expect(atBulevar.world.wantedStars).toBeLessThanOrEqual(3);
-
-    // Step 3 -> Mission Passed: Head north to Calle 13, cross Puente La Ermita to Iglesia La Ermita
+    // Step 2 -> Step 3: Escape south down Av. Colombia & across Puente La Ermita to (58, -24)
     const atErmita = driveRoute(
       ctx,
       [
+        { x: -4, z: -92 },
         { x: -4, z: -24 },
         { x: 20, z: -24 },
         { x: 50, z: -24 },
         { x: 58, z: -24 },
       ],
+      { arrivalRadius: 6 },
+    );
+
+    expect(atErmita.mission.mode).toBe('playing');
+    expect(atErmita.mission.activeObjective?.id).toBe('m1_san_antonio_hideout');
+
+    // Step 3 -> Mission Passed: Loop back across Puente La Ermita to San Antonio hideout (-82, 36)
+    const atHideout = driveRoute(
+      ctx,
+      [
+        { x: 50, z: -24 },
+        { x: 20, z: -24 },
+        { x: -4, z: -24 },
+        { x: -4, z: 36 },
+        { x: -82, z: 36 },
+      ],
       { arrivalRadius: 12 },
     );
 
-    expect(atErmita.mission.mode).toBe('mission_passed');
-    expect(atErmita.mission.cashCop).toBe(250_000);
-    expect(atErmita.mission.rewardCop).toBe(250_000);
-    expect(atErmita.mission.isNewRecord).toBe(true);
-    expect(atErmita.mission.bestTimes.mission_1_bulevar).toBeGreaterThan(0);
-    expect(atErmita.world.wantedStars).toBe(0);
+    expect(atHideout.mission.mode).toBe('mission_passed');
+    expect(atHideout.mission.cashCop).toBe(250_000);
+    expect(atHideout.mission.rewardCop).toBe(250_000);
+    expect(atHideout.mission.isNewRecord).toBe(true);
+    expect(atHideout.mission.bestTimes.mission_1_bulevar).toBeGreaterThan(0);
+    expect(atHideout.world.wantedStars).toBe(0);
 
     // Verify persistence across a fresh StorageAdapter read
     const reloaded = new StorageAdapter(rawStorage).loadRecords();
@@ -295,7 +387,7 @@ describe('GTA VI: Cali headless game loop integration', () => {
     audio.dispose();
   });
 
-  it('completes Mission 2 (Noche de Salsa en Cristo Rey) across Puente Bulevar Sur and up to Cristo Rey summit', () => {
+  it('completes Mission 2 (Noche de Salsa en Cristo Rey) at night with countdown, nitro ring refills, and Cristo Rey summit', () => {
     const rawStorage = createMemoryStorage();
     const storage = new StorageAdapter(rawStorage);
     // Seed prior Mission 1 cash so we also validate cumulative cash progression
@@ -314,45 +406,70 @@ describe('GTA VI: Cali headless game loop integration', () => {
     const audio = new AudioEngine({ contextFactory: () => null });
     const ctx: LoopContext = { world, mission, audio };
 
-    world.reset({ startInVehicle: false, wantedStars: 0 });
-    mission.startMission('mission_2_cristo_rey');
+    const initial = startMissionInLoop(ctx, 'mission_2_cristo_rey');
+    const m2Start = CALI_MAP.missionStarts.mission_2_cristo_rey;
+    expect(initial.world.player.mode).toBe('driving');
+    expect(initial.world.player.vehicleId).toBe('player_banshee');
+    expect(initial.world.player.x).toBe(m2Start.carSpawn.x);
+    expect(initial.world.player.z).toBe(m2Start.carSpawn.z);
+    expect(initial.world.wantedStars).toBe(3);
+    expect(initial.mission.timeOfDay).toBe('night');
+    expect(initial.mission.isCountdown).toBe(true);
+    expect(initial.mission.timerSeconds).toBeCloseTo(95, 1);
+    expect(initial.mission.targetWantedStars).toBe(3);
+    expect(initial.mission.activeObjective?.id).toBe('m2_ring_bridge');
 
-    // Step 0 -> Step 1: Board Banshee in San Antonio
-    const afterBoard = boardBansheeFromStart(ctx);
-    expect(afterBoard.mission.activeObjective?.id).toBe('m2_estadio_stage');
-
-    // Step 1 -> Step 2: Drive south to Calle 5, cross Puente Bulevar Sur to Estadio Pascual Guerrero
-    const atEstadio = driveRoute(
+    // Step 0 -> Step 1: Cross Puente Bulevar Sur ring (35, 77) in westbound lane and verify nitro refill
+    const atBridgeRing = driveRoute(
       ctx,
       [
-        { x: -68, z: 36 },
-        { x: -68, z: 77 },
-        { x: -4, z: 77 },
-        { x: 20, z: 77 },
-        { x: 50, z: 77 },
-        { x: 132, z: 77 },
+        { x: 76, z: 72 },
+        { x: 35, z: 72 },
       ],
-      { arrivalRadius: 13 },
+      {
+        arrivalRadius: 14,
+        stopWhen: (snap) => snap.mission.activeObjective?.id !== 'm2_ring_bridge',
+      },
     );
 
-    expect(atEstadio.mission.mode).toBe('playing');
-    expect(atEstadio.mission.activeObjective?.id).toBe('m2_cristo_rey_ramp');
-    expect(atEstadio.mission.activeObjective?.stepIndex).toBe(2);
-    expect(atEstadio.mission.activeObjective?.totalSteps).toBe(4);
-    expect(atEstadio.mission.targetWantedStars).toBe(3);
-    expect(atEstadio.world.wantedStars).toBe(3);
+    expect(atBridgeRing.mission.mode).toBe('playing');
+    expect(atBridgeRing.mission.activeObjective?.id).toBe('m2_ring_bulevar');
+    expect(atBridgeRing.mission.activeObjective?.stepIndex).toBe(1);
+    expect(atBridgeRing.world.player.nitro).toBe(100);
+    expect(atBridgeRing.world.wantedStars).toBe(3);
 
-    // Step 2 -> Step 3: Return west over Puente Bulevar Sur and north on Av. Circunvalar to ramp entry
+    // Step 1 -> Step 2: Cross Bulevar del Río ring (-4, 16)
+    const atBulevarRing = driveRoute(
+      ctx,
+      [
+        { x: 20, z: 72 },
+        { x: -2, z: 72 },
+        { x: -4, z: 46 },
+        { x: -4, z: 16 },
+      ],
+      {
+        arrivalRadius: 14,
+        stopWhen: (snap) => snap.mission.activeObjective?.id !== 'm2_ring_bulevar',
+      },
+    );
+
+    expect(atBulevarRing.mission.mode).toBe('playing');
+    expect(atBulevarRing.mission.activeObjective?.id).toBe('m2_cristo_rey_ramp');
+    expect(atBulevarRing.mission.activeObjective?.stepIndex).toBe(2);
+    expect(atBulevarRing.world.player.nitro).toBe(100);
+
+    // Step 2 -> Step 3: Enter Cristo Rey ramp (-68, -24)
     const atRamp = driveRoute(
       ctx,
       [
-        { x: 96, z: 77 },
-        { x: 50, z: 77 },
-        { x: 20, z: 77 },
-        { x: -68, z: 77 },
+        { x: -4, z: -24 },
+        { x: -36, z: -24 },
         { x: -68, z: -24 },
       ],
-      { arrivalRadius: 15, maxSteps: 4200 },
+      {
+        arrivalRadius: 16,
+        stopWhen: (snap) => snap.mission.activeObjective?.id !== 'm2_cristo_rey_ramp',
+      },
     );
 
     expect(atRamp.mission.mode).toBe('playing');
@@ -360,9 +477,9 @@ describe('GTA VI: Cali headless game loop integration', () => {
     expect(atRamp.mission.activeObjective?.stepIndex).toBe(3);
     expect(atRamp.mission.activeObjective?.totalSteps).toBe(4);
     expect(atRamp.mission.activeObjective?.propKind).toBe('summit_stage');
-    expect(atRamp.world.wantedStars).toBe(3);
+    expect(atRamp.world.player.nitro).toBe(100);
 
-    // Step 3 -> Victory: Climb Cerro Los Cristales ramp to Mirador de Cristo Rey
+    // Step 3 -> Victory: Climb Cerro Los Cristales ramp to Mirador de Cristo Rey (-176, -24)
     const atCristoRey = driveRoute(
       ctx,
       [
@@ -382,6 +499,85 @@ describe('GTA VI: Cali headless game loop integration', () => {
     audio.dispose();
   });
 
+  it('fails Mission 2 with failureReason time_up when the 95s nighttime countdown hits 0', () => {
+    const noPoliceMap: CaliMapConfig = { ...CALI_MAP, policeSpawns: [] };
+    const storage = new StorageAdapter(createMemoryStorage());
+    const world = new GameWorld(noPoliceMap);
+    const mission = new MissionDirector(noPoliceMap, storage);
+    const audio = new AudioEngine({ contextFactory: () => null });
+    const ctx: LoopContext = { world, mission, audio };
+
+    const started = startMissionInLoop(ctx, 'mission_2_cristo_rey', noPoliceMap);
+    expect(started.mission.isCountdown).toBe(true);
+    expect(started.mission.timerSeconds).toBeCloseTo(95, 1);
+
+    let latest = started;
+    for (let i = 0; i < 1050 && latest.mission.mode === 'playing'; i += 1) {
+      latest = stepLoopOnce(ctx, IDLE_INPUT, 0.1);
+    }
+
+    expect(latest.mission.mode).toBe('busted');
+    expect(latest.mission.timerSeconds).toBe(0);
+    expect(latest.mission.failureReason).toBe('time_up');
+
+    audio.dispose();
+  });
+
+  it('starts Free Roam at Bulevar del Río and toggles golden_hour <-> night via KeyT / toggleTimeOfDay', () => {
+    const storage = new StorageAdapter(createMemoryStorage());
+    const world = new GameWorld(CALI_MAP);
+    const mission = new MissionDirector(CALI_MAP, storage);
+    const audio = new AudioEngine({ contextFactory: () => null });
+    const ctx: LoopContext = { world, mission, audio };
+
+    const started = startMissionInLoop(ctx, 'free_roam');
+    const roamStart = CALI_MAP.missionStarts.free_roam;
+    expect(started.world.player.mode).toBe('on_foot');
+    expect(started.world.player.x).toBe(roamStart.playerSpawn.x);
+    expect(started.world.player.z).toBe(roamStart.playerSpawn.z);
+    expect(started.world.currentDistrict).toBe('Bulevar del Río');
+    expect(started.mission.timeOfDay).toBe('golden_hour');
+    expect(started.mission.isCountdown).toBe(false);
+
+    const target = new SyntheticInputTarget();
+    const inputManager = new InputManager(
+      {
+        onToggleTimeOfDay: () => {
+          if (mission.getSnapshot().mode === 'playing') {
+            mission.toggleTimeOfDay();
+          }
+        },
+        isPlaying: () => mission.getSnapshot().mode === 'playing',
+      },
+      target,
+    );
+
+    // KeyT toggles golden_hour -> night (ignoring key repeat)
+    target.emit('keydown', { code: 'KeyT' });
+    target.emit('keydown', { code: 'KeyT', repeat: true });
+    expect(mission.getSnapshot().timeOfDay).toBe('night');
+
+    // Release and press KeyT again -> night -> golden_hour
+    target.emit('keyup', { code: 'KeyT' });
+    target.emit('keydown', { code: 'KeyT' });
+    expect(mission.getSnapshot().timeOfDay).toBe('golden_hour');
+
+    // Ignored when typing inside an input element or while paused
+    target.emit('keyup', { code: 'KeyT' });
+    target.emit('keydown', {
+      code: 'KeyT',
+      target: { tagName: 'INPUT' } as unknown as EventTarget,
+    });
+    expect(mission.getSnapshot().timeOfDay).toBe('golden_hour');
+
+    mission.setPaused(true);
+    target.emit('keydown', { code: 'KeyT' });
+    expect(mission.getSnapshot().timeOfDay).toBe('golden_hour');
+
+    inputManager.dispose();
+    audio.dispose();
+  });
+
   it('freezes simulation progression while paused, resumes cleanly, and resets state on restart', () => {
     const storage = new StorageAdapter(createMemoryStorage());
     const world = new GameWorld(CALI_MAP);
@@ -389,9 +585,8 @@ describe('GTA VI: Cali headless game loop integration', () => {
     const audio = new AudioEngine({ contextFactory: () => null });
     const ctx: LoopContext = { world, mission, audio };
 
-    world.reset({ startInVehicle: false, wantedStars: 0 });
-    mission.startMission('mission_1_bulevar');
-    boardBansheeFromStart(ctx);
+    startMissionInLoop(ctx, 'mission_1_bulevar');
+    walkAndBoardBanshee(ctx);
 
     // Accelerate briefly and trigger wanted stars
     world.setWantedStars(2);
@@ -429,20 +624,19 @@ describe('GTA VI: Cali headless game loop integration', () => {
     expect(afterResume.world.timeSeconds).toBeGreaterThan(beforePauseWorld.timeSeconds);
     expect(afterResume.mission.timerSeconds).toBeGreaterThan(beforePauseMission.timerSeconds);
 
-    // Restart cleanly returns player to San Antonio on foot with 0 wanted stars
-    world.reset({ startInVehicle: false, wantedStars: 0 });
-    const restartedMission = mission.startMission('mission_1_bulevar');
-    const restartedWorld = world.getSnapshot();
+    // Restart cleanly returns player to Mission 1 Torre de Cali spawn on foot with 0 wanted stars
+    const restarted = startMissionInLoop(ctx, 'mission_1_bulevar');
+    const m1Start = CALI_MAP.missionStarts.mission_1_bulevar;
 
-    expect(restartedMission.mode).toBe('playing');
-    expect(restartedMission.timerSeconds).toBe(0);
-    expect(restartedMission.targetWantedStars).toBe(0);
-    expect(restartedWorld.wantedStars).toBe(0);
-    expect(restartedWorld.bustProgress).toBe(0);
-    expect(restartedWorld.player.mode).toBe('on_foot');
-    expect(restartedWorld.player.x).toBe(CALI_MAP.playerStart.x);
-    expect(restartedWorld.player.z).toBe(CALI_MAP.playerStart.z);
-    expect(restartedWorld.currentDistrict).toBe('Barrio San Antonio');
+    expect(restarted.mission.mode).toBe('playing');
+    expect(restarted.mission.timerSeconds).toBe(0);
+    expect(restarted.mission.targetWantedStars).toBe(0);
+    expect(restarted.world.wantedStars).toBe(0);
+    expect(restarted.world.bustProgress).toBe(0);
+    expect(restarted.world.player.mode).toBe('on_foot');
+    expect(restarted.world.player.x).toBe(m1Start.playerSpawn.x);
+    expect(restarted.world.player.z).toBe(m1Start.playerSpawn.z);
+    expect(restarted.world.currentDistrict).toBe('Avenida Las Américas');
 
     audio.dispose();
   });
@@ -454,6 +648,7 @@ describe('GTA VI: Cali headless game loop integration', () => {
     const onCycleCamera = vi.fn();
     const onToggleMute = vi.fn();
     const onTogglePause = vi.fn();
+    const onToggleTimeOfDay = vi.fn();
 
     const inputManager = new InputManager(
       {
@@ -461,6 +656,7 @@ describe('GTA VI: Cali headless game loop integration', () => {
         onCycleCamera,
         onToggleMute,
         onTogglePause,
+        onToggleTimeOfDay,
         isPlaying: () => playing,
       },
       target,
@@ -490,14 +686,20 @@ describe('GTA VI: Cali headless game loop integration', () => {
     target.emit('keydown', { code: 'KeyR', repeat: true });
     target.emit('keydown', { code: 'KeyC' });
     target.emit('keydown', { code: 'KeyM' });
+    target.emit('keydown', { code: 'KeyT' });
+    target.emit('keydown', { code: 'KeyT', repeat: true });
     target.emit('keydown', { code: 'Escape' });
     expect(onCycleRadio).toHaveBeenCalledTimes(1);
     expect(onCycleCamera).toHaveBeenCalledTimes(1);
     expect(onToggleMute).toHaveBeenCalledTimes(1);
+    expect(onToggleTimeOfDay).toHaveBeenCalledTimes(1);
     expect(onTogglePause).toHaveBeenCalledTimes(1);
 
-    // Does not prevent scrolling when not playing
+    // Does not prevent scrolling or toggle time-of-day when not playing
     playing = false;
+    target.emit('keyup', { code: 'KeyT' });
+    target.emit('keydown', { code: 'KeyT' });
+    expect(onToggleTimeOfDay).toHaveBeenCalledTimes(1);
     expect(target.emit('keydown', { code: 'Space' })).toBe(false);
     expect(target.emit('keydown', { code: 'ArrowDown' })).toBe(false);
 

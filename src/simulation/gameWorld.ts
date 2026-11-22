@@ -41,8 +41,11 @@ import {
 export interface ResetWorldOptions {
   readonly startInVehicle?: boolean;
   readonly spawn?: SpawnPose;
+  readonly carSpawn?: SpawnPose;
   readonly wantedStars?: WantedLevel;
 }
+
+const MAX_NITRO = 100;
 
 const VEHICLE_ENTER_RADIUS = 6.5;
 const BANSHEE_PREFERENCE_RADIUS = 3.5;
@@ -145,16 +148,17 @@ export class GameWorld {
     const playerCar = this.vehicles.find((v) => v.role === 'player') ?? null;
 
     if (options?.startInVehicle && playerCar) {
-      if (options.spawn) {
-        playerCar.x = options.spawn.x;
-        playerCar.z = options.spawn.z;
-        playerCar.y = getTerrainElevation(options.spawn.x, options.spawn.z);
-        playerCar.heading = options.spawn.heading;
+      const carPose = options.carSpawn ?? options.spawn;
+      if (carPose) {
+        this.placeVehicleAt(playerCar, carPose);
       }
       this.playerMode = 'driving';
       this.activeVehicleId = playerCar.id;
       this.syncPlayerFromVehicle(playerCar);
     } else {
+      if (playerCar && options?.carSpawn) {
+        this.placeVehicleAt(playerCar, options.carSpawn);
+      }
       const spawn = options?.spawn ?? this.map.playerStart;
       this.playerMode = 'on_foot';
       this.activeVehicleId = null;
@@ -167,6 +171,17 @@ export class GameWorld {
 
     this.currentDistrict = getDistrictAt(this.playerX, this.playerZ);
     this.syncPoliceSirens();
+  }
+
+  public refillNitro(): void {
+    const activeVehicle = this.getActiveVehicle();
+    if (activeVehicle) {
+      activeVehicle.nitro = MAX_NITRO;
+    }
+    const playerCar = this.vehicles.find((v) => v.role === 'player') ?? null;
+    if (playerCar) {
+      playerCar.nitro = MAX_NITRO;
+    }
   }
 
   public setWantedStars(stars: WantedLevel): void {
@@ -266,6 +281,17 @@ export class GameWorld {
       return null;
     }
     return this.vehicles.find((v) => v.id === this.activeVehicleId) ?? null;
+  }
+
+  private placeVehicleAt(vehicle: SimVehicle, pose: SpawnPose): void {
+    vehicle.x = pose.x;
+    vehicle.z = pose.z;
+    vehicle.y = getTerrainElevation(pose.x, pose.z);
+    vehicle.heading = pose.heading;
+    vehicle.speedMps = 0;
+    vehicle.steerAngle = 0;
+    vehicle.isDrifting = false;
+    vehicle.isBoosting = false;
   }
 
   private syncPlayerFromVehicle(vehicle: SimVehicle): void {
