@@ -4693,7 +4693,7 @@ interface MioShelterSpec {
   readonly yaw: number;
 }
 
-interface BenchSpec {
+export interface BenchSpec {
   readonly x: number;
   readonly z: number;
   readonly yaw: number;
@@ -4715,7 +4715,7 @@ const MIO_SHELTER_SPECS: readonly MioShelterSpec[] = [
   { id: 'calle_5_estadio', x: 126, z: 65.2, yaw: 0 },
 ];
 
-const BULEVAR_BENCH_SPECS: readonly BenchSpec[] = [
+export const BULEVAR_BENCH_SPECS: readonly BenchSpec[] = [
   { x: 21.0, z: 1.0, yaw: Math.PI / 2 },
   { x: 21.0, z: 11.0, yaw: Math.PI / 2 },
   { x: 21.0, z: 34.0, yaw: Math.PI / 2 },
@@ -5283,7 +5283,7 @@ export function setWorldNightLighting(
   }
 }
 
-interface CholadoStandSpec {
+export interface CholadoStandSpec {
   readonly id: string;
   readonly x: number;
   readonly z: number;
@@ -5312,7 +5312,7 @@ interface CaliMuralSpec {
   readonly accentRgb: readonly [number, number, number];
 }
 
-const CHOLADO_STAND_SPECS: readonly CholadoStandSpec[] = [
+export const CHOLADO_STAND_SPECS: readonly CholadoStandSpec[] = [
   { id: 'bulevar_norte', x: 15.5, z: -4.5, yaw: -Math.PI / 2 },
   { id: 'bulevar_sur', x: 16.5, z: 54.0, yaw: -Math.PI / 2 },
   { id: 'san_antonio', x: -85.0, z: 24.0, yaw: 0 },
