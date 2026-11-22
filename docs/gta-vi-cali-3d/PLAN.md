@@ -1,7 +1,7 @@
 # PLAN — GTA VI: Cali 3D (`feat/gta-vi-cali-3d`)
 
 - **Tier**: Tier 2 (Standard) | **Data Contract**: `data-source: none` (offline simulation + `localStorage`)
-- **Status**: `C-01 [x] DONE` | `C-02 [~] State 2 Build`
+- **Status**: `C-01 [x] DONE` | `C-02 [x] DONE`
 
 ## Changes
 | ID | Request | Tier | product | design | arch | e2e | critic/challenger |
