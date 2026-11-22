@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { CaliOutfitId, PlayerCarKind, VehicleKind } from '../../../src/types/game';
 import { CALI_MAP } from '../../../src/config/caliMap';
 import {
   buildCaliWorld,
@@ -27,9 +29,16 @@ import {
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import type { LoadedCharacterAsset } from '../../../src/world/assetLoader';
 import {
+  attachColombianLicensePlate,
+  createCalenoCharacterRig,
+  createCaliJerseyTexture,
   createCivilianPedestrianRig,
+  createColombianPlateTexture,
+  createFerrariLiveryMesh,
   createValeriaPlayerMesh,
+  createVehicleMesh,
   retargetMixamoClips,
+  type CaliJerseyStyle,
 } from '../../../src/world/vehicleMeshes';
 import {
   disposeObjectTree,
@@ -78,6 +87,15 @@ function createMockCanvasDocument(): {
       drawCalls.count += 1;
     },
     lineTo: () => {
+      drawCalls.count += 1;
+    },
+    quadraticCurveTo: () => {
+      drawCalls.count += 1;
+    },
+    translate: () => {
+      drawCalls.count += 1;
+    },
+    rotate: () => {
       drawCalls.count += 1;
     },
     arc: () => {
@@ -1063,5 +1081,523 @@ describe('Valeria Mixamo retargeting and civilian pedestrians', () => {
 
     const onlySoldier = createCivilianPedestrianRig(null, soldierAsset, 0, 0x00f0ff, 0x222222);
     expect(onlySoldier?.group.name).toBe('cali_civilian_male');
+  });
+});
+
+interface GlbJsonChunk {
+  images?: unknown[];
+  textures?: unknown[];
+  materials?: Array<{
+    pbrMetallicRoughness?: {
+      baseColorTexture?: unknown;
+      metallicRoughnessTexture?: unknown;
+    };
+    normalTexture?: unknown;
+    occlusionTexture?: unknown;
+    emissiveTexture?: unknown;
+  }>;
+}
+
+interface NodeFsReader {
+  readFileSync(path: URL): Uint8Array;
+}
+
+const PUBLIC_MODELS_ROOT = new URL('../../../public/', import.meta.url);
+const UTF8_DECODER = new TextDecoder('utf-8');
+const UTF8_ENCODER = new TextEncoder();
+
+async function loadRealGlbForHeadlessTest(relativePublicPath: string): Promise<LoadedCharacterAsset> {
+  const fsModuleId = 'node:fs';
+  const fsMod = (await import(/* @vite-ignore */ fsModuleId)) as NodeFsReader;
+  const fileUrl = new URL(relativePublicPath.replace(/^public\//, ''), PUBLIC_MODELS_ROOT);
+  const raw = fsMod.readFileSync(fileUrl);
+  const rawView = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+  const jsonLength = rawView.getUint32(12, true);
+  const jsonText = UTF8_DECODER.decode(raw.subarray(20, 20 + jsonLength));
+  const parsed = JSON.parse(jsonText) as GlbJsonChunk;
+
+  // Strip only embedded image/texture references so Node GLTFLoader parses real skins, bones,
+  // meshes, materials, and animations without requiring browser ImageBitmap decoding.
+  delete parsed.images;
+  delete parsed.textures;
+  for (const mat of parsed.materials ?? []) {
+    if (mat.pbrMetallicRoughness) {
+      delete mat.pbrMetallicRoughness.baseColorTexture;
+      delete mat.pbrMetallicRoughness.metallicRoughnessTexture;
+    }
+    delete mat.normalTexture;
+    delete mat.occlusionTexture;
+    delete mat.emissiveTexture;
+  }
+
+  const rawJsonBytes = UTF8_ENCODER.encode(JSON.stringify(parsed));
+  const padBytes = (4 - (rawJsonBytes.length % 4)) % 4;
+  const strippedJson = new Uint8Array(rawJsonBytes.length + padBytes);
+  strippedJson.set(rawJsonBytes, 0);
+  strippedJson.fill(0x20, rawJsonBytes.length);
+
+  const binChunk = raw.subarray(20 + jsonLength);
+  const totalLength = 20 + strippedJson.length + binChunk.length;
+  const rebuilt = new Uint8Array(totalLength);
+  rebuilt.set(raw.subarray(0, 12), 0);
+  const outView = new DataView(rebuilt.buffer);
+  outView.setUint32(8, totalLength, true);
+  outView.setUint32(12, strippedJson.length, true);
+  outView.setUint32(16, 0x4e4f534a, true);
+  rebuilt.set(strippedJson, 20);
+  rebuilt.set(binChunk, 20 + strippedJson.length);
+
+  const loader = new GLTFLoader();
+  return new Promise<LoadedCharacterAsset>((resolveAsset, rejectAsset) => {
+    loader.parse(
+      rebuilt.buffer,
+      '',
+      (gltf) => {
+        resolveAsset({ scene: gltf.scene, animations: gltf.animations });
+      },
+      (err) => {
+        rejectAsset(err instanceof Error ? err : new Error(String(err)));
+      },
+    );
+  });
+}
+
+function createMockFerrariTemplateForPlates(): THREE.Group {
+  const root = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(1.9, 1.1, 4.4),
+    new THREE.MeshStandardMaterial({ name: 'Body_Color', color: 0xcc0000 }),
+  );
+  body.name = 'body';
+  body.position.set(0, 0.7, 0);
+  root.add(body);
+
+  const tail = new THREE.Mesh(
+    new THREE.BoxGeometry(1.5, 0.14, 0.08),
+    new THREE.MeshStandardMaterial({ name: 'Taillight_Glass', color: 0xff0000 }),
+  );
+  tail.name = 'lights_red';
+  tail.position.set(0, 0.72, 2.2);
+  root.add(tail);
+
+  for (const [name, x, z] of [
+    ['wheel_fl', -0.9, -1.35],
+    ['wheel_fr', 0.9, -1.35],
+    ['wheel_rl', -0.9, 1.35],
+    ['wheel_rr', 0.9, 1.35],
+  ] as const) {
+    const wheel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.35, 0.35, 0.25, 10),
+      new THREE.MeshStandardMaterial({ color: 0x222222 }),
+    );
+    wheel.name = name;
+    wheel.position.set(x, 0.35, z);
+    root.add(wheel);
+  }
+  return root;
+}
+
+function countMeshVertices(root: THREE.Object3D): number {
+  let total = 0;
+  root.traverse((node) => {
+    if (node instanceof THREE.Mesh) {
+      const pos = node.geometry.getAttribute('position');
+      if (pos) {
+        total += pos.count;
+      }
+    }
+  });
+  return total;
+}
+
+describe('Colombian license plates and sculpted clearcoat Cali fleet', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('creates authentic Colombian plate CanvasTextures when DOM is present and falls back to null headlessly', () => {
+    expect(createColombianPlateTexture('R4T · 680', 'CALI', 'private_yellow')).toBeNull();
+    expect(createColombianPlateTexture('PNC · 123', 'CALI', 'public_white')).toBeNull();
+
+    const mockDoc = createMockCanvasDocument();
+    vi.stubGlobal('document', mockDoc);
+
+    const yellowPlate = createColombianPlateTexture('R4T · 680', 'CALI', 'private_yellow');
+    const whitePlate = createColombianPlateTexture('PNC · 123', 'CALI', 'public_white');
+
+    expect(yellowPlate).toBeInstanceOf(THREE.CanvasTexture);
+    expect(whitePlate).toBeInstanceOf(THREE.CanvasTexture);
+    expect(yellowPlate?.colorSpace).toBe(THREE.SRGBColorSpace);
+    expect(whitePlate?.colorSpace).toBe(THREE.SRGBColorSpace);
+    expect(mockDoc.drawCalls.count).toBeGreaterThan(20);
+
+    yellowPlate?.dispose();
+    whitePlate?.dispose();
+  });
+
+  it('mounts 3D front and rear Colombian plates on every VehicleKind and Ferrari livery', () => {
+    const expectedPlates: readonly {
+      readonly kind: VehicleKind;
+      readonly code: string;
+      readonly style: 'private_yellow' | 'public_white';
+      readonly hullName: string;
+    }[] = [
+      { kind: 'renault4_turbo', code: 'R4T · 680', style: 'private_yellow', hullName: 'renault4_hull' },
+      { kind: 'spark_gt_turbo', code: 'CAL · 323', style: 'private_yellow', hullName: 'spark_gt_hull' },
+      { kind: 'willys_v8', code: 'YIP · 808', style: 'private_yellow', hullName: 'willys_tub_hull' },
+      { kind: 'banshee', code: 'VLC · 458', style: 'private_yellow', hullName: 'banshee_chassis' },
+      { kind: 'police', code: 'PNC · 123', style: 'public_white', hullName: 'police_chassis' },
+      { kind: 'taxi', code: 'WKL · 714', style: 'public_white', hullName: 'taxi_chassis' },
+      { kind: 'mio_bus', code: 'MIO · 901', style: 'public_white', hullName: 'mio_front_lower' },
+      { kind: 'chiva', code: 'CHV · 555', style: 'public_white', hullName: 'chiva_hull' },
+    ];
+
+    for (const spec of expectedPlates) {
+      const vehicle = createVehicleMesh(spec.kind, 0xd81b3a, 0x161922, 0x00f0ff);
+      const frontPlate = vehicle.getObjectByName('colombian_license_plate_front');
+      const rearPlate = vehicle.getObjectByName('colombian_license_plate_rear');
+      const hull = vehicle.getObjectByName(spec.hullName);
+
+      expect(frontPlate).toBeInstanceOf(THREE.Group);
+      expect(rearPlate).toBeInstanceOf(THREE.Group);
+      expect(frontPlate?.userData.plateCode).toBe(spec.code);
+      expect(frontPlate?.userData.plateCity).toBe('CALI');
+      expect(frontPlate?.userData.plateStyle).toBe(spec.style);
+      expect(rearPlate?.userData.plateCode).toBe(spec.code);
+      expect(rearPlate?.userData.plateStyle).toBe(spec.style);
+
+      // Verify front/rear plates sit proudly outside beveled bodywork (zero buried plates)
+      if (hull && frontPlate && rearPlate) {
+        vehicle.updateMatrixWorld(true);
+        const hullBox = new THREE.Box3().setFromObject(hull);
+        expect(frontPlate.position.z).toBeGreaterThanOrEqual(hullBox.max.z - 0.02);
+        if (spec.kind !== 'mio_bus') {
+          expect(rearPlate.position.z).toBeLessThanOrEqual(hullBox.min.z + 0.02);
+        }
+      }
+
+      disposeObjectTree(vehicle);
+    }
+
+    const holder = new THREE.Group();
+    const standalone = attachColombianLicensePlate(holder, 'CAL · 999', 'CALI', 'private_yellow', {
+      y: 0.5,
+      z: 2.0,
+      facing: 'front',
+    });
+    expect(standalone.userData.plateCode).toBe('CAL · 999');
+    disposeObjectTree(holder);
+
+    const ferrariTemplate = createMockFerrariTemplateForPlates();
+    const customFerrari = createFerrariLiveryMesh(ferrariTemplate, 'banshee', 0x16a34a, 0x00f0ff);
+    const bodyMesh = customFerrari.getObjectByName('body') as THREE.Mesh;
+    expect((bodyMesh.material as THREE.MeshPhysicalMaterial).color.getHex()).toBe(0x16a34a);
+    expect(customFerrari.userData.underglowMaterial).toBeInstanceOf(THREE.MeshBasicMaterial);
+    expect(customFerrari.getObjectByName('colombian_license_plate_front')?.userData.plateCode).toBe(
+      'VLC · 458',
+    );
+    expect(customFerrari.getObjectByName('colombian_license_plate_rear')?.userData.plateCode).toBe(
+      'VLC · 458',
+    );
+    disposeObjectTree(customFerrari);
+    disposeObjectTree(ferrariTemplate);
+  });
+
+  it('builds 8 distinct sculpted clearcoat VehicleKind rigs with valid bounds, wheels, lights, and sirens', () => {
+    const allKinds: readonly VehicleKind[] = [
+      'renault4_turbo',
+      'spark_gt_turbo',
+      'willys_v8',
+      'banshee',
+      'police',
+      'taxi',
+      'mio_bus',
+      'chiva',
+    ];
+    const playerKinds = new Set<PlayerCarKind>([
+      'renault4_turbo',
+      'spark_gt_turbo',
+      'willys_v8',
+      'banshee',
+    ]);
+    const vertexCounts = new Set<number>();
+
+    const mockDoc = createMockCanvasDocument();
+    vi.stubGlobal('document', mockDoc);
+
+    for (const kind of allKinds) {
+      const vehicle = createVehicleMesh(kind, 0xe11d48, 0x181c28, 0x00f0ff);
+      expect(vehicle.name).toBe(`vehicle_${kind}`);
+
+      const verts = countMeshVertices(vehicle);
+      expect(verts).toBeGreaterThan(200);
+      vertexCounts.add(verts);
+
+      // Finite, non-NaN bounding box
+      vehicle.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(vehicle);
+      const size = box.getSize(new THREE.Vector3());
+      expect(Number.isFinite(size.x) && size.x > 1.4).toBe(true);
+      expect(Number.isFinite(size.y) && size.y > 1.0).toBe(true);
+      expect(Number.isFinite(size.z) && size.z > 3.2).toBe(true);
+
+      // Required runtime contracts
+      const wheels = vehicle.userData.wheels as THREE.Object3D[] | undefined;
+      const frontWheels = vehicle.userData.frontWheels as THREE.Object3D[] | undefined;
+      const brakeLights = vehicle.userData.brakeLightMaterials as
+        | THREE.MeshStandardMaterial[]
+        | undefined;
+      expect(wheels?.length).toBeGreaterThanOrEqual(4);
+      expect(frontWheels?.length).toBe(2);
+      expect(brakeLights?.length).toBeGreaterThanOrEqual(1);
+      expect(vehicle.userData.headlightCones).toBeInstanceOf(THREE.Object3D);
+
+      // Must contain automotive clearcoat MeshPhysicalMaterial paint and sculpted ExtrudeGeometry
+      let hasClearcoatPaint = false;
+      let hasExtrudeHull = false;
+      vehicle.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          if (node.geometry instanceof THREE.ExtrudeGeometry) {
+            hasExtrudeHull = true;
+          }
+          const mats = Array.isArray(node.material) ? node.material : [node.material];
+          for (const mat of mats) {
+            if (mat instanceof THREE.MeshPhysicalMaterial && mat.clearcoat >= 0.95) {
+              hasClearcoatPaint = true;
+            }
+          }
+        }
+      });
+      expect(hasClearcoatPaint).toBe(true);
+      expect(hasExtrudeHull).toBe(true);
+
+      if (playerKinds.has(kind as PlayerCarKind)) {
+        expect(vehicle.userData.nitroFlames).toBeInstanceOf(THREE.Object3D);
+        expect(vehicle.userData.underglowMaterial).toBeInstanceOf(THREE.MeshBasicMaterial);
+      }
+      if (kind === 'police') {
+        expect(vehicle.userData.redBeacon).toBeInstanceOf(THREE.Mesh);
+        expect(vehicle.userData.blueBeacon).toBeInstanceOf(THREE.Mesh);
+        expect(vehicle.userData.sirenLight).toBeInstanceOf(THREE.PointLight);
+        const sirenMats = vehicle.userData.sirenLightMaterials as
+          | THREE.MeshStandardMaterial[]
+          | undefined;
+        expect(sirenMats?.length).toBeGreaterThanOrEqual(2);
+      }
+      if (kind === 'taxi') {
+        expect(vehicle.getObjectByName('taxi_roof_sign')).toBeInstanceOf(THREE.Mesh);
+      }
+
+      disposeObjectTree(vehicle);
+    }
+
+    // All 8 silhouettes must have genuinely distinct procedural meshes (no shared copy-paste box)
+    expect(vertexCounts.size).toBe(allKinds.length);
+  });
+});
+
+describe('Caleno GLB character rig, Cali jerseys, and prefix-stripped Mixamo retargeting', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('creates 512px Cali jersey CanvasTextures across all 6 authentic styles and falls back headlessly', () => {
+    const styles: readonly CaliJerseyStyle[] = [
+      'escarlata',
+      'azucarero',
+      'tricolor',
+      'guayabera',
+      'urbano_cali',
+      'police_uniform',
+    ];
+    for (const style of styles) {
+      expect(createCaliJerseyTexture(style)).toBeNull();
+    }
+
+    const mockDoc = createMockCanvasDocument();
+    vi.stubGlobal('document', mockDoc);
+
+    for (const style of styles) {
+      const tex = createCaliJerseyTexture(style);
+      expect(tex).toBeInstanceOf(THREE.CanvasTexture);
+      expect(tex?.colorSpace).toBe(THREE.SRGBColorSpace);
+      expect(tex?.wrapS).toBe(THREE.RepeatWrapping);
+      expect(tex?.wrapT).toBe(THREE.RepeatWrapping);
+      tex?.dispose();
+    }
+    expect(mockDoc.drawCalls.count).toBeGreaterThan(80);
+  });
+
+  it('retargets real character.glb Mixamo clips onto real caleno.glb (prefix-stripped Hips <-> mixamorig:Hips) and builds grounded 1.78m rig', async () => {
+    const [calenoAsset, soldierAsset] = await Promise.all([
+      loadRealGlbForHeadlessTest('public/models/caleno.glb'),
+      loadRealGlbForHeadlessTest('public/models/character.glb'),
+    ]);
+
+    const retargeted = retargetMixamoClips(soldierAsset, calenoAsset.scene);
+    const clipNames = retargeted.map((clip) => clip.name);
+    expect(clipNames).toContain('Idle');
+    expect(clipNames).toContain('Walk');
+    expect(clipNames).toContain('Run');
+
+    const walkClip = retargeted.find((clip) => clip.name === 'Walk');
+    expect(walkClip).toBeDefined();
+    const walkTrackNames = walkClip?.tracks.map((track) => track.name) ?? [];
+    expect(walkTrackNames).toContain('Hips.quaternion');
+    expect(walkTrackNames).toContain('Spine.quaternion');
+    expect(walkTrackNames).toContain('LeftUpLeg.quaternion');
+    expect(walkTrackNames.some((name) => name.endsWith('.scale'))).toBe(false);
+
+    // Record template material before rigging to prove immutability
+    const templateTopMesh = calenoAsset.scene.getObjectByName('Wolf3D_Outfit_Top') as THREE.Mesh;
+    const templateTopMat = templateTopMesh.material as THREE.MeshStandardMaterial;
+    const origTopColor = templateTopMat.color.getHex();
+
+    const mockDoc = createMockCanvasDocument();
+    vi.stubGlobal('document', mockDoc);
+
+    const rigBearded = createCalenoCharacterRig(calenoAsset, soldierAsset, {
+      skinToneHex: 0xb87b56,
+      outfit: 'escarlata',
+      showBeard: true,
+      showHeadwear: false,
+    });
+    const rigClean = createCalenoCharacterRig(calenoAsset, soldierAsset, {
+      skinToneHex: 0xddab84,
+      outfit: 'guayabera',
+      showBeard: false,
+      showHeadwear: true,
+    });
+
+    // Template stays strictly untouched
+    expect(templateTopMat.color.getHex()).toBe(origTopColor);
+
+    // Verify grounding at y = 0 and 1.78m height on visible meshes
+    rigBearded.group.updateMatrixWorld(true);
+    const modelRoot = rigBearded.group.getObjectByName('caleno_model_root');
+    expect(modelRoot).toBeDefined();
+    const visibleBox = new THREE.Box3();
+    modelRoot?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.visible) {
+        visibleBox.expandByObject(node);
+      }
+    });
+    const size = visibleBox.getSize(new THREE.Vector3());
+    expect(size.y).toBeCloseTo(1.78, 2);
+    expect(visibleBox.min.y).toBeCloseTo(0, 2);
+
+    // Verify independent cloned materials + beard/headwear toggles + natural non-plastic skin PBR
+    const beardedTop = rigBearded.group.getObjectByName('Wolf3D_Outfit_Top') as THREE.Mesh;
+    const beardedTopMat = beardedTop.material as THREE.MeshStandardMaterial;
+    expect(beardedTopMat).not.toBe(templateTopMat);
+    expect(beardedTopMat.map).toBeInstanceOf(THREE.CanvasTexture);
+
+    const beardedHead = rigBearded.group.getObjectByName('Wolf3D_Head') as THREE.Mesh;
+    const headMat = beardedHead.material as THREE.MeshStandardMaterial;
+    expect(headMat.roughness).toBeGreaterThanOrEqual(0.65);
+    expect(headMat.metalness).toBeLessThanOrEqual(0.05);
+
+    expect(rigBearded.group.getObjectByName('Wolf3D_Beard')?.visible).toBe(true);
+    expect(rigBearded.group.getObjectByName('Wolf3D_Headwear')?.visible).toBe(false);
+    expect(rigClean.group.getObjectByName('Wolf3D_Beard')?.visible).toBe(false);
+    expect(rigClean.group.getObjectByName('Wolf3D_Headwear')?.visible).toBe(true);
+
+    // Locomotion actions bound and Idle running
+    expect(rigBearded.actions.idle).toBeDefined();
+    expect(rigBearded.actions.walk).toBeDefined();
+    expect(rigBearded.actions.run).toBeDefined();
+    expect(rigBearded.actions.idle?.isRunning()).toBe(true);
+
+    disposeObjectTree(rigBearded.group);
+    disposeObjectTree(rigClean.group);
+  });
+
+  it('alternates 6-arg civilian pedestrians strictly between Caleno and Valeria rigs and never renders sci-fi soldiers', async () => {
+    const [calenoAsset, soldierAsset] = await Promise.all([
+      loadRealGlbForHeadlessTest('public/models/caleno.glb'),
+      loadRealGlbForHeadlessTest('public/models/character.glb'),
+    ]);
+    const valeriaAsset = createMinimalSkinnedCharacter('valeria_c8', 0, 0, []);
+
+    // Never falls back to rendering Soldier.glb when both valeria & caleno are null
+    expect(
+      createCivilianPedestrianRig(null, null, soldierAsset, 0, 0xff2e93, 0x223344),
+    ).toBeNull();
+
+    const ped0 = createCivilianPedestrianRig(
+      valeriaAsset,
+      calenoAsset,
+      soldierAsset,
+      0,
+      0xc8102e,
+      0x1e293b,
+    );
+    const ped1 = createCivilianPedestrianRig(
+      valeriaAsset,
+      calenoAsset,
+      soldierAsset,
+      1,
+      0x0b7a3e,
+      0x334155,
+    );
+
+    expect(ped0?.group.name).toBe('cali_civilian_caleno');
+    expect(ped1?.group.name).toBe('cali_civilian_valeria');
+    expect(ped0?.actions.walk).toBeDefined();
+    expect(ped1?.actions.walk).toBeDefined();
+
+    // Valeria player rig accepts Cali outfit colorways while staying warm Morena Calena
+    const outfits: readonly CaliOutfitId[] = [
+      'urbano_cali',
+      'escarlata',
+      'azucarero',
+      'tricolor',
+      'guayabera',
+    ];
+    for (const outfit of outfits) {
+      const valeriaRig = createValeriaPlayerMesh(valeriaAsset, soldierAsset, { outfit });
+      expect(valeriaRig.group.userData.outfit).toBe(outfit);
+      disposeObjectTree(valeriaRig.group);
+    }
+
+    if (ped0) {
+      disposeObjectTree(ped0.group);
+    }
+    if (ped1) {
+      disposeObjectTree(ped1.group);
+    }
+  });
+});
+
+describe('ParticleSystem.emitExhaustBackfire', () => {
+  it('emits twin-pipe blue/orange-gold exhaust backfire pops, respects pool cap, and disposes cleanly', () => {
+    const particles = new ParticleSystem(40);
+
+    // Non-positive or NaN intensity must be safe no-ops
+    particles.emitExhaustBackfire(0, 0.3, 0, 0, 0);
+    particles.emitExhaustBackfire(0, 0.3, 0, 0, -1);
+    particles.emitExhaustBackfire(0, 0.3, 0, 0, Number.NaN);
+    expect(particles.getActiveCount()).toBe(0);
+
+    particles.emitExhaustBackfire(4, 0.3, -6, Math.PI * 0.5, 1.2);
+    const spawned = particles.getActiveCount();
+    expect(spawned).toBeGreaterThanOrEqual(4);
+    expect(spawned).toBeLessThanOrEqual(40);
+
+    // Burst repeatedly to confirm strict maxParticles cap enforcement
+    for (let i = 0; i < 12; i += 1) {
+      particles.emitExhaustBackfire(4, 0.3, -6, 0, 1.5);
+      expect(particles.getActiveCount()).toBeLessThanOrEqual(40);
+    }
+
+    // Backfire pops are punchy and decay completely to zero
+    for (let step = 0; step < 30; step += 1) {
+      particles.update(0.05);
+    }
+    expect(particles.getActiveCount()).toBe(0);
+
+    particles.dispose();
+    particles.emitExhaustBackfire(0, 0.3, 0, 0, 1.0);
+    expect(particles.getActiveCount()).toBe(0);
   });
 });

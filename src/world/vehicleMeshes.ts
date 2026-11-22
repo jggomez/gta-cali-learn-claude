@@ -6,12 +6,16 @@
 
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
-import type { ObjectivePropKind, VehicleKind } from '../types/game';
+import type { CaliOutfitId, ObjectivePropKind, VehicleKind } from '../types/game';
 import type { LoadedCharacterAsset } from './assetLoader';
 
 export type MissionPropKey = Exclude<ObjectivePropKind, 'none'>;
 
 export type FerrariLiveryKind = 'banshee' | 'police' | 'taxi';
+
+export type ColombianPlateStyle = 'private_yellow' | 'public_white';
+
+export type CaliJerseyStyle = CaliOutfitId | 'police_uniform';
 
 export interface HeadlightConeMaterials {
   readonly outerBeamMat: THREE.MeshBasicMaterial;
@@ -37,6 +41,17 @@ export interface RiggedCharacterOptions {
   readonly heightMeters?: number;
   readonly skinToneHex?: number;
   readonly outfitTintHex?: number;
+  readonly outfit?: CaliOutfitId;
+}
+
+export interface CalenoCharacterOptions {
+  readonly skinToneHex?: number;
+  readonly outfit?: CaliJerseyStyle;
+  readonly pantsHex?: number;
+  readonly headwearHex?: number;
+  readonly showBeard?: boolean;
+  readonly showHeadwear?: boolean;
+  readonly heightMeters?: number;
 }
 
 const FERRARI_TARGET_LENGTH_METERS = 4.55;
@@ -51,6 +66,29 @@ const VALLECAUCANA_SKIN_PALETTES = [
   0xddab84,
   0x915a3c,
 ] as const;
+const CALENO_VALLECAUCANO_SKIN_TONES = [
+  0x6e4630, // Afro-Pacífico
+  0x8c5a3c, // Moreno oscuro
+  0xa86f4c, // Canela intenso
+  0xc48b66, // Canela cálido
+  0xd6a47e, // Trigueño
+  0xe4ba98, // Mestizo cálido
+] as const;
+const CALI_CIVILIAN_OUTFITS: readonly CaliOutfitId[] = [
+  'escarlata',
+  'azucarero',
+  'tricolor',
+  'guayabera',
+  'urbano_cali',
+] as const;
+const CALI_OUTFIT_ACCENT_HEX: Record<CaliJerseyStyle, number> = {
+  escarlata: 0xc8102e,
+  azucarero: 0x0b7a3e,
+  tricolor: 0xf2c200,
+  guayabera: 0xf4efe4,
+  urbano_cali: 0xff4b7d,
+  police_uniform: 0x9be61e,
+};
 const CIVILIAN_MALE_WARM_PALETTES = [
   0xd8b498,
   0xc69878,
@@ -96,23 +134,25 @@ function createCarPaintMaterial(
   return new THREE.MeshPhysicalMaterial({
     color: colorHex,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.1,
-    metalness: 0.72,
-    roughness: 0.24,
+    clearcoatRoughness: 0.06,
+    metalness: 0.64,
+    roughness: 0.21,
+    envMapIntensity: 1.55,
     ...overrides,
   });
 }
 
 function createTintedGlassMaterial(
-  colorHex = 0x0f1224,
+  colorHex = 0x0c111e,
   overrides?: THREE.MeshPhysicalMaterialParameters,
 ): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({
     color: colorHex,
-    metalness: 0.25,
-    roughness: 0.08,
+    metalness: 0.22,
+    roughness: 0.05,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.06,
+    clearcoatRoughness: 0.04,
+    envMapIntensity: 1.65,
     ...overrides,
   });
 }
@@ -322,27 +362,347 @@ function createFlaredWheelArchGeometry(
   );
 }
 
+function traceRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  const radius = Math.min(r, w * 0.5, h * 0.5);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+/**
+ * Generates an authentic Colombian stamped aluminum license plate CanvasTexture (256x128):
+ * golden-yellow (#f2c200) for private cars or crisp reflective white (#f4f6fa) for public/police
+ * vehicles, bold black frame, embossed lettering, and city stamp (e.g. CALI) along the bottom.
+ * Gracefully returns null in headless Node environments without a DOM document.
+ */
+export function createColombianPlateTexture(
+  code: string,
+  city = 'CALI',
+  style: ColombianPlateStyle = 'private_yellow',
+): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+
+  const isYellow = style === 'private_yellow';
+  const bgGradient = ctx.createLinearGradient(0, 0, 0, 128);
+  if (isYellow) {
+    bgGradient.addColorStop(0, '#f8d22a');
+    bgGradient.addColorStop(0.5, '#f2c200');
+    bgGradient.addColorStop(1, '#ddb000');
+  } else {
+    bgGradient.addColorStop(0, '#fbfcfe');
+    bgGradient.addColorStop(0.55, '#f4f6fa');
+    bgGradient.addColorStop(1, '#e1e6ef');
+  }
+
+  // Outer reflective plate face
+  ctx.fillStyle = '#0e1015';
+  ctx.fillRect(0, 0, 256, 128);
+  traceRoundedRect(ctx, 4, 4, 248, 120, 11);
+  ctx.fillStyle = bgGradient;
+  ctx.fill();
+
+  // Bold stamped black perimeter border
+  traceRoundedRect(ctx, 10, 10, 236, 108, 7);
+  ctx.strokeStyle = '#101218';
+  ctx.lineWidth = 5;
+  ctx.stroke();
+
+  // Four subtle stamped corner mounting rivets
+  ctx.fillStyle = isYellow ? '#b98f00' : '#aeb6c4';
+  for (const [rx, ry] of [
+    [22, 22],
+    [234, 22],
+    [22, 106],
+    [234, 106],
+  ] as const) {
+    ctx.beginPath();
+    ctx.arc(rx, ry, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Raised stamped Colombian plate lettering with subtle metallic highlight bevel
+  const plateLabel = code.trim().toUpperCase();
+  ctx.font = '900 50px "Arial Narrow", "Impact", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = isYellow ? 'rgba(255, 248, 196, 0.55)' : 'rgba(255, 255, 255, 0.85)';
+  ctx.fillText(plateLabel, 127, 52);
+  ctx.fillStyle = '#0f1117';
+  ctx.fillText(plateLabel, 128, 54);
+
+  // Clean bottom municipality stamp (CALI)
+  const cityLabel = city.trim().toUpperCase() || 'CALI';
+  ctx.font = '800 22px "Arial", sans-serif';
+  ctx.fillStyle = '#11131a';
+  ctx.fillText(cityLabel, 128, 97);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+export interface LicensePlatePlacement {
+  readonly x?: number;
+  readonly y: number;
+  readonly z: number;
+  readonly facing: 'front' | 'rear';
+  readonly width?: number;
+  readonly height?: number;
+  readonly rx?: number;
+}
+
+/**
+ * Mounts a realistic 3D framed Colombian aluminum license plate onto a vehicle bumper.
+ */
+export function attachColombianLicensePlate(
+  parent: THREE.Group,
+  code: string,
+  city: string,
+  style: ColombianPlateStyle,
+  placement: LicensePlatePlacement,
+  sharedTexture?: THREE.CanvasTexture | null,
+): THREE.Group {
+  const plateGroup = new THREE.Group();
+  plateGroup.name = `colombian_license_plate_${placement.facing}`;
+  plateGroup.position.set(placement.x ?? 0, placement.y, placement.z);
+  plateGroup.rotation.set(
+    placement.rx ?? 0,
+    placement.facing === 'rear' ? Math.PI : 0,
+    0,
+  );
+
+  const width = placement.width ?? 0.38;
+  const height = placement.height ?? 0.19;
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: 0x12141c,
+    roughness: 0.48,
+    metalness: 0.35,
+  });
+
+  // Molded ABS surround frame
+  addMesh(plateGroup, new THREE.BoxGeometry(width + 0.036, height + 0.03, 0.022), frameMat, {
+    z: 0.008,
+    castShadow: false,
+    receiveShadow: true,
+  });
+
+  const plateTexture =
+    sharedTexture !== undefined
+      ? sharedTexture
+      : createColombianPlateTexture(code, city, style);
+  const fallbackColorHex = style === 'private_yellow' ? 0xf2c200 : 0xf4f6fa;
+  const faceMat = new THREE.MeshPhysicalMaterial({
+    color: plateTexture ? 0xffffff : fallbackColorHex,
+    ...(plateTexture ? { map: plateTexture } : {}),
+    roughness: 0.34,
+    metalness: 0.24,
+    clearcoat: 0.45,
+    clearcoatRoughness: 0.18,
+  });
+
+  addMesh(plateGroup, new THREE.PlaneGeometry(width, height), faceMat, {
+    z: 0.021,
+    name: `plate_face_${placement.facing}`,
+    castShadow: false,
+    receiveShadow: false,
+  });
+
+  plateGroup.userData.plateCode = code;
+  plateGroup.userData.plateCity = city;
+  plateGroup.userData.plateStyle = style;
+  parent.add(plateGroup);
+  return plateGroup;
+}
+
+function attachVehicleLicensePlates(
+  parent: THREE.Group,
+  code: string,
+  style: ColombianPlateStyle,
+  front: { readonly y: number; readonly z: number; readonly rx?: number; readonly width?: number },
+  rear: { readonly y: number; readonly z: number; readonly rx?: number; readonly width?: number },
+  city = 'CALI',
+): void {
+  const sharedTex = createColombianPlateTexture(code, city, style);
+  attachColombianLicensePlate(
+    parent,
+    code,
+    city,
+    style,
+    {
+      y: front.y,
+      z: front.z,
+      facing: 'front',
+      ...(front.rx !== undefined ? { rx: front.rx } : {}),
+      ...(front.width !== undefined ? { width: front.width, height: front.width * 0.5 } : {}),
+    },
+    sharedTex,
+  );
+  attachColombianLicensePlate(
+    parent,
+    code,
+    city,
+    style,
+    {
+      y: rear.y,
+      z: rear.z,
+      facing: 'rear',
+      ...(rear.rx !== undefined ? { rx: rear.rx } : {}),
+      ...(rear.width !== undefined ? { width: rear.width, height: rear.width * 0.5 } : {}),
+    },
+    sharedTex,
+  );
+}
+
+function createPoliceDecalTexture(unitNumber = '123'): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 160;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+
+  // Pearl-white upper base with Policía Nacional emerald & hi-vis neon-green diagonal stripe
+  ctx.fillStyle = '#f4f7fb';
+  ctx.fillRect(0, 0, 512, 160);
+
+  // Dark Colombian Police emerald lower diagonal band
+  ctx.fillStyle = '#0b6b3a';
+  ctx.beginPath();
+  ctx.moveTo(0, 88);
+  ctx.lineTo(512, 54);
+  ctx.lineTo(512, 160);
+  ctx.lineTo(0, 160);
+  ctx.closePath();
+  ctx.fill();
+
+  // High-visibility neon-lime diagonal accent stripe
+  ctx.fillStyle = '#a2eb18';
+  ctx.beginPath();
+  ctx.moveTo(0, 74);
+  ctx.lineTo(512, 40);
+  ctx.lineTo(512, 60);
+  ctx.lineTo(0, 94);
+  ctx.closePath();
+  ctx.fill();
+
+  // Bold metallic-navy/gold shield crest on left
+  ctx.fillStyle = '#0c3b24';
+  ctx.beginPath();
+  ctx.arc(62, 68, 32, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#f4c430';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.fillStyle = '#f4c430';
+  ctx.font = '900 18px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('PNC', 62, 69);
+
+  // Crisp POLICÍA NACIONAL · 123 lettering
+  ctx.fillStyle = '#0b2d1b';
+  ctx.font = '900 32px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('POLICÍA NACIONAL', 110, 44);
+
+  ctx.fillStyle = '#f8fbff';
+  ctx.font = '900 36px sans-serif';
+  ctx.fillText(`PATRULLA · ${unitNumber}`, 114, 122);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function createTaxiDoorNumberTexture(cabCode = 'T-714'): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 96;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+
+  ctx.fillStyle = '#f2bd00';
+  ctx.fillRect(0, 0, 256, 96);
+  traceRoundedRect(ctx, 8, 8, 240, 80, 12);
+  ctx.fillStyle = '#12141d';
+  ctx.fill();
+  traceRoundedRect(ctx, 13, 13, 230, 70, 9);
+  ctx.strokeStyle = '#f7d136';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '900 34px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(cabCode, 128, 38);
+
+  ctx.fillStyle = '#f7d136';
+  ctx.font = '800 18px sans-serif';
+  ctx.fillText('TAXI · CALI', 128, 69);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
 function createTaxiSignTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') {
     return null;
   }
   const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 48;
+  canvas.width = 160;
+  canvas.height = 56;
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     return null;
   }
-  ctx.fillStyle = '#ffe047';
-  ctx.fillRect(0, 0, 128, 48);
-  ctx.strokeStyle = '#120826';
+  ctx.fillStyle = '#fbfcff';
+  ctx.fillRect(0, 0, 160, 56);
+  ctx.strokeStyle = '#12131c';
   ctx.lineWidth = 4;
-  ctx.strokeRect(2, 2, 124, 44);
-  ctx.fillStyle = '#120826';
-  ctx.font = 'bold 28px sans-serif';
+  ctx.strokeRect(3, 3, 154, 50);
+  ctx.fillStyle = '#11121a';
+  ctx.font = '900 32px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('TAXI', 64, 25);
+  ctx.fillText('TAXI', 80, 29);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -503,17 +863,19 @@ function attachContactShadow(
 }
 
 /**
- * Attaches realistic multi-part wheels (rubber tire, barrel, silver 5-spoke alloy rim, brake rotor,
- * and steering-mounted caliper) preserving spinHub (`wheels`) and steerPivot (`frontWheels`).
+ * Attaches realistic multi-part concave 5-spoke alloy wheels (dark radial rubber tire, inner
+ * barrel, metallic concave 5-spoke rim, brake rotor, and glowing red Brembo brake caliper)
+ * preserving spinHub (`wheels`) and steerPivot (`frontWheels`).
  */
 function attachWheels(
   parent: THREE.Group,
   specs: readonly WheelSpec[],
   radius: number,
   width: number,
-  caliperColorHex = 0xd91c38,
+  caliperColorHex = 0xe11d38,
+  rimColorHex = 0xd9e1f2,
 ): WheelRig {
-  const tireGeo = new THREE.CylinderGeometry(radius, radius, width, 18);
+  const tireGeo = new THREE.CylinderGeometry(radius, radius, width, 20);
   tireGeo.rotateZ(Math.PI / 2);
 
   const shoulderTubeRadius = Math.min(width * 0.14, radius * 0.11);
@@ -521,66 +883,71 @@ function attachWheels(
     radius - shoulderTubeRadius,
     shoulderTubeRadius,
     8,
-    18,
+    20,
   );
   shoulderGeo.rotateY(Math.PI / 2);
 
   const barrelGeo = new THREE.CylinderGeometry(
-    radius * 0.64,
-    radius * 0.64,
+    radius * 0.65,
+    radius * 0.65,
     width * 0.88,
-    14,
+    16,
   );
   barrelGeo.rotateZ(Math.PI / 2);
 
-  const rimLipGeo = new THREE.TorusGeometry(radius * 0.63, radius * 0.055, 6, 18);
+  const rimLipGeo = new THREE.TorusGeometry(radius * 0.64, radius * 0.055, 8, 20);
   rimLipGeo.rotateY(Math.PI / 2);
 
   const hubCapGeo = new THREE.CylinderGeometry(
-    radius * 0.17,
-    radius * 0.17,
-    width * 0.24,
-    10,
+    radius * 0.16,
+    radius * 0.18,
+    width * 0.22,
+    12,
   );
   hubCapGeo.rotateZ(Math.PI / 2);
 
-  const spokeGeo = new THREE.BoxGeometry(width * 0.14, radius * 0.56, radius * 0.11);
+  // Tapered concave alloy spoke
+  const spokeGeo = new THREE.BoxGeometry(width * 0.12, radius * 0.54, radius * 0.1);
   const rotorGeo = new THREE.CylinderGeometry(
-    radius * 0.46,
-    radius * 0.46,
-    width * 0.12,
-    14,
+    radius * 0.48,
+    radius * 0.48,
+    width * 0.11,
+    16,
   );
   rotorGeo.rotateZ(Math.PI / 2);
-  const caliperGeo = new THREE.BoxGeometry(width * 0.34, radius * 0.36, radius * 0.22);
+  const caliperGeo = new THREE.BoxGeometry(width * 0.34, radius * 0.36, radius * 0.23);
 
   const tireMat = new THREE.MeshStandardMaterial({
-    color: 0x15141e,
-    roughness: 0.88,
-    metalness: 0.06,
+    color: 0x121318,
+    roughness: 0.9,
+    metalness: 0.05,
   });
   const barrelMat = new THREE.MeshStandardMaterial({
-    color: 0x202332,
-    roughness: 0.48,
-    metalness: 0.6,
+    color: 0x1a1e2a,
+    roughness: 0.42,
+    metalness: 0.68,
   });
   const alloyMat = new THREE.MeshPhysicalMaterial({
-    color: 0xd9e1f2,
-    roughness: 0.2,
-    metalness: 0.9,
-    clearcoat: 0.7,
-    clearcoatRoughness: 0.12,
+    color: rimColorHex,
+    roughness: 0.17,
+    metalness: 0.92,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.08,
+    envMapIntensity: 1.5,
   });
   const rotorMat = new THREE.MeshStandardMaterial({
-    color: 0x9aa3b5,
-    roughness: 0.36,
-    metalness: 0.82,
+    color: 0xaab4c6,
+    roughness: 0.3,
+    metalness: 0.88,
   });
+  const isRedBrembo = caliperColorHex === 0xe11d38 || caliperColorHex === 0xd91c38 || caliperColorHex === 0xe81e3c;
   const caliperMat = new THREE.MeshPhysicalMaterial({
     color: caliperColorHex,
-    roughness: 0.26,
-    metalness: 0.45,
-    clearcoat: 0.85,
+    ...(isRedBrembo ? { emissive: 0x5c0612, emissiveIntensity: 0.48 } : {}),
+    roughness: 0.22,
+    metalness: 0.42,
+    clearcoat: 0.95,
+    clearcoatRoughness: 0.08,
   });
 
   const wheels: THREE.Object3D[] = [];
@@ -588,14 +955,14 @@ function attachWheels(
 
   for (const spec of specs) {
     const sideSign = spec.x >= 0 ? 1 : -1;
-    const outerFaceX = sideSign * (width * 0.44);
+    const outerFaceX = sideSign * (width * 0.45);
 
     const steerPivot = new THREE.Group();
     steerPivot.position.set(spec.x, radius, spec.z);
 
-    // Non-spinning brake caliper mounted to the steering knuckle
+    // Non-spinning Brembo brake caliper mounted to steering knuckle
     addMesh(steerPivot, caliperGeo, caliperMat, {
-      x: sideSign * (width * 0.14),
+      x: sideSign * (width * 0.15),
       y: radius * 0.14,
       z: -radius * 0.34,
       castShadow: false,
@@ -610,28 +977,30 @@ function attachWheels(
     });
     addMesh(spinHub, barrelGeo, barrelMat, { castShadow: false });
     addMesh(spinHub, rotorGeo, rotorMat, {
-      x: sideSign * (width * 0.1),
+      x: sideSign * (width * 0.11),
       castShadow: false,
     });
     addMesh(spinHub, rimLipGeo, alloyMat, {
       x: outerFaceX,
       castShadow: false,
     });
+    // Recessed concave hub cap
     addMesh(spinHub, hubCapGeo, alloyMat, {
-      x: outerFaceX - sideSign * (width * 0.04),
+      x: outerFaceX - sideSign * (width * 0.14),
       castShadow: false,
     });
 
-    // 5-spoke silver alloy face
+    // 5-spoke concave alloy face angling inward toward the recessed hub
     for (let s = 0; s < 5; s += 1) {
       const angle = (s / 5) * Math.PI * 2;
       const spoke = new THREE.Mesh(spokeGeo, alloyMat);
       spoke.position.set(
-        outerFaceX - sideSign * 0.015,
-        Math.cos(angle) * (radius * 0.31),
-        Math.sin(angle) * (radius * 0.31),
+        outerFaceX - sideSign * (width * 0.075),
+        Math.cos(angle) * (radius * 0.32),
+        Math.sin(angle) * (radius * 0.32),
       );
       spoke.rotation.x = angle;
+      spoke.rotation.z = sideSign * 0.18;
       spoke.castShadow = false;
       spoke.receiveShadow = true;
       spinHub.add(spoke);
@@ -647,6 +1016,215 @@ function attachWheels(
   }
 
   return { wheels, frontWheels };
+}
+
+function attachUnderglow(
+  parent: THREE.Group,
+  width: number,
+  length: number,
+  neonHex: number | undefined,
+): THREE.MeshBasicMaterial | undefined {
+  if (neonHex === undefined || !Number.isFinite(neonHex) || neonHex <= 0) {
+    return undefined;
+  }
+  const glowTex = createSoftRadialGlowTexture();
+  const underglowMat = new THREE.MeshBasicMaterial({
+    color: neonHex,
+    ...(glowTex ? { map: glowTex } : {}),
+    transparent: true,
+    opacity: glowTex ? 0.56 : 0.34,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const glowPlane = addMesh(
+    parent,
+    new THREE.PlaneGeometry(width, length),
+    underglowMat,
+    {
+      y: 0.045,
+      rx: -Math.PI / 2,
+      name: 'vehicle_underglow',
+      castShadow: false,
+      receiveShadow: false,
+    },
+  );
+  glowPlane.renderOrder = 2;
+  parent.userData.underglowMaterial = underglowMat;
+  return underglowMat;
+}
+
+function attachCabinInterior(
+  parent: THREE.Group,
+  spec: {
+    readonly seatY: number;
+    readonly seatZ: number;
+    readonly dashZ: number;
+    readonly width: number;
+    readonly steeringX?: number;
+  },
+): void {
+  const leatherMat = new THREE.MeshStandardMaterial({
+    color: 0x161820,
+    roughness: 0.72,
+    metalness: 0.1,
+  });
+  const trimMat = new THREE.MeshStandardMaterial({
+    color: 0x252834,
+    roughness: 0.55,
+    metalness: 0.25,
+  });
+  const clusterMat = new THREE.MeshStandardMaterial({
+    color: 0x22d3ee,
+    emissive: 0x06b6d4,
+    emissiveIntensity: 0.85,
+    roughness: 0.25,
+  });
+
+  // Sculpted dashboard & illuminated instrument cluster
+  addMesh(parent, createRoundedPodGeometry(spec.width, 0.24, 0.36, 0.06, 0.02), leatherMat, {
+    y: spec.seatY + 0.34,
+    z: spec.dashZ,
+    castShadow: false,
+  });
+  const steeringX = spec.steeringX ?? spec.width * 0.27;
+  addMesh(parent, new THREE.BoxGeometry(0.32, 0.1, 0.06), clusterMat, {
+    x: steeringX,
+    y: spec.seatY + 0.43,
+    z: spec.dashZ - 0.16,
+    castShadow: false,
+  });
+
+  // Left-hand-drive Colombian steering wheel (torus rim + column)
+  const wheelRimGeo = new THREE.TorusGeometry(0.16, 0.024, 8, 16);
+  addMesh(parent, wheelRimGeo, trimMat, {
+    x: steeringX,
+    y: spec.seatY + 0.4,
+    z: spec.dashZ - 0.24,
+    rx: -0.32,
+    castShadow: false,
+  });
+
+  // Twin sport bucket seats (base cushion, angled bolster backrest, headrest)
+  const seatOffset = spec.width * 0.26;
+  const cushionGeo = createRoundedPodGeometry(0.44, 0.12, 0.44, 0.05, 0.015);
+  const backGeo = createRoundedPodGeometry(0.42, 0.52, 0.12, 0.05, 0.015);
+  const headrestGeo = createRoundedPodGeometry(0.22, 0.18, 0.1, 0.04, 0.012);
+
+  for (const sx of [-seatOffset, seatOffset] as const) {
+    addMesh(parent, cushionGeo, leatherMat, {
+      x: sx,
+      y: spec.seatY,
+      z: spec.seatZ,
+      castShadow: false,
+    });
+    addMesh(parent, backGeo, leatherMat, {
+      x: sx,
+      y: spec.seatY + 0.28,
+      z: spec.seatZ - 0.18,
+      rx: -0.2,
+      castShadow: false,
+    });
+    addMesh(parent, headrestGeo, trimMat, {
+      x: sx,
+      y: spec.seatY + 0.6,
+      z: spec.seatZ - 0.24,
+      castShadow: false,
+    });
+  }
+}
+
+function attachDoorHandles(
+  parent: THREE.Group,
+  halfWidth: number,
+  yPos: number,
+  frontZ: number,
+  rearZ?: number,
+  material: THREE.Material = createChromeMaterial(),
+): void {
+  const handleGeo = createRoundedPodGeometry(0.045, 0.04, 0.18, 0.016, 0.008);
+  for (const side of [-1, 1] as const) {
+    addMesh(parent, handleGeo, material, {
+      x: side * halfWidth,
+      y: yPos,
+      z: frontZ,
+      castShadow: false,
+    });
+    if (rearZ !== undefined) {
+      addMesh(parent, handleGeo, material, {
+        x: side * halfWidth,
+        y: yPos,
+        z: rearZ,
+        castShadow: false,
+      });
+    }
+  }
+}
+
+function attachPlayerNitroFlames(
+  parent: THREE.Group,
+  exhaustOffsets: readonly number[],
+  exhaustY: number,
+  exhaustZ: number,
+  chromeMat: THREE.Material,
+): THREE.Group {
+  const nitroFlames = new THREE.Group();
+  nitroFlames.name = 'nitro_flames';
+  nitroFlames.visible = false;
+
+  const outerFlameMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0.78,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const innerFlameMat = new THREE.MeshBasicMaterial({
+    color: 0xffc65c,
+    transparent: true,
+    opacity: 0.94,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const boreMat = new THREE.MeshStandardMaterial({
+    color: 0x09080e,
+    roughness: 0.9,
+  });
+
+  for (const ex of exhaustOffsets) {
+    addMesh(parent, new THREE.CylinderGeometry(0.085, 0.095, 0.24, 12), chromeMat, {
+      x: ex,
+      y: exhaustY,
+      z: exhaustZ,
+      rx: Math.PI / 2,
+    });
+    addMesh(parent, new THREE.CylinderGeometry(0.06, 0.06, 0.08, 10), boreMat, {
+      x: ex,
+      y: exhaustY,
+      z: exhaustZ - 0.1,
+      rx: Math.PI / 2,
+      castShadow: false,
+    });
+
+    addMesh(nitroFlames, new THREE.ConeGeometry(0.16, 1.25, 10), outerFlameMat, {
+      x: ex,
+      y: exhaustY,
+      z: exhaustZ - 0.72,
+      rx: -Math.PI / 2,
+      castShadow: false,
+      receiveShadow: false,
+    });
+    addMesh(nitroFlames, new THREE.ConeGeometry(0.09, 0.8, 10), innerFlameMat, {
+      x: ex,
+      y: exhaustY,
+      z: exhaustZ - 0.48,
+      rx: -Math.PI / 2,
+      castShadow: false,
+      receiveShadow: false,
+    });
+  }
+  parent.add(nitroFlames);
+  return nitroFlames;
 }
 
 function attachSideMirrors(
@@ -812,28 +1390,34 @@ function attachStandardLampPairs(
   return [brakeLightMat];
 }
 
-function buildBansheeMesh(colorHex: number, accentHex: number): THREE.Group {
+function buildBansheeMesh(
+  colorHex: number,
+  accentHex: number,
+  neonHex?: number,
+): THREE.Group {
   const group = new THREE.Group();
   group.name = 'vehicle_banshee';
 
   const realisticBodyHex = colorHex === 0xff2e93 ? 0xb80e24 : colorHex;
   const bodyMat = createCarPaintMaterial(realisticBodyHex, {
-    metalness: 0.65,
-    roughness: 0.16,
+    metalness: 0.68,
+    roughness: 0.18,
     clearcoat: 1.0,
     clearcoatRoughness: 0.06,
-    envMapIntensity: 1.3,
+    envMapIntensity: 1.55,
   });
   const trimHex = accentHex === 0x00f0ff ? 0x262930 : accentHex;
   const accentMat = new THREE.MeshPhysicalMaterial({
     color: trimHex,
-    roughness: 0.28,
+    roughness: 0.26,
     metalness: 0.62,
-    clearcoat: 0.6,
-    clearcoatRoughness: 0.15,
+    clearcoat: 0.7,
+    clearcoatRoughness: 0.12,
   });
   const glassMat = createTintedGlassMaterial(0x0c1118, {
-    envMapIntensity: 1.4,
+    transparent: true,
+    opacity: 0.64,
+    envMapIntensity: 1.65,
   });
   const carbonMat = createCarbonMaterial();
   const chromeMat = createChromeMaterial();
@@ -1090,6 +1674,22 @@ function buildBansheeMesh(colorHex: number, accentHex: number): THREE.Group {
   }
   group.add(nitroFlames);
 
+  attachCabinInterior(group, {
+    seatY: 0.54,
+    seatZ: -0.18,
+    dashZ: 0.5,
+    width: 1.32,
+  });
+  attachDoorHandles(group, 1.03, 0.86, -0.08, undefined, chromeMat);
+  attachVehicleLicensePlates(
+    group,
+    'VLC · 458',
+    'private_yellow',
+    { y: 0.44, z: 2.34, rx: -0.08 },
+    { y: 0.56, z: -2.33, rx: 0.08 },
+  );
+  attachUnderglow(group, 2.35, 4.75, neonHex);
+
   const rig = attachWheels(
     group,
     [
@@ -1101,6 +1701,7 @@ function buildBansheeMesh(colorHex: number, accentHex: number): THREE.Group {
     0.37,
     0.31,
     0xe81e3c,
+    0xdce4f2,
   );
 
   group.userData.nitroFlames = nitroFlames;
@@ -1111,125 +1712,1088 @@ function buildBansheeMesh(colorHex: number, accentHex: number): THREE.Group {
   return group;
 }
 
-function buildTaxiMesh(colorHex: number, accentHex: number): THREE.Group {
+/**
+ * Renault 4 GT Turbo "Amigo Fiel Tuned" — Colombia's legendary fastback icon reborn as a
+ * sculpted widebody street racer with sloped clamshell hood, recessed round halo LED headlamps,
+ * matte-carbon vented hood scoop, carbon hatch wing, bronze 5-spoke alloys & R4T · 680 plate.
+ */
+function buildRenault4TurboMesh(
+  colorHex: number,
+  accentHex: number,
+  neonHex?: number,
+): THREE.Group {
   const group = new THREE.Group();
-  group.name = 'vehicle_taxi';
+  group.name = 'vehicle_renault4_turbo';
 
-  const bodyMat = createCarPaintMaterial(colorHex);
-  const trimMat = new THREE.MeshStandardMaterial({
-    color: accentHex,
-    roughness: 0.45,
-    metalness: 0.25,
+  const bodyMat = createCarPaintMaterial(colorHex, {
+    metalness: 0.62,
+    roughness: 0.2,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.06,
+    envMapIntensity: 1.55,
   });
-  const glassMat = createTintedGlassMaterial(0x14172b);
+  const carbonMat = createCarbonMaterial();
+  const trimMat = createCarPaintMaterial(accentHex, {
+    metalness: 0.42,
+    roughness: 0.34,
+    clearcoat: 0.65,
+  });
+  const glassMat = createTintedGlassMaterial(0x0c1320, {
+    transparent: true,
+    opacity: 0.6,
+  });
   const chromeMat = createChromeMaterial();
-
-  // Metallic yellow sculpted sedan silhouette
-  const lowerHullGeo = createProfileGeometry(
-    [
-      [-2.06, 0.34],
-      [2.06, 0.34],
-      [2.12, 0.68],
-      [1.96, 0.9],
-      [1.06, 1.02],
-      [-1.18, 1.04],
-      [-2.04, 0.98],
-      [-2.12, 0.56],
-    ],
-    1.94,
-    0.06,
-  );
-  addMesh(group, lowerHullGeo, bodyMat, { name: 'taxi_chassis' });
-
-  // Sculpted sedan tinted greenhouse & clearcoat roof
-  const cabinGeo = createProfileGeometry(
-    [
-      [-1.24, 1.0],
-      [1.02, 0.99],
-      [0.54, 1.56],
-      [-0.78, 1.56],
-    ],
-    1.68,
-    0.04,
-  );
-  addMesh(group, cabinGeo, glassMat);
-
-  const roofGeo = createProfileGeometry(
-    [
-      [-0.82, 1.53],
-      [0.56, 1.53],
-      [0.48, 1.62],
-      [-0.74, 1.62],
-    ],
-    1.56,
-    0.025,
-  );
-  addMesh(group, roofGeo, bodyMat);
-
-  // Black/white checkered side trim along both flanks
-  const checkerTex = createCheckerTrimTexture();
-  const checkerMat = new THREE.MeshStandardMaterial({
-    color: checkerTex ? 0xffffff : 0x161622,
-    ...(checkerTex ? { map: checkerTex } : {}),
-    roughness: 0.4,
-    metalness: 0.15,
+  const headlightMat = createXenonHeadlightMaterial();
+  const drlHaloMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: 0xdff6ff,
+    emissiveIntensity: 2.1,
+    roughness: 0.1,
   });
+  const amberSignalMat = new THREE.MeshStandardMaterial({
+    color: 0xffa726,
+    emissive: 0xff8f00,
+    emissiveIntensity: 1.25,
+    roughness: 0.18,
+  });
+  const brakeLightMat = createBrakeLightMaterial(BANSHEE_BRAKE_EMISSIVE_INTENSITY);
+
+  // Iconic Renault 4 sculpted lower clamshell hull (curved sloping nose + flat beltline + fastback tail)
+  const lowerHullGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.92, 0.3);
+      shape.lineTo(1.88, 0.28);
+      shape.quadraticCurveTo(2.02, 0.34, 2.0, 0.66);
+      shape.quadraticCurveTo(1.94, 0.86, 1.66, 0.9);
+      shape.quadraticCurveTo(1.22, 0.96, 0.78, 0.98);
+      shape.lineTo(-1.46, 0.98);
+      shape.quadraticCurveTo(-1.86, 0.96, -1.96, 0.72);
+      shape.quadraticCurveTo(-2.0, 0.46, -1.92, 0.3);
+      shape.closePath();
+    },
+    1.8,
+    0.07,
+  );
+  addMesh(group, lowerHullGeo, bodyMat, { name: 'renault4_hull' });
+
+  // Unmistakable Renault 4 upright-windshield + tall curved roof + steep angled fastback hatch
+  const cabinGlassGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.82, 0.94);
+      shape.lineTo(0.84, 0.94);
+      shape.quadraticCurveTo(0.66, 1.34, 0.44, 1.5);
+      shape.lineTo(-1.26, 1.51);
+      shape.quadraticCurveTo(-1.58, 1.48, -1.82, 0.94);
+      shape.closePath();
+    },
+    1.56,
+    0.045,
+  );
+  addMesh(group, cabinGlassGeo, glassMat, {
+    name: 'renault4_cabin_glass',
+    castShadow: false,
+  });
+
+  // Painted roof cap & sculpted fastback A/B/C pillars framing the glass greenhouse
+  const roofCapGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.32, 1.47);
+      shape.lineTo(0.46, 1.47);
+      shape.quadraticCurveTo(0.4, 1.56, 0.26, 1.57);
+      shape.lineTo(-1.18, 1.57);
+      shape.quadraticCurveTo(-1.3, 1.56, -1.32, 1.47);
+      shape.closePath();
+    },
+    1.54,
+    0.035,
+  );
+  addMesh(group, roofCapGeo, bodyMat, { name: 'renault4_roof' });
+
+  // Sculpted street-racing flared wheel arches on all 4 corners + carbon side skirts
+  const archGeo = createFlaredWheelArchGeometry(0.39, 0.13, 0.16);
   for (const side of [-1, 1] as const) {
-    addMesh(group, new THREE.BoxGeometry(0.04, 0.15, 3.35), checkerMat, {
-      x: side * 0.975,
-      y: 0.68,
-      z: -0.02,
+    for (const wz of [1.24, -1.24] as const) {
+      addMesh(group, archGeo, carbonMat, {
+        x: side * 0.89,
+        y: 0.36,
+        z: wz,
+      });
+    }
+    addMesh(group, createRoundedPodGeometry(0.14, 0.11, 1.72, 0.04, 0.015), carbonMat, {
+      x: side * 0.92,
+      y: 0.29,
+      z: 0,
+    });
+  }
+
+  // Iconic R4 recessed matte-black front radiator grille with horizontal chrome slat & diamond badge
+  addMesh(group, createRoundedPodGeometry(1.52, 0.34, 0.14, 0.06, 0.02), carbonMat, {
+    y: 0.64,
+    z: 2.04,
+    name: 'renault4_grille',
+  });
+  addMesh(group, new THREE.BoxGeometry(0.92, 0.035, 0.06), chromeMat, {
+    y: 0.64,
+    z: 2.11,
+  });
+  // Iconic central diamond emblem
+  addMesh(group, new THREE.BoxGeometry(0.11, 0.11, 0.04), chromeMat, {
+    y: 0.65,
+    z: 2.12,
+    rz: Math.PI / 4,
+    castShadow: false,
+  });
+
+  // Iconic upright round halo LED headlamps set into the grille + amber turn indicators
+  const lampHousingGeo = new THREE.CylinderGeometry(0.145, 0.145, 0.1, 18);
+  lampHousingGeo.rotateX(Math.PI / 2);
+  const lampLensGeo = new THREE.CylinderGeometry(0.115, 0.115, 0.07, 16);
+  lampLensGeo.rotateX(Math.PI / 2);
+  const haloRingGeo = new THREE.TorusGeometry(0.125, 0.016, 8, 20);
+  const turnLampGeo = createRoundedPodGeometry(0.14, 0.06, 0.06, 0.02, 0.01);
+
+  for (const side of [-1, 1] as const) {
+    addMesh(group, lampHousingGeo, chromeMat, {
+      x: side * 0.56,
+      y: 0.65,
+      z: 2.07,
+      castShadow: false,
+    });
+    addMesh(group, lampLensGeo, headlightMat, {
+      x: side * 0.56,
+      y: 0.65,
+      z: 2.1,
+      castShadow: false,
+    });
+    addMesh(group, haloRingGeo, drlHaloMat, {
+      x: side * 0.56,
+      y: 0.65,
+      z: 2.13,
+      castShadow: false,
+    });
+    addMesh(group, turnLampGeo, amberSignalMat, {
+      x: side * 0.72,
+      y: 0.48,
+      z: 2.09,
       castShadow: false,
     });
   }
 
-  // Chrome front grille, front/rear bumpers & side wing mirrors
-  addMesh(group, new THREE.BoxGeometry(0.92, 0.24, 0.1), chromeMat, {
-    y: 0.62,
-    z: 2.11,
+  // Aggressive carbon front lip splitter & sculpted front bumper
+  addMesh(group, createRoundedPodGeometry(1.88, 0.08, 0.34, 0.03, 0.015), carbonMat, {
+    y: 0.24,
+    z: 2.02,
   });
-  addMesh(group, new THREE.BoxGeometry(1.9, 0.14, 0.16), trimMat, {
-    y: 0.4,
+  addMesh(group, createRoundedPodGeometry(1.82, 0.14, 0.16, 0.05, 0.02), trimMat, {
+    y: 0.38,
+    z: 2.09,
+  });
+
+  // Matte-carbon vented turbo hood scoop with dual cooling louvers
+  addMesh(group, createRoundedPodGeometry(0.68, 0.11, 0.66, 0.045, 0.02), carbonMat, {
+    y: 1.04,
+    z: 1.28,
+    rx: 0.1,
+    name: 'renault4_hood_scoop',
+  });
+  for (let i = 0; i < 3; i += 1) {
+    addMesh(group, new THREE.BoxGeometry(0.56, 0.025, 0.06), trimMat, {
+      y: 1.08 - i * 0.016,
+      z: 1.12 + i * 0.15,
+      rx: 0.16,
+      castShadow: false,
+    });
+  }
+
+  // Big carbon-fiber GT hatch spoiler wing mounted cleanly atop the fastback rear hatch
+  for (const sx of [-0.54, 0.54] as const) {
+    addMesh(group, new THREE.BoxGeometry(0.06, 0.26, 0.18), carbonMat, {
+      x: sx,
+      y: 1.56,
+      z: -1.48,
+      rx: -0.25,
+    });
+  }
+  addMesh(group, createRoundedPodGeometry(1.66, 0.065, 0.3, 0.025, 0.012), carbonMat, {
+    y: 1.68,
+    z: -1.6,
+    rx: 0.12,
+    name: 'renault4_hatch_wing',
+  });
+  for (const sx of [-0.84, 0.84] as const) {
+    addMesh(group, new THREE.BoxGeometry(0.04, 0.2, 0.34), bodyMat, {
+      x: sx,
+      y: 1.67,
+      z: -1.6,
+    });
+  }
+
+  // Vertical R4-inspired smoked LED tail lamps + carbon rear diffuser
+  const tailBezelGeo = createRoundedPodGeometry(0.16, 0.38, 0.08, 0.04, 0.015);
+  const tailLedGeo = createRoundedPodGeometry(0.11, 0.3, 0.06, 0.03, 0.01);
+  for (const side of [-1, 1] as const) {
+    addMesh(group, tailBezelGeo, carbonMat, {
+      x: side * 0.74,
+      y: 0.74,
+      z: -2.04,
+      castShadow: false,
+    });
+    addMesh(group, tailLedGeo, brakeLightMat, {
+      x: side * 0.74,
+      y: 0.74,
+      z: -2.07,
+      castShadow: false,
+    });
+  }
+  addMesh(group, createRoundedPodGeometry(1.74, 0.2, 0.22, 0.05, 0.02), carbonMat, {
+    y: 0.36,
+    z: -2.02,
+  });
+
+  attachCabinInterior(group, {
+    seatY: 0.62,
+    seatZ: -0.14,
+    dashZ: 0.62,
+    width: 1.32,
+  });
+  attachSideMirrors(group, 0.88, 1.04, 0.56, bodyMat, carbonMat, 0.92);
+  attachDoorHandles(group, 0.91, 0.88, 0.08, -0.78, chromeMat);
+  attachVehicleLicensePlates(
+    group,
+    'R4T · 680',
+    'private_yellow',
+    { y: 0.39, z: 2.18 },
+    { y: 0.64, z: -2.09, rx: 0.12 },
+  );
+
+  const nitroFlames = attachPlayerNitroFlames(group, [-0.4, 0.4], 0.31, -2.09, chromeMat);
+  const headlightCones = attachHeadlightCones(group, 0.56, 0.65, 2.15, 4.7, 0.92);
+  attachContactShadow(group, 2.15, 4.35, 0.6, 0.03);
+  attachUnderglow(group, 2.15, 4.25, neonHex);
+
+  // Deep bronze/gold 5-spoke street-racing alloy wheels + glowing red Brembo calipers
+  const rig = attachWheels(
+    group,
+    [
+      { x: -0.88, z: 1.24, isFront: true },
+      { x: 0.88, z: 1.24, isFront: true },
+      { x: -0.88, z: -1.24, isFront: false },
+      { x: 0.88, z: -1.24, isFront: false },
+    ],
+    0.35,
+    0.27,
+    0xe11d38,
+    0xc89a4b,
+  );
+
+  group.userData.nitroFlames = nitroFlames;
+  group.userData.headlightCones = headlightCones;
+  group.userData.brakeLightMaterials = [brakeLightMat];
+  group.userData.wheels = rig.wheels;
+  group.userData.frontWheels = rig.frontWheels;
+  return group;
+}
+
+/**
+ * Chevrolet Spark GT / Mazda 323 "Zapatico Turbo" — sleek Colombian hot-hatch wedge with sharp
+ * carbon aero splitter, gloss-black floating roof wrap, swept-back crystalline LED DRL headlights,
+ * smoked full-width LED tailbar, rear diffuser fins, dual exhausts & CAL · 323 yellow plate.
+ */
+function buildSparkGtTurboMesh(
+  colorHex: number,
+  accentHex: number,
+  neonHex?: number,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'vehicle_spark_gt_turbo';
+
+  const bodyMat = createCarPaintMaterial(colorHex, {
+    metalness: 0.66,
+    roughness: 0.19,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.06,
+    envMapIntensity: 1.55,
+  });
+  const glossBlackRoofMat = createCarPaintMaterial(0x0d0f17, {
+    metalness: 0.56,
+    roughness: 0.14,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.05,
+    envMapIntensity: 1.65,
+  });
+  const carbonMat = createCarbonMaterial();
+  const accentMat = createCarPaintMaterial(accentHex, {
+    metalness: 0.48,
+    roughness: 0.28,
+    clearcoat: 0.8,
+  });
+  const glassMat = createTintedGlassMaterial(0x0b111c, {
+    transparent: true,
+    opacity: 0.6,
+  });
+  const chromeMat = createChromeMaterial();
+  const headlightMat = createXenonHeadlightMaterial();
+  const drlBladeMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: 0xd8f3ff,
+    emissiveIntensity: 2.2,
+    roughness: 0.08,
+  });
+  const brakeLightMat = createBrakeLightMaterial(BANSHEE_BRAKE_EMISSIVE_INTENSITY);
+
+  // Aggressive hot-hatch wedge lower body (low curved nose + muscular ascending beltline)
+  const lowerHullGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.92, 0.28);
+      shape.lineTo(1.94, 0.26);
+      shape.quadraticCurveTo(2.08, 0.34, 2.04, 0.58);
+      shape.quadraticCurveTo(1.94, 0.78, 1.48, 0.88);
+      shape.quadraticCurveTo(1.04, 0.96, 0.68, 0.98);
+      shape.lineTo(-1.68, 1.04);
+      shape.quadraticCurveTo(-1.98, 1.0, -2.02, 0.68);
+      shape.quadraticCurveTo(-2.02, 0.4, -1.92, 0.28);
+      shape.closePath();
+    },
+    1.86,
+    0.075,
+  );
+  addMesh(group, lowerHullGeo, bodyMat, { name: 'spark_gt_hull' });
+
+  // Raked sporty hot-hatch cabin greenhouse
+  const cabinGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.74, 0.98);
+      shape.lineTo(0.86, 0.94);
+      shape.quadraticCurveTo(0.46, 1.36, 0.08, 1.44);
+      shape.lineTo(-1.26, 1.44);
+      shape.quadraticCurveTo(-1.58, 1.4, -1.74, 0.98);
+      shape.closePath();
+    },
+    1.58,
+    0.045,
+  );
+  addMesh(group, cabinGeo, glassMat, {
+    name: 'spark_gt_cabin_glass',
+    castShadow: false,
+  });
+
+  // Gloss-black floating roof wrap + shark-fin antenna + integrated hot-hatch roof wing
+  const floatingRoofGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.38, 1.4);
+      shape.lineTo(0.14, 1.4);
+      shape.quadraticCurveTo(0.06, 1.49, -0.1, 1.49);
+      shape.lineTo(-1.32, 1.49);
+      shape.quadraticCurveTo(-1.42, 1.47, -1.38, 1.4);
+      shape.closePath();
+    },
+    1.52,
+    0.03,
+  );
+  addMesh(group, floatingRoofGeo, glossBlackRoofMat, { name: 'spark_gt_floating_roof' });
+  addMesh(group, createRoundedPodGeometry(1.56, 0.06, 0.28, 0.02, 0.012), carbonMat, {
+    y: 1.47,
+    z: -1.52,
+    rx: 0.14,
+  });
+  addMesh(group, createProfileGeometry([[-0.12, 0], [0.1, 0], [-0.08, 0.1]], 0.035, 0.008), glossBlackRoofMat, {
+    y: 1.48,
+    z: -0.96,
+    castShadow: false,
+  });
+
+  // Sharp front carbon aero splitter, honeycomb lower intake & flared wheel arches
+  addMesh(group, createRoundedPodGeometry(1.96, 0.075, 0.44, 0.03, 0.015), carbonMat, {
+    y: 0.22,
+    z: 2.02,
+  });
+  addMesh(group, createRoundedPodGeometry(1.24, 0.24, 0.12, 0.05, 0.015), carbonMat, {
+    y: 0.48,
     z: 2.1,
   });
-  addMesh(group, new THREE.BoxGeometry(1.9, 0.14, 0.16), trimMat, {
-    y: 0.42,
+  addMesh(group, new THREE.BoxGeometry(1.16, 0.03, 0.04), accentMat, {
+    y: 0.56,
+    z: 2.16,
+    castShadow: false,
+  });
+
+  const archGeo = createFlaredWheelArchGeometry(0.37, 0.11, 0.14);
+  for (const side of [-1, 1] as const) {
+    for (const wz of [1.26, -1.26] as const) {
+      addMesh(group, archGeo, bodyMat, {
+        x: side * 0.91,
+        y: 0.35,
+        z: wz,
+      });
+    }
+    addMesh(group, createRoundedPodGeometry(0.13, 0.1, 1.76, 0.04, 0.015), carbonMat, {
+      x: side * 0.95,
+      y: 0.28,
+      z: 0,
+    });
+  }
+
+  // Swept-back crystalline multi-element LED DRL headlights
+  for (const side of [-1, 1] as const) {
+    addMesh(group, createRoundedPodGeometry(0.42, 0.13, 0.22, 0.04, 0.015), carbonMat, {
+      x: side * 0.68,
+      y: 0.64,
+      z: 2.04,
+      ry: side * 0.26,
+      castShadow: false,
+    });
+    addMesh(group, createRoundedPodGeometry(0.32, 0.08, 0.12, 0.03, 0.01), headlightMat, {
+      x: side * 0.68,
+      y: 0.63,
+      z: 2.11,
+      ry: side * 0.26,
+      castShadow: false,
+    });
+    addMesh(group, new THREE.BoxGeometry(0.44, 0.03, 0.08), drlBladeMat, {
+      x: side * 0.68,
+      y: 0.71,
+      z: 2.1,
+      ry: side * 0.26,
+      castShadow: false,
+    });
+  }
+
+  // Smoked full-width LED tailbar + aggressive rear carbon diffuser with vertical aero fins
+  addMesh(group, createRoundedPodGeometry(1.76, 0.16, 0.09, 0.04, 0.015), carbonMat, {
+    y: 0.84,
+    z: -2.07,
+    castShadow: false,
+  });
+  addMesh(group, createRoundedPodGeometry(1.68, 0.08, 0.07, 0.025, 0.01), brakeLightMat, {
+    y: 0.84,
     z: -2.1,
+    name: 'spark_gt_tailbar',
+    castShadow: false,
   });
-  attachSideMirrors(group, 0.94, 1.08, 0.56, bodyMat, trimMat, 0.95);
+  for (const side of [-1, 1] as const) {
+    addMesh(group, createRoundedPodGeometry(0.28, 0.16, 0.08, 0.03, 0.01), brakeLightMat, {
+      x: side * 0.74,
+      y: 0.84,
+      z: -2.09,
+      castShadow: false,
+    });
+  }
 
-  // Illuminated yellow TAXI roof sign (subtle golden-hour glow)
-  const taxiSignTex = createTaxiSignTexture();
-  const taxiSignMat = new THREE.MeshStandardMaterial({
-    color: 0xf0c94a,
-    emissive: 0xe6ad14,
-    emissiveIntensity: 0.72,
-    ...(taxiSignTex ? { map: taxiSignTex } : {}),
-    roughness: 0.24,
+  addMesh(group, createRoundedPodGeometry(1.8, 0.24, 0.24, 0.05, 0.02), carbonMat, {
+    y: 0.36,
+    z: -2.04,
   });
-  addMesh(group, new THREE.BoxGeometry(0.76, 0.26, 0.34), taxiSignMat, {
-    y: 1.74,
-    z: -0.04,
-    name: 'taxi_roof_sign',
-  });
+  for (const fx of [-0.66, -0.22, 0.22, 0.66] as const) {
+    addMesh(group, new THREE.BoxGeometry(0.045, 0.22, 0.3), carbonMat, {
+      x: fx,
+      y: 0.33,
+      z: -2.08,
+    });
+  }
 
-  attachContactShadow(group, 2.25, 4.55, 0.58, 0.03);
+  attachCabinInterior(group, {
+    seatY: 0.56,
+    seatZ: -0.14,
+    dashZ: 0.58,
+    width: 1.34,
+  });
+  attachSideMirrors(group, 0.91, 1.01, 0.52, glossBlackRoofMat, carbonMat, 0.95);
+  attachDoorHandles(group, 0.94, 0.86, 0.05, -0.78, chromeMat);
+  attachVehicleLicensePlates(
+    group,
+    'CAL · 323',
+    'private_yellow',
+    { y: 0.36, z: 2.17, rx: -0.06 },
+    { y: 0.58, z: -2.12, rx: 0.08 },
+  );
+
+  const nitroFlames = attachPlayerNitroFlames(group, [-0.44, 0.44], 0.33, -2.12, chromeMat);
+  const headlightCones = attachHeadlightCones(group, 0.68, 0.63, 2.18, 4.8, 0.94);
+  attachContactShadow(group, 2.22, 4.42, 0.6, 0.03);
+  attachUnderglow(group, 2.22, 4.35, neonHex);
 
   const rig = attachWheels(
     group,
     [
-      { x: -0.92, z: 1.28, isFront: true },
-      { x: 0.92, z: 1.28, isFront: true },
-      { x: -0.92, z: -1.28, isFront: false },
-      { x: 0.92, z: -1.28, isFront: false },
+      { x: -0.9, z: 1.26, isFront: true },
+      { x: 0.9, z: 1.26, isFront: true },
+      { x: -0.9, z: -1.26, isFront: false },
+      { x: 0.9, z: -1.26, isFront: false },
     ],
     0.35,
-    0.26,
-    0x4a4f62,
+    0.28,
+    0xe11d38,
+    0x3b4254,
   );
-  const brakeLightMaterials = attachStandardLampPairs(group, 0.96, 2.11, -2.11, 0.68);
 
-  group.userData.brakeLightMaterials = brakeLightMaterials;
+  group.userData.nitroFlames = nitroFlames;
+  group.userData.headlightCones = headlightCones;
+  group.userData.brakeLightMaterials = [brakeLightMat];
+  group.userData.wheels = rig.wheels;
+  group.userData.frontWheels = rig.frontWheels;
+  return group;
+}
+
+/**
+ * Jeep Willys Yipao V8 Supercharged — Vallecaucano heritage overland muscle icon with 7-slot
+ * chrome front grille, round halo LED headlamps, exposed chrome V8 supercharger blower scoop,
+ * open matte-black tubular roll cage, wide street-slick rims, miniature Vallecaucano coffee sacks
+ * & party speaker rack strapped in the rear bed, side-exit chrome exhausts & YIP · 808 plate.
+ */
+function buildWillysV8Mesh(
+  colorHex: number,
+  accentHex: number,
+  neonHex?: number,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'vehicle_willys_v8';
+
+  const bodyMat = createCarPaintMaterial(colorHex, {
+    metalness: 0.58,
+    roughness: 0.22,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.06,
+    envMapIntensity: 1.55,
+  });
+  const carbonMat = createCarbonMaterial();
+  const cageMat = new THREE.MeshStandardMaterial({
+    color: 0x181a22,
+    roughness: 0.44,
+    metalness: 0.65,
+  });
+  const chromeMat = createChromeMaterial();
+  const glassMat = createTintedGlassMaterial(0x101826, {
+    transparent: true,
+    opacity: 0.55,
+  });
+  const headlightMat = createXenonHeadlightMaterial();
+  const drlHaloMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: 0xe6f9ff,
+    emissiveIntensity: 2.2,
+    roughness: 0.1,
+  });
+  const brakeLightMat = createBrakeLightMaterial(BANSHEE_BRAKE_EMISSIVE_INTENSITY);
+
+  // Unmistakable sculpted Jeep Willys lower tub + long tapered hood + cut-down doors + rear bed walls
+  const tubHullGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.98, 0.44);
+      shape.lineTo(1.94, 0.42);
+      shape.quadraticCurveTo(2.04, 0.46, 2.02, 1.02);
+      shape.quadraticCurveTo(1.98, 1.18, 1.76, 1.2);
+      shape.lineTo(0.76, 1.22);
+      shape.lineTo(0.64, 0.94);
+      shape.lineTo(-0.34, 0.94);
+      shape.lineTo(-0.46, 1.16);
+      shape.lineTo(-1.92, 1.16);
+      shape.quadraticCurveTo(-2.04, 1.14, -2.04, 0.72);
+      shape.closePath();
+    },
+    1.78,
+    0.055,
+  );
+  addMesh(group, tubHullGeo, bodyMat, { name: 'willys_tub_hull' });
+
+  // Sculpted high-clearance flat-top Willys front fenders + flared street-muscle rear wheel arches
+  const frontArchGeo = createFlaredWheelArchGeometry(0.45, 0.12, 0.26);
+  const rearArchGeo = createFlaredWheelArchGeometry(0.45, 0.12, 0.24);
+  for (const side of [-1, 1] as const) {
+    addMesh(group, frontArchGeo, bodyMat, {
+      x: side * 0.92,
+      y: 0.42,
+      z: 1.32,
+    });
+    addMesh(group, rearArchGeo, carbonMat, {
+      x: side * 0.92,
+      y: 0.42,
+      z: -1.26,
+    });
+  }
+
+  // Iconic 7-slot chrome vertical Willys front grille + twin round halo LED headlamps
+  addMesh(group, createRoundedPodGeometry(1.52, 0.62, 0.1, 0.06, 0.02), bodyMat, {
+    y: 0.88,
+    z: 2.07,
+    name: 'willys_grille_panel',
+  });
+  const slotGeo = createRoundedPodGeometry(0.06, 0.4, 0.06, 0.02, 0.008);
+  for (let i = -3; i <= 3; i += 1) {
+    addMesh(group, slotGeo, chromeMat, {
+      x: i * 0.125,
+      y: 0.88,
+      z: 2.12,
+      castShadow: false,
+    });
+    addMesh(group, new THREE.BoxGeometry(0.04, 0.36, 0.04), carbonMat, {
+      x: i * 0.125,
+      y: 0.88,
+      z: 2.135,
+      castShadow: false,
+    });
+  }
+
+  const bezelGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.08, 18);
+  bezelGeo.rotateX(Math.PI / 2);
+  const lensGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.06, 16);
+  lensGeo.rotateX(Math.PI / 2);
+  const haloGeo = new THREE.TorusGeometry(0.13, 0.017, 8, 20);
+  for (const side of [-1, 1] as const) {
+    addMesh(group, bezelGeo, chromeMat, {
+      x: side * 0.58,
+      y: 0.94,
+      z: 2.09,
+      castShadow: false,
+    });
+    addMesh(group, lensGeo, headlightMat, {
+      x: side * 0.58,
+      y: 0.94,
+      z: 2.115,
+      castShadow: false,
+    });
+    addMesh(group, haloGeo, drlHaloMat, {
+      x: side * 0.58,
+      y: 0.94,
+      z: 2.14,
+      castShadow: false,
+    });
+  }
+
+  // Heavy matte-black overland front steel bumper with crimson recovery hooks
+  addMesh(group, createRoundedPodGeometry(1.94, 0.16, 0.24, 0.04, 0.018), cageMat, {
+    y: 0.48,
+    z: 2.16,
+  });
+  const hookMat = createCarPaintMaterial(0xdc2626, { roughness: 0.28, metalness: 0.5 });
+  for (const hx of [-0.52, 0.52] as const) {
+    addMesh(group, new THREE.TorusGeometry(0.055, 0.018, 6, 12), hookMat, {
+      x: hx,
+      y: 0.54,
+      z: 2.29,
+      ry: Math.PI / 2,
+      castShadow: false,
+    });
+  }
+
+  // Exposed V8 chrome supercharger blower scoop rising cleanly from the center of the hood
+  const blowerBaseGeo = createRoundedPodGeometry(0.46, 0.16, 0.54, 0.04, 0.015);
+  addMesh(group, blowerBaseGeo, chromeMat, {
+    y: 1.32,
+    z: 1.3,
+    name: 'willys_v8_supercharger',
+  });
+  addMesh(group, createRoundedPodGeometry(0.36, 0.14, 0.42, 0.04, 0.015), chromeMat, {
+    y: 1.45,
+    z: 1.34,
+  });
+  const butterflyMat = createCarPaintMaterial(0xdc2626, { metalness: 0.4, roughness: 0.25 });
+  for (const bx of [-0.09, 0.09] as const) {
+    addMesh(group, new THREE.CylinderGeometry(0.055, 0.055, 0.05, 12), butterflyMat, {
+      x: bx,
+      y: 1.45,
+      z: 1.56,
+      rx: Math.PI / 2,
+      castShadow: false,
+    });
+  }
+
+  // Tilted framed Willys windshield + open matte-black tubular roll cage
+  const frameBarGeo = new THREE.CylinderGeometry(0.038, 0.038, 0.68, 10);
+  for (const sx of [-0.78, 0.78] as const) {
+    addMesh(group, frameBarGeo, bodyMat, {
+      x: sx,
+      y: 1.5,
+      z: 0.66,
+      rx: -0.26,
+    });
+  }
+  addMesh(group, createRoundedPodGeometry(1.64, 0.08, 0.08, 0.03, 0.01), bodyMat, {
+    y: 1.81,
+    z: 0.57,
+  });
+  addMesh(group, new THREE.BoxGeometry(1.48, 0.58, 0.035), glassMat, {
+    y: 1.51,
+    z: 0.65,
+    rx: -0.26,
+    name: 'willys_windshield',
+    castShadow: false,
+  });
+
+  // Open tubular roll cage (main hoop, rear struts, longitudinal overhead bars, crossbar)
+  const cagePostGeo = new THREE.CylinderGeometry(0.038, 0.038, 0.72, 10);
+  const cageRailGeo = new THREE.CylinderGeometry(0.036, 0.036, 1.92, 10);
+  cageRailGeo.rotateX(Math.PI / 2);
+  const cageCrossGeo = new THREE.CylinderGeometry(0.036, 0.036, 1.48, 10);
+  cageCrossGeo.rotateZ(Math.PI / 2);
+
+  for (const sx of [-0.72, 0.72] as const) {
+    addMesh(group, cagePostGeo, cageMat, { x: sx, y: 1.48, z: -0.44 });
+    addMesh(group, cagePostGeo, cageMat, { x: sx, y: 1.46, z: -1.42, rx: 0.24 });
+    addMesh(group, cageRailGeo, cageMat, { x: sx, y: 1.8, z: -0.42 });
+  }
+  addMesh(group, cageCrossGeo, cageMat, { y: 1.8, z: -0.44 });
+  addMesh(group, cageCrossGeo, cageMat, { y: 1.78, z: -1.32 });
+
+  // Open-air interior sport seats, dash & steering wheel clearly visible inside roll cage
+  attachCabinInterior(group, {
+    seatY: 0.74,
+    seatZ: -0.1,
+    dashZ: 0.56,
+    width: 1.38,
+  });
+
+  // Authentic Vallecaucano Yipao cargo: burlap coffee sacks & Cali party speaker rack in rear bed
+  const burlapMat = new THREE.MeshStandardMaterial({
+    color: 0xc29b67,
+    roughness: 0.92,
+    metalness: 0.02,
+  });
+  const coffeeBandMat = new THREE.MeshStandardMaterial({
+    color: 0xc8102e,
+    roughness: 0.65,
+  });
+  const speakerBoxMat = new THREE.MeshStandardMaterial({
+    color: 0x181b24,
+    roughness: 0.52,
+    metalness: 0.28,
+  });
+  const wooferRingMat = new THREE.MeshStandardMaterial({
+    color: accentHex === 0x20242c ? 0x00e5ff : accentHex,
+    emissive: accentHex === 0x20242c ? 0x0099bb : accentHex,
+    emissiveIntensity: 0.65,
+    roughness: 0.25,
+  });
+
+  // Stacked burlap Colombian coffee sacks on left side of rear bed
+  const sackGeo = createRoundedPodGeometry(0.66, 0.26, 0.44, 0.1, 0.03);
+  addMesh(group, sackGeo, burlapMat, {
+    x: 0.38,
+    y: 1.06,
+    z: -1.16,
+    ry: 0.08,
+    name: 'yipao_coffee_sacks',
+  });
+  addMesh(group, new THREE.BoxGeometry(0.68, 0.06, 0.14), coffeeBandMat, {
+    x: 0.38,
+    y: 1.08,
+    z: -1.16,
+    castShadow: false,
+  });
+  addMesh(group, sackGeo, burlapMat, {
+    x: 0.36,
+    y: 1.29,
+    z: -1.2,
+    ry: -0.06,
+  });
+
+  // Compact Cali salsa party speaker rack on right side of rear bed
+  addMesh(group, createRoundedPodGeometry(0.58, 0.62, 0.46, 0.04, 0.015), speakerBoxMat, {
+    x: -0.38,
+    y: 1.22,
+    z: -1.24,
+    name: 'yipao_speaker_rack',
+  });
+  const wooferGeo = new THREE.TorusGeometry(0.14, 0.026, 8, 16);
+  for (const wy of [1.06, 1.38] as const) {
+    addMesh(group, wooferGeo, wooferRingMat, {
+      x: -0.38,
+      y: wy,
+      z: -1.48,
+      castShadow: false,
+    });
+  }
+  // Cargo tie-down straps across the Yipao load
+  const strapMat = new THREE.MeshStandardMaterial({ color: 0xf2c200, roughness: 0.6 });
+  addMesh(group, new THREE.BoxGeometry(1.52, 0.035, 0.06), strapMat, {
+    y: 1.46,
+    z: -1.22,
+    castShadow: false,
+  });
+
+  // Side-exit chrome V8 exhaust pipes running along both rocker sills
+  const sidePipeGeo = new THREE.CylinderGeometry(0.055, 0.055, 1.72, 12);
+  sidePipeGeo.rotateX(Math.PI / 2);
+  for (const side of [-1, 1] as const) {
+    addMesh(group, sidePipeGeo, chromeMat, {
+      x: side * 0.96,
+      y: 0.38,
+      z: 0.04,
+      name: 'willys_side_exhaust',
+    });
+  }
+
+  // Rear Willys smoked LED tail lamps & spare-tire bumper bar
+  for (const side of [-1, 1] as const) {
+    addMesh(group, createRoundedPodGeometry(0.18, 0.24, 0.08, 0.04, 0.015), brakeLightMat, {
+      x: side * 0.74,
+      y: 0.84,
+      z: -2.1,
+      castShadow: false,
+    });
+  }
+  addMesh(group, createRoundedPodGeometry(1.88, 0.16, 0.2, 0.04, 0.018), cageMat, {
+    y: 0.48,
+    z: -2.12,
+  });
+
+  attachSideMirrors(group, 0.88, 1.24, 0.72, cageMat, cageMat, 0.95);
+  attachVehicleLicensePlates(
+    group,
+    'YIP · 808',
+    'private_yellow',
+    { y: 0.48, z: 2.28 },
+    { y: 0.62, z: -2.23 },
+  );
+
+  const nitroFlames = attachPlayerNitroFlames(group, [-0.46, 0.46], 0.42, -2.18, chromeMat);
+  const headlightCones = attachHeadlightCones(group, 0.58, 0.94, 2.18, 5.0, 0.96);
+  attachContactShadow(group, 2.28, 4.5, 0.62, 0.03);
+  attachUnderglow(group, 2.25, 4.4, neonHex);
+
+  // Wide street-slick muscle alloy wheels + red Brembo calipers
+  const rig = attachWheels(
+    group,
+    [
+      { x: -0.94, z: 1.32, isFront: true },
+      { x: 0.94, z: 1.32, isFront: true },
+      { x: -0.94, z: -1.26, isFront: false },
+      { x: 0.94, z: -1.26, isFront: false },
+    ],
+    0.42,
+    0.34,
+    0xe11d38,
+    0xcfd8e6,
+  );
+
+  group.userData.nitroFlames = nitroFlames;
+  group.userData.headlightCones = headlightCones;
+  group.userData.brakeLightMaterials = [brakeLightMat];
+  group.userData.wheels = rig.wheels;
+  group.userData.frontWheels = rig.frontWheels;
+  return group;
+}
+
+/**
+ * Taxi Amarillito "Zapatico" Turbo — sculpted compact Colombian city hatchback (Picanto/Spark
+ * silhouette) in glossy yellow clearcoat with checkered door stripe, cab door decals, backlit
+ * white TAXI roof dome sign, LED DRL headlights, sporty dark rims & WKL · 714 white public plate.
+ */
+function buildTaxiMesh(colorHex: number, accentHex: number): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'vehicle_taxi';
+
+  const bodyMat = createCarPaintMaterial(colorHex, {
+    metalness: 0.58,
+    roughness: 0.19,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.06,
+    envMapIntensity: 1.55,
+  });
+  const trimMat = new THREE.MeshStandardMaterial({
+    color: accentHex,
+    roughness: 0.42,
+    metalness: 0.3,
+  });
+  const carbonMat = createCarbonMaterial();
+  const glassMat = createTintedGlassMaterial(0x0f1422, {
+    transparent: true,
+    opacity: 0.62,
+  });
+  const chromeMat = createChromeMaterial();
+  const headlightMat = createXenonHeadlightMaterial();
+  const brakeLightMat = createBrakeLightMaterial();
+
+  // Sculpted compact Colombian hatchback lower body (curved stubby nose + upright rear hatch)
+  const lowerHullGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.86, 0.3);
+      shape.lineTo(1.86, 0.28);
+      shape.quadraticCurveTo(2.0, 0.36, 1.96, 0.66);
+      shape.quadraticCurveTo(1.88, 0.88, 1.44, 0.94);
+      shape.quadraticCurveTo(1.06, 1.0, 0.86, 1.02);
+      shape.lineTo(-1.68, 1.04);
+      shape.quadraticCurveTo(-1.94, 0.98, -1.96, 0.64);
+      shape.quadraticCurveTo(-1.96, 0.4, -1.86, 0.3);
+      shape.closePath();
+    },
+    1.84,
+    0.07,
+  );
+  addMesh(group, lowerHullGeo, bodyMat, { name: 'taxi_chassis' });
+
+  // Curved tall city hatchback greenhouse cabin + clearcoat roof cap
+  const cabinGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.74, 0.98);
+      shape.lineTo(0.92, 0.98);
+      shape.quadraticCurveTo(0.58, 1.46, 0.24, 1.56);
+      shape.lineTo(-1.26, 1.56);
+      shape.quadraticCurveTo(-1.58, 1.52, -1.74, 0.98);
+      shape.closePath();
+    },
+    1.58,
+    0.045,
+  );
+  addMesh(group, cabinGeo, glassMat, {
+    name: 'taxi_cabin_glass',
+    castShadow: false,
+  });
+
+  const roofGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.32, 1.52);
+      shape.lineTo(0.28, 1.52);
+      shape.quadraticCurveTo(0.2, 1.61, 0.04, 1.61);
+      shape.lineTo(-1.22, 1.61);
+      shape.quadraticCurveTo(-1.34, 1.59, -1.32, 1.52);
+      shape.closePath();
+    },
+    1.52,
+    0.03,
+  );
+  addMesh(group, roofGeo, bodyMat, { name: 'taxi_roof' });
+
+  // Sculpted compact fender arch flares
+  const archGeo = createFlaredWheelArchGeometry(0.36, 0.095, 0.12);
+  for (const side of [-1, 1] as const) {
+    for (const wz of [1.22, -1.22] as const) {
+      addMesh(group, archGeo, bodyMat, { x: side * 0.89, y: 0.34, z: wz });
+    }
+  }
+
+  // Black/white checkered taxi door stripe + crisp cab number badge along both flanks
+  const checkerTex = createCheckerTrimTexture();
+  const checkerMat = new THREE.MeshStandardMaterial({
+    color: checkerTex ? 0xffffff : 0x161622,
+    ...(checkerTex ? { map: checkerTex } : {}),
+    roughness: 0.38,
+    metalness: 0.15,
+  });
+  const doorNumTex = createTaxiDoorNumberTexture('T-714');
+  const doorNumMat = new THREE.MeshStandardMaterial({
+    color: doorNumTex ? 0xffffff : 0x161822,
+    ...(doorNumTex ? { map: doorNumTex } : {}),
+    roughness: 0.32,
+    metalness: 0.12,
+  });
+  for (const side of [-1, 1] as const) {
+    addMesh(group, new THREE.BoxGeometry(0.018, 0.13, 2.9), checkerMat, {
+      x: side * 0.924,
+      y: 0.62,
+      z: -0.04,
+      castShadow: false,
+    });
+    addMesh(group, new THREE.PlaneGeometry(0.68, 0.25), doorNumMat, {
+      x: side * 0.938,
+      y: 0.82,
+      z: 0.08,
+      ry: side * (Math.PI / 2),
+      castShadow: false,
+    });
+  }
+
+  // Front grille with chrome rim, contoured front/rear bumpers & swept crystalline lamps
+  addMesh(group, createRoundedPodGeometry(0.96, 0.24, 0.1, 0.05, 0.015), carbonMat, {
+    y: 0.56,
+    z: 2.02,
+  });
+  addMesh(group, createRoundedPodGeometry(0.92, 0.04, 0.05, 0.015, 0.008), chromeMat, {
+    y: 0.66,
+    z: 2.07,
+    castShadow: false,
+  });
+  addMesh(group, createRoundedPodGeometry(1.82, 0.14, 0.18, 0.05, 0.015), trimMat, {
+    y: 0.36,
+    z: 2.04,
+  });
+  addMesh(group, createRoundedPodGeometry(1.82, 0.14, 0.18, 0.05, 0.015), trimMat, {
+    y: 0.38,
+    z: -2.02,
+  });
+
+  for (const side of [-1, 1] as const) {
+    addMesh(group, createRoundedPodGeometry(0.34, 0.14, 0.16, 0.04, 0.015), headlightMat, {
+      x: side * 0.66,
+      y: 0.68,
+      z: 2.02,
+      ry: side * 0.22,
+      castShadow: false,
+    });
+    addMesh(group, createRoundedPodGeometry(0.22, 0.28, 0.09, 0.04, 0.015), brakeLightMat, {
+      x: side * 0.72,
+      y: 0.82,
+      z: -2.02,
+      castShadow: false,
+    });
+  }
+
+  // Illuminated white curved TAXI roof dome sign (emissive!)
+  const taxiSignTex = createTaxiSignTexture();
+  const taxiSignMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: 0xfff3cc,
+    emissiveIntensity: 1.25,
+    ...(taxiSignTex ? { map: taxiSignTex } : {}),
+    roughness: 0.18,
+  });
+  addMesh(group, createRoundedPodGeometry(0.74, 0.05, 0.3, 0.02, 0.01), trimMat, {
+    y: 1.64,
+    z: -0.18,
+  });
+  const domeGeo = createCurvedCrossExtrude(
+    (shape) => {
+      shape.moveTo(-0.34, 0);
+      shape.lineTo(0.34, 0);
+      shape.quadraticCurveTo(0.35, 0.21, 0.16, 0.23);
+      shape.lineTo(-0.16, 0.23);
+      shape.quadraticCurveTo(-0.35, 0.21, -0.34, 0);
+      shape.closePath();
+    },
+    0.26,
+    0.025,
+  );
+  addMesh(group, domeGeo, taxiSignMat, {
+    y: 1.66,
+    z: -0.18,
+    name: 'taxi_roof_sign',
+    castShadow: false,
+  });
+
+  attachCabinInterior(group, {
+    seatY: 0.6,
+    seatZ: -0.14,
+    dashZ: 0.62,
+    width: 1.32,
+  });
+  attachSideMirrors(group, 0.9, 1.06, 0.56, bodyMat, trimMat, 0.92);
+  attachDoorHandles(group, 0.925, 0.88, 0.1, -0.76, chromeMat);
+  attachVehicleLicensePlates(
+    group,
+    'WKL · 714',
+    'public_white',
+    { y: 0.37, z: 2.14 },
+    { y: 0.58, z: -2.12, rx: 0.08 },
+  );
+
+  const headlightCones = attachHeadlightCones(group, 0.66, 0.68, 2.11, 4.4, 0.86);
+  attachContactShadow(group, 2.18, 4.35, 0.58, 0.03);
+
+  const rig = attachWheels(
+    group,
+    [
+      { x: -0.88, z: 1.22, isFront: true },
+      { x: 0.88, z: 1.22, isFront: true },
+      { x: -0.88, z: -1.22, isFront: false },
+      { x: 0.88, z: -1.22, isFront: false },
+    ],
+    0.34,
+    0.25,
+    0x4a4f62,
+    0x2b303d,
+  );
+
+  group.userData.headlightCones = headlightCones;
+  group.userData.brakeLightMaterials = [brakeLightMat];
   group.userData.wheels = rig.wheels;
   group.userData.frontWheels = rig.frontWheels;
   return group;
@@ -1481,6 +3045,13 @@ function buildMioBusMesh(colorHex: number, accentHex: number): THREE.Group {
   );
   const brakeLightMaterials = attachStandardLampPairs(group, 1.12, 4.54, -4.54, 0.84);
   const headlightCones = attachHeadlightCones(group, 0.84, 0.84, 4.58, 4.6, 0.92);
+  attachVehicleLicensePlates(
+    group,
+    'MIO · 901',
+    'public_white',
+    { y: 0.58, z: 4.69, width: 0.44 },
+    { y: 0.72, z: -4.6, width: 0.44 },
+  );
 
   group.userData.brakeLightMaterials = brakeLightMaterials;
   group.userData.headlightCones = headlightCones;
@@ -1804,206 +3375,342 @@ function buildChivaMesh(colorHex: number, accentHex: number): THREE.Group {
   );
   const brakeLightMaterials = attachStandardLampPairs(group, 0.94, 3.44, -3.08, 0.88);
   const headlightCones = attachHeadlightCones(group, 0.68, 0.88, 3.48, 4.4, 0.88);
+  attachVehicleLicensePlates(
+    group,
+    'CHV · 555',
+    'public_white',
+    { y: 0.6, z: 3.52, width: 0.42 },
+    { y: 0.68, z: -3.21, width: 0.42 },
+  );
 
   group.userData.brakeLightMaterials = brakeLightMaterials;
   group.userData.headlightCones = headlightCones;
-  group.userData.wheels = rig.wheels;
-  group.userData.frontWheels = rig.frontWheels;
-  return group;
-}
-
-function buildPoliceMesh(colorHex: number, accentHex: number): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'vehicle_police';
-
-  const bodyMat = createCarPaintMaterial(colorHex);
-  const emeraldMat = createCarPaintMaterial(accentHex);
-  const glassMat = createTintedGlassMaterial(0x101324);
-  const bumperMat = createCarbonMaterial();
-  const safetyStripeMat = new THREE.MeshStandardMaterial({
-    color: 0xc2e636,
-    emissive: 0x7da318,
-    emissiveIntensity: 0.22,
-    roughness: 0.3,
-  });
-
-  // Muscular white & emerald-green Policía Nacional patrol SUV silhouette
-  const lowerHullGeo = createProfileGeometry(
-    [
-      [-2.24, 0.4],
-      [2.22, 0.4],
-      [2.32, 0.72],
-      [2.2, 1.06],
-      [1.22, 1.14],
-      [-2.18, 1.16],
-      [-2.28, 0.7],
-    ],
-    2.08,
-    0.06,
-  );
-  addMesh(group, lowerHullGeo, bodyMat, { name: 'police_chassis' });
-
-  // Emerald-green Policía Nacional tactical hood & side livery panels
-  addMesh(group, new THREE.BoxGeometry(1.88, 0.08, 1.18), emeraldMat, {
-    y: 1.13,
-    z: 1.56,
-    rx: 0.08,
-  });
-  for (const side of [-1, 1] as const) {
-    addMesh(group, new THREE.BoxGeometry(0.05, 0.34, 3.92), emeraldMat, {
-      x: side * 1.045,
-      y: 0.78,
-      z: -0.02,
-      castShadow: false,
-    });
-    addMesh(group, new THREE.BoxGeometry(0.06, 0.08, 3.86), safetyStripeMat, {
-      x: side * 1.055,
-      y: 0.94,
-      z: -0.02,
-      castShadow: false,
-    });
-  }
-
-  // Tinted SUV greenhouse cabin & white roof cap
-  const cabinGeo = createProfileGeometry(
-    [
-      [-2.04, 1.14],
-      [1.18, 1.12],
-      [0.64, 1.78],
-      [-1.82, 1.78],
-    ],
-    1.84,
-    0.045,
-  );
-  addMesh(group, cabinGeo, glassMat);
-
-  const roofGeo = createProfileGeometry(
-    [
-      [-1.86, 1.74],
-      [0.68, 1.74],
-      [0.58, 1.84],
-      [-1.78, 1.84],
-    ],
-    1.76,
-    0.03,
-  );
-  addMesh(group, roofGeo, bodyMat);
-
-  // Heavy tactical tubular bullbar bumper
-  addMesh(group, new THREE.BoxGeometry(1.54, 0.1, 0.14), bumperMat, {
-    y: 0.56,
-    z: 2.42,
-  });
-  addMesh(group, new THREE.BoxGeometry(1.44, 0.09, 0.12), bumperMat, {
-    y: 0.92,
-    z: 2.4,
-  });
-  for (const bx of [-0.54, 0.54] as const) {
-    addMesh(group, new THREE.BoxGeometry(0.11, 0.54, 0.2), bumperMat, {
-      x: bx,
-      y: 0.74,
-      z: 2.38,
-    });
-  }
-
-  // Roof rack rails & side mirrors
-  for (const side of [-0.74, 0.74] as const) {
-    addMesh(group, new THREE.BoxGeometry(0.08, 0.09, 1.98), bumperMat, {
-      x: side,
-      y: 1.89,
-      z: -0.58,
-    });
-  }
-  attachSideMirrors(group, 1.0, 1.24, 0.68, emeraldMat, bumperMat, 1.05);
-
-  // High-emissive red/blue lightbar pods + optional dynamic siren PointLight
-  addMesh(group, new THREE.BoxGeometry(1.42, 0.1, 0.34), bumperMat, {
-    y: 1.9,
-    z: 0.08,
-  });
-
-  const redBeacon = addMesh(
-    group,
-    new THREE.BoxGeometry(0.56, 0.2, 0.28),
-    new THREE.MeshStandardMaterial({
-      color: 0xff294d,
-      emissive: 0xff1c42,
-      emissiveIntensity: 2.2,
-      roughness: 0.12,
-    }),
-    {
-      x: -0.36,
-      y: 2.02,
-      z: 0.08,
-      name: 'police_red_beacon',
-      castShadow: false,
-    },
-  );
-
-  const blueBeacon = addMesh(
-    group,
-    new THREE.BoxGeometry(0.56, 0.2, 0.28),
-    new THREE.MeshStandardMaterial({
-      color: 0x2684ff,
-      emissive: 0x1a75ff,
-      emissiveIntensity: 2.2,
-      roughness: 0.12,
-    }),
-    {
-      x: 0.36,
-      y: 2.02,
-      z: 0.08,
-      name: 'police_blue_beacon',
-      castShadow: false,
-    },
-  );
-
-  const sirenLight = new THREE.PointLight(0xff294d, 0, 14, 2);
-  sirenLight.name = 'police_siren_light';
-  sirenLight.position.set(0, 2.32, 0.08);
-  sirenLight.castShadow = false;
-  group.add(sirenLight);
-
-  const rig = attachWheels(
-    group,
-    [
-      { x: -1.0, z: 1.44, isFront: true },
-      { x: 1.0, z: 1.44, isFront: true },
-      { x: -1.0, z: -1.44, isFront: false },
-      { x: 1.0, z: -1.44, isFront: false },
-    ],
-    0.4,
-    0.3,
-    0xd91c38,
-  );
-  const brakeLightMaterials = attachStandardLampPairs(group, 1.02, 2.31, -2.29, 0.78);
-  const headlightCones = attachHeadlightCones(group, 0.7, 0.78, 2.35, 4.4, 0.9);
-  attachContactShadow(group, 2.45, 4.95, 0.62, 0.03);
-
-  group.userData.redBeacon = redBeacon;
-  group.userData.blueBeacon = blueBeacon;
-  group.userData.sirenLight = sirenLight;
-  group.userData.headlightCones = headlightCones;
-  group.userData.brakeLightMaterials = brakeLightMaterials;
   group.userData.wheels = rig.wheels;
   group.userData.frontWheels = rig.frontWheels;
   return group;
 }
 
 /**
- * Constructs a distinct sculpted PBR 3D vehicle mesh for any of the 5 Cali VehicleKind values.
+ * Patrulla Policía Nacional SUV Interceptor (Duster / Hilux Inspired) — realistic high-clearance
+ * pearl-white clearcoat Colombian patrol SUV with authentic diagonal neon-green & emerald-green
+ * Policía Nacional livery, crisp CanvasTexture "POLICÍA NACIONAL · 123" door & hood decals,
+ * steel front bullbar, dark pursuit alloy rims, dual red/blue LED roof lightbar, and PNC · 123
+ * official white plates.
+ */
+function buildPoliceMesh(colorHex: number, accentHex: number): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'vehicle_police';
+
+  const bodyMat = createCarPaintMaterial(colorHex, {
+    metalness: 0.56,
+    roughness: 0.18,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.06,
+    envMapIntensity: 1.55,
+  });
+  const emeraldMat = createCarPaintMaterial(accentHex, {
+    metalness: 0.58,
+    roughness: 0.2,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.06,
+    envMapIntensity: 1.55,
+  });
+  const glassMat = createTintedGlassMaterial(0x0c111e, {
+    transparent: true,
+    opacity: 0.62,
+  });
+  const bumperMat = createCarbonMaterial();
+  const chromeMat = createChromeMaterial();
+  const headlightMat = createXenonHeadlightMaterial();
+  const drlMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: 0xdff6ff,
+    emissiveIntensity: 2.0,
+    roughness: 0.1,
+  });
+  const brakeLightMat = createBrakeLightMaterial(BANSHEE_BRAKE_EMISSIVE_INTENSITY);
+  const neonGreenLiveryMat = new THREE.MeshStandardMaterial({
+    color: 0xa2eb18,
+    emissive: 0x6ba612,
+    emissiveIntensity: 0.34,
+    roughness: 0.26,
+    metalness: 0.18,
+  });
+
+  // High-clearance sculpted Colombian SUV Interceptor lower body (Duster/Hilux proportions)
+  const lowerHullGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-2.14, 0.42);
+      shape.lineTo(2.1, 0.4);
+      shape.quadraticCurveTo(2.26, 0.46, 2.24, 0.84);
+      shape.quadraticCurveTo(2.18, 1.08, 1.88, 1.12);
+      shape.lineTo(1.14, 1.18);
+      shape.lineTo(-2.06, 1.2);
+      shape.quadraticCurveTo(-2.26, 1.14, -2.26, 0.72);
+      shape.quadraticCurveTo(-2.24, 0.48, -2.14, 0.42);
+      shape.closePath();
+    },
+    2.04,
+    0.075,
+  );
+  addMesh(group, lowerHullGeo, bodyMat, { name: 'police_chassis' });
+
+  // Sculpted modern SUV cabin greenhouse + curved clearcoat roof cap + rear roof spoiler
+  const cabinGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-2.04, 1.16);
+      shape.lineTo(1.16, 1.14);
+      shape.quadraticCurveTo(0.86, 1.66, 0.54, 1.8);
+      shape.lineTo(-1.66, 1.81);
+      shape.quadraticCurveTo(-1.96, 1.76, -2.04, 1.16);
+      shape.closePath();
+    },
+    1.78,
+    0.05,
+  );
+  addMesh(group, cabinGeo, glassMat, {
+    name: 'police_cabin_glass',
+    castShadow: false,
+  });
+
+  const roofGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.74, 1.77);
+      shape.lineTo(0.58, 1.77);
+      shape.quadraticCurveTo(0.5, 1.86, 0.34, 1.87);
+      shape.lineTo(-1.64, 1.87);
+      shape.quadraticCurveTo(-1.78, 1.85, -1.74, 1.77);
+      shape.closePath();
+    },
+    1.7,
+    0.03,
+  );
+  addMesh(group, roofGeo, bodyMat, { name: 'police_roof' });
+
+  // Muscular matte-black SUV wheel arch flares & rugged side running boards
+  const archGeo = createFlaredWheelArchGeometry(0.43, 0.12, 0.16);
+  for (const side of [-1, 1] as const) {
+    for (const wz of [1.44, -1.42] as const) {
+      addMesh(group, archGeo, bumperMat, { x: side * 1.0, y: 0.42, z: wz });
+    }
+    addMesh(group, createRoundedPodGeometry(0.16, 0.08, 1.94, 0.03, 0.015), bumperMat, {
+      x: side * 1.04,
+      y: 0.38,
+      z: 0.02,
+    });
+  }
+
+  // Authentic Colombian Policía Nacional diagonal neon-green & dark emerald livery + crisp decals
+  const policeDecalTex = createPoliceDecalTexture('123');
+  const decalMat = new THREE.MeshStandardMaterial({
+    color: policeDecalTex ? 0xffffff : 0x0b6b3a,
+    ...(policeDecalTex ? { map: policeDecalTex } : {}),
+    roughness: 0.24,
+    metalness: 0.14,
+  });
+
+  // Hood tactical emerald shield + POLICÍA NACIONAL decal sitting proudly above beveled hood
+  addMesh(group, createRoundedPodGeometry(1.72, 0.05, 0.92, 0.02, 0.01), emeraldMat, {
+    y: 1.22,
+    z: 1.54,
+    rx: 0.06,
+  });
+  addMesh(group, new THREE.PlaneGeometry(1.42, 0.44), decalMat, {
+    y: 1.255,
+    z: 1.62,
+    rx: -Math.PI / 2 + 0.06,
+    name: 'police_hood_decal',
+    castShadow: false,
+  });
+
+  // Side diagonal neon-green & emerald stripes flush on flank + proud POLICÍA NACIONAL · 123 decals
+  for (const side of [-1, 1] as const) {
+    addMesh(group, new THREE.BoxGeometry(0.014, 0.26, 3.64), emeraldMat, {
+      x: side * 1.022,
+      y: 0.68,
+      z: -0.02,
+      castShadow: false,
+    });
+    addMesh(group, new THREE.BoxGeometry(0.016, 0.08, 3.6), neonGreenLiveryMat, {
+      x: side * 1.024,
+      y: 0.84,
+      z: -0.02,
+      rx: -0.03,
+      castShadow: false,
+    });
+    addMesh(group, new THREE.PlaneGeometry(1.96, 0.56), decalMat, {
+      x: side * 1.042,
+      y: 0.86,
+      z: 0.04,
+      ry: side * (Math.PI / 2),
+      name: `police_door_decal_${side > 0 ? 'left' : 'right'}`,
+      castShadow: false,
+    });
+  }
+
+  // Heavy matte-black tubular steel front bullbar / push-bumper + honeycomb grille + skid plate
+  addMesh(group, createRoundedPodGeometry(1.26, 0.34, 0.1, 0.05, 0.015), bumperMat, {
+    y: 0.84,
+    z: 2.3,
+  });
+  const bullbarTubeGeo = new THREE.CylinderGeometry(0.042, 0.042, 1.56, 12);
+  bullbarTubeGeo.rotateZ(Math.PI / 2);
+  addMesh(group, bullbarTubeGeo, bumperMat, { y: 0.62, z: 2.48, name: 'police_bullbar' });
+  addMesh(group, bullbarTubeGeo, bumperMat, { y: 0.98, z: 2.46 });
+  for (const bx of [-0.52, 0.52] as const) {
+    addMesh(group, new THREE.BoxGeometry(0.09, 0.56, 0.22), bumperMat, {
+      x: bx,
+      y: 0.78,
+      z: 2.43,
+    });
+  }
+  addMesh(group, createRoundedPodGeometry(1.42, 0.14, 0.3, 0.04, 0.015), chromeMat, {
+    y: 0.44,
+    z: 2.28,
+    rx: 0.34,
+  });
+
+  // Crystalline SUV LED DRL headlights & smoky vertical LED taillights
+  for (const side of [-1, 1] as const) {
+    addMesh(group, createRoundedPodGeometry(0.38, 0.16, 0.16, 0.04, 0.015), headlightMat, {
+      x: side * 0.74,
+      y: 0.88,
+      z: 2.3,
+      ry: side * 0.16,
+      castShadow: false,
+    });
+    addMesh(group, new THREE.BoxGeometry(0.4, 0.032, 0.06), drlMat, {
+      x: side * 0.74,
+      y: 0.97,
+      z: 2.33,
+      ry: side * 0.16,
+      castShadow: false,
+    });
+    addMesh(group, createRoundedPodGeometry(0.22, 0.34, 0.1, 0.04, 0.015), brakeLightMat, {
+      x: side * 0.82,
+      y: 0.96,
+      z: -2.32,
+      castShadow: false,
+    });
+  }
+
+  // Roof rack rails, interior cabin & side mirrors
+  for (const side of [-0.72, 0.72] as const) {
+    addMesh(group, createRoundedPodGeometry(0.07, 0.08, 1.92, 0.03, 0.01), bumperMat, {
+      x: side,
+      y: 1.93,
+      z: -0.54,
+    });
+  }
+  attachCabinInterior(group, {
+    seatY: 0.78,
+    seatZ: -0.1,
+    dashZ: 0.76,
+    width: 1.48,
+  });
+  attachSideMirrors(group, 0.98, 1.24, 0.68, emeraldMat, bumperMat, 1.02);
+  attachDoorHandles(group, 1.03, 1.06, 0.18, -0.78, bumperMat);
+
+  // Aerodynamic low-profile dual red/blue LED roof lightbar + dynamic siren PointLight
+  addMesh(group, createRoundedPodGeometry(1.42, 0.08, 0.32, 0.03, 0.015), bumperMat, {
+    y: 1.93,
+    z: 0.06,
+  });
+  const beaconGeo = new THREE.CapsuleGeometry(0.072, 0.44, 8, 12);
+  beaconGeo.rotateZ(Math.PI / 2);
+
+  const redBeaconMat = new THREE.MeshStandardMaterial({
+    color: 0xff294d,
+    emissive: 0xff1c42,
+    emissiveIntensity: 2.4,
+    roughness: 0.12,
+  });
+  const blueBeaconMat = new THREE.MeshStandardMaterial({
+    color: 0x2684ff,
+    emissive: 0x1a75ff,
+    emissiveIntensity: 2.4,
+    roughness: 0.12,
+  });
+
+  const redBeacon = addMesh(group, beaconGeo, redBeaconMat, {
+    x: -0.38,
+    y: 2.02,
+    z: 0.06,
+    sy: 0.76,
+    name: 'police_red_beacon',
+    castShadow: false,
+  });
+  const blueBeacon = addMesh(group, beaconGeo, blueBeaconMat, {
+    x: 0.38,
+    y: 2.02,
+    z: 0.06,
+    sy: 0.76,
+    name: 'police_blue_beacon',
+    castShadow: false,
+  });
+
+  const sirenLight = new THREE.PointLight(0xff294d, 0, 16, 2);
+  sirenLight.name = 'police_siren_light';
+  sirenLight.position.set(0, 2.36, 0.06);
+  sirenLight.castShadow = false;
+  group.add(sirenLight);
+
+  attachVehicleLicensePlates(
+    group,
+    'PNC · 123',
+    'public_white',
+    { y: 0.62, z: 2.52 },
+    { y: 0.74, z: -2.35 },
+  );
+
+  // Dark alloy pursuit rims + red Brembo calipers
+  const rig = attachWheels(
+    group,
+    [
+      { x: -0.98, z: 1.44, isFront: true },
+      { x: 0.98, z: 1.44, isFront: true },
+      { x: -0.98, z: -1.42, isFront: false },
+      { x: 0.98, z: -1.42, isFront: false },
+    ],
+    0.41,
+    0.31,
+    0xd91c38,
+    0x272d3b,
+  );
+  const headlightCones = attachHeadlightCones(group, 0.74, 0.88, 2.42, 4.9, 0.94);
+  attachContactShadow(group, 2.45, 4.95, 0.64, 0.03);
+
+  group.userData.redBeacon = redBeacon;
+  group.userData.blueBeacon = blueBeacon;
+  group.userData.sirenLight = sirenLight;
+  group.userData.sirenLightMaterials = [redBeaconMat, blueBeaconMat];
+  group.userData.headlightCones = headlightCones;
+  group.userData.brakeLightMaterials = [brakeLightMat];
+  group.userData.wheels = rig.wheels;
+  group.userData.frontWheels = rig.frontWheels;
+  return group;
+}
+
+/**
+ * Constructs a distinct sculpted clearcoat PBR 3D vehicle mesh for any of the 8 Cali VehicleKind
+ * values, complete with authentic front & rear Colombian license plates, interior cabin, concave
+ * 5-spoke alloys, headlights/brakelights, and optional neon underglow on player cars.
  */
 export function createVehicleMesh(
   kind: VehicleKind,
   colorHex: number,
   accentHex?: number,
+  neonHex?: number,
 ): THREE.Group {
   switch (kind) {
     case 'renault4_turbo':
+      return buildRenault4TurboMesh(colorHex, accentHex ?? 0x1e222e, neonHex);
     case 'spark_gt_turbo':
+      return buildSparkGtTurboMesh(colorHex, accentHex ?? 0x161922, neonHex);
     case 'willys_v8':
+      return buildWillysV8Mesh(colorHex, accentHex ?? 0x20242c, neonHex);
     case 'banshee':
-      return buildBansheeMesh(colorHex, accentHex ?? 0x00f0ff);
+      return buildBansheeMesh(colorHex, accentHex ?? 0x00f0ff, neonHex);
     case 'taxi':
       return buildTaxiMesh(colorHex, accentHex ?? 0x1a1a2e);
     case 'mio_bus':
@@ -2011,7 +3718,7 @@ export function createVehicleMesh(
     case 'chiva':
       return buildChivaMesh(colorHex, accentHex ?? 0xffb800);
     case 'police':
-      return buildPoliceMesh(colorHex, accentHex ?? 0x14532d);
+      return buildPoliceMesh(colorHex, accentHex ?? 0x0b6b3a);
   }
 }
 
@@ -2339,43 +4046,36 @@ function attachFerrariPoliceKit(
   const beaconGeo = new THREE.CapsuleGeometry(0.062, 0.34, 8, 12);
   beaconGeo.rotateZ(Math.PI / 2);
 
-  const redBeacon = addMesh(
-    group,
-    beaconGeo,
-    new THREE.MeshStandardMaterial({
-      color: 0xff294d,
-      emissive: 0xff1c42,
-      emissiveIntensity: 2.5,
-      roughness: 0.12,
-    }),
-    {
-      x: -0.34,
-      y: barY + 0.055,
-      z: barZ,
-      sy: 0.72,
-      name: 'police_red_beacon',
-      castShadow: false,
-    },
-  );
+  const redBeaconMat = new THREE.MeshStandardMaterial({
+    color: 0xff294d,
+    emissive: 0xff1c42,
+    emissiveIntensity: 2.5,
+    roughness: 0.12,
+  });
+  const blueBeaconMat = new THREE.MeshStandardMaterial({
+    color: 0x2684ff,
+    emissive: 0x1a75ff,
+    emissiveIntensity: 2.5,
+    roughness: 0.12,
+  });
 
-  const blueBeacon = addMesh(
-    group,
-    beaconGeo,
-    new THREE.MeshStandardMaterial({
-      color: 0x2684ff,
-      emissive: 0x1a75ff,
-      emissiveIntensity: 2.5,
-      roughness: 0.12,
-    }),
-    {
-      x: 0.34,
-      y: barY + 0.055,
-      z: barZ,
-      sy: 0.72,
-      name: 'police_blue_beacon',
-      castShadow: false,
-    },
-  );
+  const redBeacon = addMesh(group, beaconGeo, redBeaconMat, {
+    x: -0.34,
+    y: barY + 0.055,
+    z: barZ,
+    sy: 0.72,
+    name: 'police_red_beacon',
+    castShadow: false,
+  });
+
+  const blueBeacon = addMesh(group, beaconGeo, blueBeaconMat, {
+    x: 0.34,
+    y: barY + 0.055,
+    z: barZ,
+    sy: 0.72,
+    name: 'police_blue_beacon',
+    castShadow: false,
+  });
 
   const sirenLight = new THREE.PointLight(0xff294d, 0, 16, 2);
   sirenLight.name = 'police_siren_light';
@@ -2386,6 +4086,7 @@ function attachFerrariPoliceKit(
   group.userData.redBeacon = redBeacon;
   group.userData.blueBeacon = blueBeacon;
   group.userData.sirenLight = sirenLight;
+  group.userData.sirenLightMaterials = [redBeaconMat, blueBeaconMat];
 }
 
 function attachFerrariTaxiKit(
@@ -2460,6 +4161,8 @@ function attachFerrariTaxiKit(
 export function createFerrariLiveryMesh(
   ferrariTemplate: THREE.Group,
   kind: FerrariLiveryKind,
+  paintHex?: number,
+  neonHex?: number,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = `vehicle_${kind}_ferrari`;
@@ -2480,14 +4183,16 @@ export function createFerrariLiveryMesh(
     taxi: { color: 0xe5ad00, metalness: 0.56, roughness: 0.16 },
   };
   const chosenPaint = paintSpec[kind];
+  const resolvedPaintColor =
+    paintHex !== undefined && Number.isFinite(paintHex) ? paintHex : chosenPaint.color;
 
   const bodyMat = new THREE.MeshPhysicalMaterial({
-    color: chosenPaint.color,
+    color: resolvedPaintColor,
     metalness: chosenPaint.metalness,
     roughness: chosenPaint.roughness,
     clearcoat: 1.0,
     clearcoatRoughness: 0.05,
-    envMapIntensity: 1.35,
+    envMapIntensity: 1.55,
   });
   const glassMat = new THREE.MeshPhysicalMaterial({
     color: 0x0b1017,
@@ -2645,6 +4350,24 @@ export function createFerrariLiveryMesh(
     kind === 'police' ? 0.94 : 0.88,
   );
   attachContactShadow(group, 2.35, 4.9, 0.64, 0.03);
+  attachUnderglow(group, 2.35, 4.85, neonHex);
+
+  const plateMeta: Record<
+    FerrariLiveryKind,
+    { readonly code: string; readonly style: ColombianPlateStyle }
+  > = {
+    banshee: { code: 'VLC · 458', style: 'private_yellow' },
+    police: { code: 'PNC · 123', style: 'public_white' },
+    taxi: { code: 'WKL · 714', style: 'public_white' },
+  };
+  const plateSpec = plateMeta[kind];
+  attachVehicleLicensePlates(
+    group,
+    plateSpec.code,
+    plateSpec.style,
+    { y: 0.38, z: 2.28, rx: -0.08 },
+    { y: 0.56, z: -2.28, rx: 0.08 },
+  );
 
   if (kind === 'banshee') {
     group.userData.nitroFlames = attachFerrariNitroFlames(group);
@@ -2805,7 +4528,37 @@ const retargetClipCache = new WeakMap<
 const BONES_TRACK_PREFIX_REGEX = /^\.bones\[([^\]]+)\]\.(.+)$/;
 
 function normalizeMixamoBoneName(name: string): string {
-  return name.replace(/:/g, '').trim();
+  return name
+    .trim()
+    .replace(/^mixamorig[:_-]?/i, '')
+    .replace(/:/g, '');
+}
+
+function getBoneHierarchyDepth(bone: THREE.Object3D): number {
+  let depth = 0;
+  let current: THREE.Object3D | null = bone.parent;
+  while (current) {
+    depth += 1;
+    current = current.parent;
+  }
+  return depth;
+}
+
+/**
+ * Ensures skeleton.bones and skeleton.boneInverses are ordered parent-before-child so
+ * SkeletonUtils.retarget computes child local matrices against already-updated parent matrices
+ * (critical for Ready Player Me / caleno.glb exports whose joint list is reverse-ordered).
+ */
+function sortSkeletonTopologically(skeleton: THREE.Skeleton): void {
+  const entries = skeleton.bones.map((bone, index) => ({
+    bone,
+    inverse: skeleton.boneInverses[index] ?? new THREE.Matrix4(),
+    depth: getBoneHierarchyDepth(bone),
+    originalIndex: index,
+  }));
+  entries.sort((a, b) => a.depth - b.depth || a.originalIndex - b.originalIndex);
+  skeleton.bones = entries.map((entry) => entry.bone);
+  skeleton.boneInverses = entries.map((entry) => entry.inverse);
 }
 
 function parseKeyframeTrackName(
@@ -2840,7 +4593,10 @@ function findPrimarySkinnedMesh(root: THREE.Object3D): THREE.SkinnedMesh | null 
 
 function findMixamoHipBone(bones: readonly THREE.Bone[]): THREE.Bone | null {
   const exact = bones.find(
-    (bone) => bone.name === 'mixamorigHips' || bone.name === 'mixamorig:Hips',
+    (bone) =>
+      bone.name === 'mixamorigHips' ||
+      bone.name === 'mixamorig:Hips' ||
+      bone.name === 'Hips',
   );
   if (exact) {
     return exact;
@@ -3048,6 +4804,10 @@ export function retargetMixamoClips(
     return storeCache(retargetSyntheticBoneClips(sourceAsset.animations, targetRoot));
   }
 
+  sortSkeletonTopologically(targetSkinned.skeleton);
+  targetSkinned.skeleton.pose();
+  targetClone.updateMatrixWorld(true);
+
   const sourceBoneExact = new Map<string, THREE.Bone>();
   const sourceBoneNorm = new Map<string, THREE.Bone>();
   for (const bone of sourceSkinned.skeleton.bones) {
@@ -3055,12 +4815,23 @@ export function retargetMixamoClips(
     sourceBoneNorm.set(normalizeMixamoBoneName(bone.name), bone);
   }
 
+  // Explicit target -> source bone map supporting exact mixamorig:* (valeria.glb) AND
+  // prefix-stripped matches (Hips <-> mixamorig:Hips for caleno.glb)
+  const targetToSourceBone = new Map<string, THREE.Bone>();
+  for (const targetBone of targetSkinned.skeleton.bones) {
+    const matched =
+      sourceBoneExact.get(targetBone.name) ??
+      sourceBoneNorm.get(normalizeMixamoBoneName(targetBone.name));
+    if (matched) {
+      targetToSourceBone.set(targetBone.name, matched);
+    }
+  }
+
   const resolveSourceBone = (targetBone: THREE.Bone): THREE.Bone | undefined =>
-    sourceBoneExact.get(targetBone.name) ??
-    sourceBoneNorm.get(normalizeMixamoBoneName(targetBone.name));
+    targetToSourceBone.get(targetBone.name);
 
   const resolveSourceBoneName = (targetBone: THREE.Bone): string =>
-    resolveSourceBone(targetBone)?.name ?? targetBone.name;
+    targetToSourceBone.get(targetBone.name)?.name ?? targetBone.name;
 
   const localOffsets = buildRestPoseLocalOffsets(targetSkinned.skeleton.bones, resolveSourceBone);
 
@@ -3143,10 +4914,417 @@ function liftTintForReadableAlbedo(hex: number, minLuminance = 0.44): THREE.Colo
   return color;
 }
 
+function drawTextileWeave(ctx: CanvasRenderingContext2D, size: number, alpha = 0.06): void {
+  ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+  for (let y = 0; y < size; y += 6) {
+    ctx.fillRect(0, y, size, 1);
+  }
+  ctx.fillStyle = `rgba(0, 0, 0, ${alpha * 1.15})`;
+  for (let x = 0; x < size; x += 6) {
+    ctx.fillRect(x, 0, 1, size);
+  }
+}
+
+/**
+ * Generates a 512x512 procedural woven cloth CanvasTexture tailored for Cali jerseys,
+ * tropical Caleño guayaberas, modern streetwear, and authentic Policía Nacional uniforms.
+ * Gracefully returns null in headless Node environments.
+ */
+export function createCaliJerseyTexture(
+  outfit: CaliJerseyStyle,
+): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+
+  switch (outfit) {
+    case 'escarlata': {
+      // Rich América de Cali crimson with diagonal satin sheen, white & gold V-collar & cuffs
+      ctx.fillStyle = '#c8102e';
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = 'rgba(130, 8, 28, 0.34)';
+      for (let i = -size; i < size * 2; i += 44) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i + 18, 0);
+        ctx.lineTo(i - 160, size);
+        ctx.lineTo(i - 178, size);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Crisp white & gold athletic collar/sleeve trim bands
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, 18);
+      ctx.fillRect(0, size - 22, size, 12);
+      ctx.fillStyle = '#f4c430';
+      ctx.fillRect(0, 18, size, 8);
+      ctx.fillRect(0, size - 10, size, 10);
+      // Subtle golden V-collar chevrons
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.moveTo(186, 60);
+      ctx.lineTo(256, 128);
+      ctx.lineTo(326, 60);
+      ctx.stroke();
+      ctx.strokeStyle = '#f4c430';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      break;
+    }
+
+    case 'azucarero': {
+      // Vibrant Deportivo Cali emerald with tonal stripes, crisp white chest band & piping
+      ctx.fillStyle = '#0b7a3e';
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = 'rgba(6, 72, 36, 0.36)';
+      for (let x = 0; x < size; x += 32) {
+        ctx.fillRect(x, 0, 14, size);
+      }
+      // Crisp white athletic chest & shoulder trim bands
+      ctx.fillStyle = '#f7faf8';
+      ctx.fillRect(0, 0, size, 18);
+      ctx.fillRect(0, 176, size, 34);
+      ctx.fillRect(0, size - 20, size, 12);
+      ctx.fillStyle = '#08592d';
+      ctx.fillRect(0, 186, size, 14);
+      // Clean circular white-rimmed crest emblem
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(320, 132, 22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#0b7a3e';
+      ctx.beginPath();
+      ctx.arc(320, 132, 16, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+
+    case 'tricolor': {
+      // Iconic Selección Colombia golden yellow with navy blue & crimson chest/shoulder bands
+      ctx.fillStyle = '#f2c200';
+      ctx.fillRect(0, 0, size, size);
+      // Subtle warm golden knit pinstripes
+      ctx.fillStyle = 'rgba(205, 148, 0, 0.24)';
+      for (let y = 0; y < size; y += 20) {
+        ctx.fillRect(0, y, size, 4);
+      }
+      // Iconic navy-blue & crimson horizontal chest and cuff bands
+      ctx.fillStyle = '#0b2c6b';
+      ctx.fillRect(0, 0, size, 24);
+      ctx.fillRect(0, 164, size, 46);
+      ctx.fillRect(0, size - 32, size, 18);
+      ctx.fillStyle = '#ce1126';
+      ctx.fillRect(0, 24, size, 14);
+      ctx.fillRect(0, 210, size, 28);
+      ctx.fillRect(0, size - 14, size, 14);
+      break;
+    }
+
+    case 'guayabera': {
+      // Crisp tropical white/ivory Caleño linen guayabera with embroidered alforza vertical pleats
+      ctx.fillStyle = '#f4f0e6';
+      ctx.fillRect(0, 0, size, size);
+      // Embroidered twin vertical pleat columns
+      for (const columnX of [96, 114, 132, 150, 362, 380, 398, 416] as const) {
+        ctx.fillStyle = '#ddd4c2';
+        ctx.fillRect(columnX, 0, 4, size);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(columnX + 4, 0, 2, size);
+      }
+      // Subtle center button placket & mother-of-pearl buttons
+      ctx.fillStyle = '#e7dfd0';
+      ctx.fillRect(246, 0, 20, size);
+      ctx.fillStyle = '#d6cab4';
+      for (let by = 48; by < size; by += 72) {
+        ctx.beginPath();
+        ctx.arc(256, by, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Twin stitched breast pocket accents
+      ctx.strokeStyle = '#cfc4ae';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(102, 142, 68, 72);
+      ctx.strokeRect(342, 142, 68, 72);
+      break;
+    }
+
+    case 'urbano_cali': {
+      // Sleek charcoal modern Cali streetwear tee with coral & tropical cyan sleeve/chest accents
+      ctx.fillStyle = '#1f232e';
+      ctx.fillRect(0, 0, size, size);
+      // Diagonal coral & cyan accent wave
+      ctx.fillStyle = '#ff4b7d';
+      ctx.fillRect(0, 148, size, 24);
+      ctx.fillStyle = '#14d8e8';
+      ctx.fillRect(0, 178, size, 14);
+      ctx.fillRect(0, size - 22, size, 10);
+      // Minimalist sunset palm circle graphic
+      ctx.fillStyle = '#ff7b54';
+      ctx.beginPath();
+      ctx.arc(256, 114, 34, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#1f232e';
+      ctx.fillRect(216, 120, 80, 7);
+      ctx.fillRect(216, 133, 80, 5);
+      break;
+    }
+
+    case 'police_uniform': {
+      // Authentic Colombian Policía Nacional high-visibility neon-lime tactical vest over navy-emerald
+      ctx.fillStyle = '#0e3326';
+      ctx.fillRect(0, 0, size, size);
+      // High-visibility neon-lime chest & waist reflective tactical panels
+      ctx.fillStyle = '#a4ea1c';
+      ctx.fillRect(0, 76, size, 78);
+      ctx.fillRect(0, 248, size, 48);
+      // Reflective silver piping stripes
+      ctx.fillStyle = '#e5eef8';
+      ctx.fillRect(0, 96, size, 14);
+      ctx.fillRect(0, 130, size, 10);
+      ctx.fillRect(0, 266, size, 12);
+      // Metallic gold Policía chest shield emblem
+      ctx.fillStyle = '#f4c430';
+      ctx.beginPath();
+      ctx.arc(330, 116, 20, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#0b3b24';
+      ctx.beginPath();
+      ctx.arc(330, 116, 13, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+  }
+
+  drawTextileWeave(ctx, size, outfit === 'guayabera' ? 0.045 : 0.06);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.flipY = false;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function computeVisibleBounds(root: THREE.Object3D): THREE.Box3 {
+  const box = new THREE.Box3();
+  root.traverse((node) => {
+    if (node instanceof THREE.Mesh && node.visible) {
+      box.expandByObject(node);
+    }
+  });
+  return box;
+}
+
+/**
+ * Builds an ultra-realistic rigged adult Caleño character from `caleno.glb` (Ready Player Me
+ * realistic human armature), applying curated Vallecaucano skin tones, 512px Cali jersey or
+ * guayabera textures on Wolf3D_Outfit_Top, realistic denim/sneakers, beard/headwear toggles,
+ * strict y = 0 grounding facing +Z at 1.78m default height, and retargeted Mixamo locomotion.
+ */
+export function createCalenoCharacterRig(
+  calenoAsset: LoadedCharacterAsset,
+  locomotionSource: LoadedCharacterAsset | null,
+  options?: CalenoCharacterOptions,
+): RiggedCharacterRig {
+  const group = new THREE.Group();
+  group.name = 'player_caleno_character';
+
+  const clonedScene = SkeletonUtils.clone(calenoAsset.scene);
+  const innerGroup = new THREE.Group();
+  innerGroup.name = 'caleno_model_root';
+  innerGroup.add(clonedScene);
+  group.add(innerGroup);
+
+  const outfit: CaliJerseyStyle = options?.outfit ?? 'urbano_cali';
+  const skinToneHex =
+    options?.skinToneHex !== undefined && Number.isFinite(options.skinToneHex)
+      ? options.skinToneHex
+      : CALENO_VALLECAUCANO_SKIN_TONES[3];
+  const skinTintColor = liftTintForReadableAlbedo(skinToneHex, 0.36);
+
+  const pantsHex =
+    options?.pantsHex !== undefined && Number.isFinite(options.pantsHex)
+      ? options.pantsHex
+      : 0x2a3b56;
+  const pantsTintColor = liftTintForReadableAlbedo(pantsHex, 0.32);
+
+  const headwearHex =
+    options?.headwearHex !== undefined && Number.isFinite(options.headwearHex)
+      ? options.headwearHex
+      : CALI_OUTFIT_ACCENT_HEX[outfit];
+  const headwearTintColor = liftTintForReadableAlbedo(headwearHex, 0.36);
+
+  const showBeard = options?.showBeard ?? true;
+  const showHeadwear = options?.showHeadwear ?? false;
+  const targetHeight =
+    options?.heightMeters !== undefined &&
+    Number.isFinite(options.heightMeters) &&
+    options.heightMeters > 0.5
+      ? options.heightMeters
+      : CHARACTER_TARGET_HEIGHT_METERS;
+
+  const jerseyTexture = createCaliJerseyTexture(outfit);
+  const jerseyFallbackColor = liftTintForReadableAlbedo(CALI_OUTFIT_ACCENT_HEX[outfit], 0.36);
+  const clonedMaterials = new Map<THREE.Material, THREE.Material>();
+
+  const cloneCalenoMaterial = (nodeName: string, mat: THREE.Material): THREE.Material => {
+    const existing = clonedMaterials.get(mat);
+    if (existing) {
+      return existing;
+    }
+    const copy = mat.clone();
+    const matName = mat.name;
+
+    if (copy instanceof THREE.MeshStandardMaterial) {
+      if (
+        matName === 'Wolf3D_Skin' ||
+        matName === 'Wolf3D_Body' ||
+        nodeName === 'Wolf3D_Head' ||
+        nodeName === 'Wolf3D_Body'
+      ) {
+        // Natural non-plastic Vallecaucano human skin PBR
+        copy.color.copy(skinTintColor);
+        copy.roughness = 0.68;
+        copy.metalness = 0.02;
+        copy.envMapIntensity = 0.72;
+      } else if (matName === 'Wolf3D_Outfit_Top' || nodeName === 'Wolf3D_Outfit_Top') {
+        if (jerseyTexture) {
+          copy.map = jerseyTexture;
+          copy.color.setHex(0xffffff);
+        } else {
+          copy.color.copy(jerseyFallbackColor);
+        }
+        copy.roughness = 0.8;
+        copy.metalness = 0.04;
+        copy.roughnessMap = null;
+        copy.metalnessMap = null;
+        copy.envMapIntensity = 0.75;
+        copy.needsUpdate = true;
+      } else if (matName === 'Wolf3D_Outfit_Bottom' || nodeName === 'Wolf3D_Outfit_Bottom') {
+        copy.color.copy(pantsTintColor);
+        copy.roughness = 0.84;
+        copy.metalness = 0.03;
+        copy.envMapIntensity = 0.65;
+      } else if (
+        matName === 'Wolf3D_Outfit_Footwear' ||
+        nodeName === 'Wolf3D_Outfit_Footwear'
+      ) {
+        copy.color.lerp(new THREE.Color(0xeef2f7), 0.35);
+        copy.roughness = 0.64;
+        copy.metalness = 0.05;
+        copy.envMapIntensity = 0.8;
+      } else if (matName === 'Wolf3D_Headwear' || nodeName === 'Wolf3D_Headwear') {
+        copy.color.copy(headwearTintColor);
+        copy.roughness = 0.78;
+        copy.metalness = 0.04;
+      } else if (matName === 'Wolf3D_Beard' || nodeName === 'Wolf3D_Beard') {
+        copy.roughness = 0.86;
+        copy.metalness = 0.02;
+      } else {
+        copy.envMapIntensity = Math.min(Math.max(copy.envMapIntensity, 0.65), 0.9);
+      }
+    }
+
+    clonedMaterials.set(mat, copy);
+    return copy;
+  };
+
+  innerGroup.traverse((node) => {
+    if (node.name === 'Wolf3D_Beard') {
+      node.visible = showBeard;
+    } else if (node.name === 'Wolf3D_Headwear') {
+      node.visible = showHeadwear;
+    }
+
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    node.castShadow = true;
+    node.receiveShadow = true;
+    node.frustumCulled = false;
+
+    if (Array.isArray(node.material)) {
+      node.material = node.material.map((m) => cloneCalenoMaterial(node.name, m));
+    } else if (node.material instanceof THREE.Material) {
+      node.material = cloneCalenoMaterial(node.name, node.material);
+    }
+  });
+
+  // Normalize strictly by visible mesh bounds so feet rest cleanly at y = 0 facing +Z
+  innerGroup.updateMatrixWorld(true);
+  const rawBox = computeVisibleBounds(innerGroup);
+  if (!rawBox.isEmpty()) {
+    const rawSize = rawBox.getSize(new THREE.Vector3());
+    if (rawSize.y > 0.01) {
+      innerGroup.scale.setScalar(targetHeight / rawSize.y);
+    }
+    innerGroup.updateMatrixWorld(true);
+    const scaledBox = computeVisibleBounds(innerGroup);
+    const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+    innerGroup.position.set(
+      -scaledCenter.x,
+      -scaledBox.min.y,
+      -scaledCenter.z,
+    );
+  }
+
+  attachContactShadow(group, 0.82, 0.82, 0.44, 0.025);
+
+  const mixer = new THREE.AnimationMixer(clonedScene);
+  const locomotionClips = locomotionSource
+    ? retargetMixamoClips(locomotionSource, calenoAsset.scene)
+    : [];
+
+  const idleClip =
+    findAnimationClip(locomotionClips, 'Idle') ??
+    findAnimationClip(calenoAsset.animations, 'Idle');
+  const walkClip =
+    findAnimationClip(locomotionClips, 'Walk') ??
+    findAnimationClip(calenoAsset.animations, 'Walk');
+  const runClip =
+    findAnimationClip(locomotionClips, 'Run') ??
+    findAnimationClip(calenoAsset.animations, 'Run');
+  const danceClip =
+    findAnimationClip(locomotionClips, 'SambaDance') ??
+    findAnimationClip(calenoAsset.animations, 'SambaDance') ??
+    findAnimationClip(calenoAsset.animations, 'Dance');
+
+  const idle = idleClip ? mixer.clipAction(idleClip) : undefined;
+  const walk = walkClip ? mixer.clipAction(walkClip) : undefined;
+  const run = runClip ? mixer.clipAction(runClip) : undefined;
+  const dance = danceClip ? mixer.clipAction(danceClip) : undefined;
+
+  if (idle) {
+    idle.play();
+  }
+
+  group.userData.outfit = outfit;
+  return {
+    group,
+    mixer,
+    actions: {
+      ...(idle ? { idle } : {}),
+      ...(walk ? { walk } : {}),
+      ...(run ? { run } : {}),
+      ...(dance ? { dance } : {}),
+    },
+  };
+}
+
 /**
  * Builds the rigged, animated Morena Calena Valeria character from valeria.glb with calibrated
- * warm bronze-canela PBR skin & streetwear shading, grounded strictly at y = 0 facing +Z at
- * 1.70m default height, binding retargeted Idle/Walk/Run clips plus native SambaDance.
+ * warm bronze-canela PBR skin & Cali outfit colorway accents, grounded strictly at y = 0 facing +Z
+ * at 1.70m default height, binding retargeted Idle/Walk/Run clips plus native SambaDance.
  */
 export function createValeriaPlayerMesh(
   valeriaAsset: LoadedCharacterAsset,
@@ -3168,7 +5346,11 @@ export function createValeriaPlayerMesh(
       : VALERIA_MORENA_SKIN_HEX;
   const skinToneColor = new THREE.Color(skinToneHex);
 
-  const outfitHex = options?.outfitTintHex ?? options?.tintHex;
+  const chosenOutfit: CaliOutfitId | undefined = options?.outfit;
+  const outfitHex =
+    options?.outfitTintHex ??
+    options?.tintHex ??
+    (chosenOutfit ? CALI_OUTFIT_ACCENT_HEX[chosenOutfit] : undefined);
   const outfitTintColor =
     outfitHex !== undefined && Number.isFinite(outfitHex)
       ? liftTintForReadableAlbedo(outfitHex, 0.48)
@@ -3268,6 +5450,7 @@ export function createValeriaPlayerMesh(
     idle.play();
   }
 
+  group.userData.outfit = chosenOutfit ?? 'urbano_cali';
   return {
     group,
     mixer,
@@ -3281,18 +5464,110 @@ export function createValeriaPlayerMesh(
 }
 
 /**
- * Creates a diverse rigged Cali civilian pedestrian alternating across Morena/Vallecaucana
- * Valeria variants (6 curated warm bronze/canela/triguena palettes blended gently with
- * shirtColorHex, never pitch black) and civilian-tinted male variants, reusing cached
- * retargeted locomotion clips. Returns null cleanly if neither template asset is loaded.
+ * Creates a diverse rigged Cali civilian pedestrian alternating strictly between realistic
+ * adult Caleño (`caleno.glb`) variants (5 Cali outfits, 6 Vallecaucano skin tones, bearded &
+ * clean-shaven) and Morena/Afro-Caleña Valeria (`valeria.glb`) variants, using `locomotionSource`
+ * (`character.glb`) strictly as a Mixamo clip donor — NEVER rendering sci-fi Soldier armor!
+ * Retains backward-compatible 5-arg overload for legacy callers.
  */
+export function createCivilianPedestrianRig(
+  valeriaAsset: LoadedCharacterAsset | null,
+  calenoAsset: LoadedCharacterAsset | null,
+  locomotionSource: LoadedCharacterAsset | null,
+  variantIndex: number,
+  shirtColorHex: number,
+  pantsColorHex: number,
+): RiggedCharacterRig | null;
 export function createCivilianPedestrianRig(
   valeriaAsset: LoadedCharacterAsset | null,
   soldierAsset: LoadedCharacterAsset | null,
   variantIndex: number,
   shirtColorHex: number,
   pantsColorHex: number,
+): RiggedCharacterRig | null;
+export function createCivilianPedestrianRig(
+  valeriaAsset: LoadedCharacterAsset | null,
+  secondAsset: LoadedCharacterAsset | null,
+  locomotionOrVariant: LoadedCharacterAsset | null | number,
+  variantOrShirt: number,
+  shirtOrPants: number,
+  maybePants?: number,
 ): RiggedCharacterRig | null {
+  // 6-arg mode: (valeriaAsset, calenoAsset, locomotionSource, variantIndex, shirtColorHex, pantsColorHex)
+  if (typeof locomotionOrVariant !== 'number') {
+    const calenoAsset = secondAsset;
+    const locomotionSource = locomotionOrVariant;
+    const variantIndex = variantOrShirt;
+    const shirtColorHex = shirtOrPants;
+    const pantsColorHex = maybePants ?? 0x2a3b56;
+
+    // Never fall back to rendering sci-fi locomotionSource armor!
+    if (!valeriaAsset && !calenoAsset) {
+      return null;
+    }
+
+    const safeIndex = Math.abs(
+      Math.floor(Number.isFinite(variantIndex) ? variantIndex : 0),
+    );
+    const useCaleno =
+      calenoAsset !== null && (valeriaAsset === null || safeIndex % 2 === 0);
+
+    if (useCaleno && calenoAsset) {
+      const slot = Math.floor(safeIndex / 2);
+      const skinToneHex =
+        CALENO_VALLECAUCANO_SKIN_TONES[slot % CALENO_VALLECAUCANO_SKIN_TONES.length] ??
+        CALENO_VALLECAUCANO_SKIN_TONES[3];
+      const outfit =
+        CALI_CIVILIAN_OUTFITS[slot % CALI_CIVILIAN_OUTFITS.length] ?? 'urbano_cali';
+      const showBeard = slot % 2 === 0;
+      const showHeadwear = slot % 3 === 1;
+      const heightMeters = 1.72 + ((safeIndex * 5) % 5) * 0.03;
+
+      const rig = createCalenoCharacterRig(calenoAsset, locomotionSource, {
+        skinToneHex,
+        outfit,
+        pantsHex: Number.isFinite(pantsColorHex) ? pantsColorHex : 0x2a3b56,
+        headwearHex: Number.isFinite(shirtColorHex) ? shirtColorHex : CALI_OUTFIT_ACCENT_HEX[outfit],
+        showBeard,
+        showHeadwear,
+        heightMeters,
+      });
+      rig.group.name = 'cali_civilian_caleno';
+      rig.group.userData.civilianVariant = 'caleno';
+      return rig;
+    }
+
+    if (!valeriaAsset) {
+      return null;
+    }
+
+    const slot = Math.floor(safeIndex / 2);
+    const skinToneHex =
+      VALLECAUCANA_SKIN_PALETTES[slot % VALLECAUCANA_SKIN_PALETTES.length] ??
+      VALERIA_MORENA_SKIN_HEX;
+    const outfit =
+      CALI_CIVILIAN_OUTFITS[(slot + 1) % CALI_CIVILIAN_OUTFITS.length] ?? 'urbano_cali';
+    const safeShirt = Number.isFinite(shirtColorHex) ? shirtColorHex : CALI_OUTFIT_ACCENT_HEX[outfit];
+    const outfitColor = liftTintForReadableAlbedo(safeShirt, 0.5);
+    const heightMeters = 1.64 + ((safeIndex * 3) % 5) * 0.03;
+
+    const rig = createValeriaPlayerMesh(valeriaAsset, locomotionSource, {
+      skinToneHex,
+      outfit,
+      outfitTintHex: outfitColor.getHex(),
+      heightMeters,
+    });
+    rig.group.name = 'cali_civilian_valeria';
+    rig.group.userData.civilianVariant = 'valeria';
+    return rig;
+  }
+
+  // Legacy 5-arg mode: (valeriaAsset, soldierAsset, variantIndex, shirtColorHex, pantsColorHex)
+  const soldierAsset = secondAsset;
+  const variantIndex = locomotionOrVariant;
+  const shirtColorHex = variantOrShirt;
+  const pantsColorHex = shirtOrPants;
+
   if (!valeriaAsset && !soldierAsset) {
     return null;
   }

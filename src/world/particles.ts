@@ -324,6 +324,81 @@ export class ParticleSystem {
     this.markBuffersDirty();
   }
 
+  /**
+   * Emits punchy twin-tailpipe electric-blue and orange-gold exhaust backfire flame pops
+   * during hard downshifts, redline gear shifts, or nitro ignition using the zero-GC pool.
+   */
+  emitExhaustBackfire(
+    x: number,
+    y: number,
+    z: number,
+    heading: number,
+    intensity = 1,
+  ): void {
+    if (
+      this.disposed ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(y) ||
+      !Number.isFinite(z) ||
+      !Number.isFinite(heading) ||
+      !Number.isFinite(intensity) ||
+      intensity <= 0
+    ) {
+      return;
+    }
+
+    const power = Math.min(1.6, Math.max(0.25, intensity));
+    const emitCount = Math.max(4, Math.min(14, Math.round(power * 8)));
+    const forwardX = Math.sin(heading);
+    const forwardZ = Math.cos(heading);
+    const rightX = Math.cos(heading);
+    const rightZ = -Math.sin(heading);
+    const d = this.draft;
+
+    for (let i = 0; i < emitCount; i += 1) {
+      const pipeSide = i % 2 === 0 ? -1 : 1;
+      const isBlueCore = i % 3 === 0;
+      const jetSpeed = (8.5 + this.nextRand() * 6.5) * (0.75 + power * 0.35);
+      const spread = (this.nextRand() - 0.5) * 0.95;
+
+      d.px = x - forwardX * 1.98 + rightX * pipeSide * 0.44 + (this.nextRand() - 0.5) * 0.08;
+      d.py = y + 0.28 + (this.nextRand() - 0.5) * 0.06;
+      d.pz = z - forwardZ * 1.98 + rightZ * pipeSide * 0.44 + (this.nextRand() - 0.5) * 0.08;
+      d.vx = -forwardX * jetSpeed + rightX * spread;
+      d.vy = 0.25 + (this.nextRand() - 0.5) * 0.55;
+      d.vz = -forwardZ * jetSpeed + rightZ * spread;
+
+      if (isBlueCore) {
+        // Electric-blue high-octane core pop
+        d.r = 0.22 + this.nextRand() * 0.14;
+        d.g = 0.72 + this.nextRand() * 0.22;
+        d.b = 1.0;
+        d.startSize = (0.34 + this.nextRand() * 0.16) * (0.85 + power * 0.25);
+        d.endSize = 0.06;
+        d.lifetime = 0.09 + this.nextRand() * 0.07;
+        d.softness = 0.08;
+      } else {
+        // Incandescent orange-gold combustion flame pop
+        d.r = 1.0;
+        d.g = 0.48 + this.nextRand() * 0.32;
+        d.b = 0.08 + this.nextRand() * 0.14;
+        d.startSize = (0.44 + this.nextRand() * 0.24) * (0.85 + power * 0.28);
+        d.endSize = 0.1;
+        d.lifetime = 0.12 + this.nextRand() * 0.09;
+        d.softness = 0.22;
+      }
+
+      d.baseAlpha = 0.96;
+      d.drag = 4.6;
+      d.gravity = 0.35;
+      d.isSmoke = 0;
+
+      this.commitDraft();
+    }
+
+    this.markBuffersDirty();
+  }
+
   update(dt: number): void {
     if (this.disposed || dt <= 0 || !Number.isFinite(dt)) {
       return;
