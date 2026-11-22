@@ -14,13 +14,18 @@ import type {
   CameraMode,
   MissionSnapshot,
   PedestrianSnapshot,
+  TimeOfDay,
   Vec2,
   VehicleKind,
   VehicleSnapshot,
   WorldSnapshot,
 } from '../types/game';
 import { loadWorldAssets, type LoadedWorldAssets } from './assetLoader';
-import { applyPhotographicAssets, buildCaliWorld } from './caliLandmarks';
+import {
+  applyPhotographicAssets,
+  buildCaliWorld,
+  setWorldNightLighting,
+} from './caliLandmarks';
 import { ParticleSystem } from './particles';
 import {
   bindRenderTargetDisposal,
@@ -33,6 +38,9 @@ import {
   createPostProcessing,
   createSunsetLighting,
   createSunsetSkyDome,
+  setBloomTimeOfDay,
+  setLightingTimeOfDay,
+  setSkyDomeTimeOfDay,
   updateCameraRig,
   updateShadowFocus,
   updateSkyDomeTime,
@@ -40,7 +48,7 @@ import {
   type PostProcessingRig,
 } from './sceneSetup';
 import {
-  createFerrariPlayerMesh,
+  createFerrariLiveryMesh,
   createGpsChevronMesh,
   createMissionPropMeshes,
   createObjectiveBeacon,
@@ -48,6 +56,8 @@ import {
   createPlayerMesh,
   createRiggedCharacterMesh,
   createVehicleMesh,
+  type FerrariLiveryKind,
+  type HeadlightConeMaterials,
   type MissionPropKey,
   type RiggedCharacterActions,
 } from './vehicleMeshes';
@@ -122,6 +132,10 @@ function hashPedestrianPhase(id: string): number {
     sum += id.charCodeAt(i) * (i + 1);
   }
   return (sum % 628) / 100;
+}
+
+function isFerrariLiveryKind(kind: VehicleKind): kind is FerrariLiveryKind {
+  return kind === 'banshee' || kind === 'police' || kind === 'taxi';
 }
 
 function getHeadlightMountHeight(kind: VehicleKind): number {
@@ -285,6 +299,7 @@ export class WorldRenderer {
   private readonly landmarkCount: number;
   private readonly reducedMotion: boolean;
 
+  private currentTimeOfDay: TimeOfDay = 'golden_hour';
   private elapsedSeconds = 0;
   private orbitAngle = 0;
   private sparkCooldown = 0;
@@ -399,11 +414,11 @@ export class WorldRenderer {
 
     this.headlightSpot = new THREE.SpotLight(
       0xfff1cc,
-      36,
-      60,
-      Math.PI / 5.2,
+      2.6,
+      45,
+      Math.PI / 5.0,
       0.55,
-      1.35,
+      1.05,
     );
     this.headlightSpot.name = 'player_vehicle_headlight_spot';
     this.headlightSpot.castShadow = false;
@@ -428,6 +443,40 @@ export class WorldRenderer {
     void this.loadRealWorldAssets();
   }
 
+  public setTimeOfDay(timeOfDay: TimeOfDay): void {
+    if (this.disposed || this.currentTimeOfDay === timeOfDay) {
+      return;
+    }
+    this.currentTimeOfDay = timeOfDay;
+    const isNight = timeOfDay === 'night';
+
+    setSkyDomeTimeOfDay(this.skyDome, timeOfDay);
+    this.skyDome.visible = isNight || !this.hdriEnvTexture;
+    this.scene.background = isNight ? null : this.hdriEnvTexture;
+    this.scene.environmentIntensity = isNight
+      ? 0.24
+      : this.hdriEnvTexture
+        ? 1.15
+        : 0.85;
+    this.scene.fog = isNight
+      ? new THREE.FogExp2(0x090d1f, 0.0023)
+      : new THREE.FogExp2(0xc49576, 0.00145);
+    this.renderer.toneMappingExposure = isNight ? 1.12 : 1.06;
+
+    setLightingTimeOfDay(this.lightingGroup, timeOfDay);
+    if (this.postProcessing) {
+      setBloomTimeOfDay(this.postProcessing, timeOfDay, this.reducedMotion);
+    }
+    setWorldNightLighting(this.worldGroup, this.waterMesh, timeOfDay);
+
+    this.headlightSpot.intensity = isNight ? 8.8 : 2.6;
+    this.headlightSpot.distance = isNight ? 68 : 45;
+
+    for (const entry of this.vehiclePool.values()) {
+      this.applyVehicleHeadlightTimeOfDay(entry.mesh, isNight);
+    }
+  }
+
   public applyCameraLook(
     yawDelta: number,
     pitchDelta: number,
@@ -448,6 +497,8 @@ export class WorldRenderer {
     if (this.disposed) {
       return;
     }
+
+    this.setTimeOfDay(mission.timeOfDay ?? 'golden_hour');
 
     const safeDt = Number.isFinite(dt) && dt > 0 ? Math.min(dt, 0.25) : 0.016;
     this.elapsedSeconds += safeDt;
@@ -571,10 +622,13 @@ export class WorldRenderer {
       }
 
       applyPhotographicAssets(this.worldGroup, assets.textures);
+      if (this.currentTimeOfDay === 'night') {
+        setWorldNightLighting(this.worldGroup, this.waterMesh, 'night');
+      }
 
       if (assets.ferrari) {
         this.ferrariTemplate = assets.ferrari;
-        this.upgradePooledBansheesToFerrari(assets.ferrari);
+        this.upgradePooledVehiclesToFerrari(assets.ferrari);
       }
 
       if (assets.character) {
@@ -601,11 +655,12 @@ export class WorldRenderer {
       const envTex = bindRenderTargetDisposal(renderTarget);
 
       this.hdriEnvTexture = envTex;
-      this.scene.background = envTex;
-      this.scene.backgroundBlurriness = 0.015;
       this.scene.environment = envTex;
-      this.scene.environmentIntensity = 1.15;
-      this.skyDome.visible = false;
+      this.scene.backgroundBlurriness = 0.015;
+      const isNight = this.currentTimeOfDay === 'night';
+      this.scene.background = isNight ? null : envTex;
+      this.scene.environmentIntensity = isNight ? 0.24 : 1.15;
+      this.skyDome.visible = isNight;
 
       if (this.environmentMap) {
         this.environmentMap.dispose();
@@ -618,15 +673,35 @@ export class WorldRenderer {
     }
   }
 
-  private upgradePooledBansheesToFerrari(ferrariTemplate: THREE.Group): void {
+  private applyVehicleHeadlightTimeOfDay(
+    vehicleMesh: THREE.Group,
+    isNight: boolean,
+  ): void {
+    const headlightCones = vehicleMesh.userData.headlightCones as
+      | THREE.Group
+      | undefined;
+    const coneMaterials = headlightCones?.userData.coneMaterials as
+      | HeadlightConeMaterials
+      | undefined;
+    if (!coneMaterials) {
+      return;
+    }
+    coneMaterials.outerBeamMat.opacity = isNight ? 0.16 : 0.045;
+    coneMaterials.coreBeamMat.opacity = isNight ? 0.28 : 0.08;
+    coneMaterials.roadPoolMat.opacity = isNight ? 0.42 : 0.14;
+  }
+
+  private upgradePooledVehiclesToFerrari(ferrariTemplate: THREE.Group): void {
+    const isNight = this.currentTimeOfDay === 'night';
     for (const [id, entry] of this.vehiclePool.entries()) {
-      if (entry.kind !== 'banshee' || entry.usesFerrariModel) {
+      if (!isFerrariLiveryKind(entry.kind) || entry.usesFerrariModel) {
         continue;
       }
-      const ferrariMesh = createFerrariPlayerMesh(ferrariTemplate);
+      const ferrariMesh = createFerrariLiveryMesh(ferrariTemplate, entry.kind);
       ferrariMesh.position.copy(entry.mesh.position);
       ferrariMesh.rotation.copy(entry.mesh.rotation);
       ferrariMesh.visible = entry.mesh.visible;
+      this.applyVehicleHeadlightTimeOfDay(ferrariMesh, isNight);
 
       this.scene.remove(entry.mesh);
       disposeObjectTree(entry.mesh);
@@ -819,7 +894,7 @@ export class WorldRenderer {
       let entry = this.vehiclePool.get(vehicle.id);
 
       const shouldUseFerrari =
-        vehicle.kind === 'banshee' && this.ferrariTemplate !== null;
+        isFerrariLiveryKind(vehicle.kind) && this.ferrariTemplate !== null;
       if (
         !entry ||
         entry.kind !== vehicle.kind ||
@@ -830,13 +905,19 @@ export class WorldRenderer {
           disposeObjectTree(entry.mesh);
         }
         const createdMesh =
-          shouldUseFerrari && this.ferrariTemplate
-            ? createFerrariPlayerMesh(this.ferrariTemplate)
+          shouldUseFerrari &&
+          this.ferrariTemplate &&
+          isFerrariLiveryKind(vehicle.kind)
+            ? createFerrariLiveryMesh(this.ferrariTemplate, vehicle.kind)
             : createVehicleMesh(
                 vehicle.kind,
                 vehicle.colorHex,
                 vehicle.accentHex,
               );
+        this.applyVehicleHeadlightTimeOfDay(
+          createdMesh,
+          this.currentTimeOfDay === 'night',
+        );
         this.scene.add(createdMesh);
         entry = {
           kind: vehicle.kind,
@@ -993,22 +1074,24 @@ export class WorldRenderer {
       return;
     }
 
+    const isNight = this.currentTimeOfDay === 'night';
     if (this.reducedMotion) {
-      redMat.emissiveIntensity = 1.25;
-      blueMat.emissiveIntensity = 1.25;
+      redMat.emissiveIntensity = isNight ? 1.85 : 1.25;
+      blueMat.emissiveIntensity = isNight ? 1.85 : 1.25;
       if (sirenLight) {
         sirenLight.color.setHex(0x5b6cff);
-        sirenLight.intensity = 8;
+        sirenLight.intensity = isNight ? 12 : 8;
       }
       return;
     }
 
     const redPhase = Math.floor(this.elapsedSeconds * 10) % 2 === 0;
-    redMat.emissiveIntensity = redPhase ? 2.8 : 0.25;
-    blueMat.emissiveIntensity = redPhase ? 0.25 : 2.8;
+    const peakEmissive = isNight ? 3.4 : 2.8;
+    redMat.emissiveIntensity = redPhase ? peakEmissive : 0.25;
+    blueMat.emissiveIntensity = redPhase ? 0.25 : peakEmissive;
     if (sirenLight) {
       sirenLight.color.setHex(redPhase ? 0xff2244 : 0x1a88ff);
-      sirenLight.intensity = 24;
+      sirenLight.intensity = isNight ? 34 : 22;
     }
   }
 

@@ -11,6 +11,14 @@ import type { LoadedCharacterAsset } from './assetLoader';
 
 export type MissionPropKey = Exclude<ObjectivePropKind, 'none'>;
 
+export type FerrariLiveryKind = 'banshee' | 'police' | 'taxi';
+
+export interface HeadlightConeMaterials {
+  readonly outerBeamMat: THREE.MeshBasicMaterial;
+  readonly coreBeamMat: THREE.MeshBasicMaterial;
+  readonly roadPoolMat: THREE.MeshBasicMaterial;
+}
+
 export interface RiggedCharacterActions {
   readonly idle?: THREE.AnimationAction;
   readonly walk?: THREE.AnimationAction;
@@ -181,6 +189,111 @@ function createProfileGeometry(
   geometry.translate(innerWidth / 2, 0, 0);
   geometry.computeVertexNormals();
   return geometry;
+}
+
+/**
+ * Extrudes a curved 2D side silhouette drawn in (z, y) symmetrically across [-width/2, +width/2]
+ * with smooth multi-segment bevels (zero sharp box corners).
+ */
+function createCurvedSideExtrude(
+  buildShape: (shape: THREE.Shape) => void,
+  width: number,
+  bevel = 0.08,
+): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape();
+  buildShape(shape);
+  const clampedBevel = Math.max(0, Math.min(bevel, width * 0.28));
+  const innerWidth = Math.max(0.04, width - clampedBevel * 2);
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: innerWidth,
+    bevelEnabled: clampedBevel > 0,
+    bevelThickness: clampedBevel,
+    bevelSize: clampedBevel,
+    bevelSegments: 4,
+    curveSegments: 14,
+  });
+  geometry.rotateY(-Math.PI / 2);
+  geometry.translate(innerWidth / 2, 0, 0);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/**
+ * Extrudes a curved 2D cross-section drawn in (x, y) symmetrically along [-length/2, +length/2]
+ * for arched roofs, contoured bellows, curved windshields, and aerodynamic roof domes.
+ */
+function createCurvedCrossExtrude(
+  buildShape: (shape: THREE.Shape) => void,
+  length: number,
+  bevel = 0.05,
+): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape();
+  buildShape(shape);
+  const clampedBevel = Math.max(0, Math.min(bevel, length * 0.25));
+  const innerLength = Math.max(0.04, length - clampedBevel * 2);
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: innerLength,
+    bevelEnabled: clampedBevel > 0,
+    bevelThickness: clampedBevel,
+    bevelSize: clampedBevel,
+    bevelSegments: 3,
+    curveSegments: 14,
+  });
+  geometry.translate(0, 0, -innerLength / 2);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/**
+ * Builds a rounded beveled pod (width along X, height along Y, length along Z) using quadratic curves.
+ */
+function createRoundedPodGeometry(
+  width: number,
+  height: number,
+  length: number,
+  cornerRadius: number,
+  bevel = 0.04,
+): THREE.ExtrudeGeometry {
+  const hw = width * 0.5;
+  const hh = height * 0.5;
+  const r = Math.min(cornerRadius, hw * 0.8, hh * 0.8);
+  return createCurvedCrossExtrude(
+    (shape) => {
+      shape.moveTo(-hw + r, -hh);
+      shape.lineTo(hw - r, -hh);
+      shape.quadraticCurveTo(hw, -hh, hw, -hh + r);
+      shape.lineTo(hw, hh - r);
+      shape.quadraticCurveTo(hw, hh, hw - r, hh);
+      shape.lineTo(-hw + r, hh);
+      shape.quadraticCurveTo(-hw, hh, -hw, hh - r);
+      shape.lineTo(-hw, -hh + r);
+      shape.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
+      shape.closePath();
+    },
+    length,
+    bevel,
+  );
+}
+
+/**
+ * Builds a smooth semi-circular flared wheel arch fender centered at its wheel hub (z=0, y=0).
+ */
+function createFlaredWheelArchGeometry(
+  innerRadius: number,
+  thickness: number,
+  flareWidth: number,
+): THREE.ExtrudeGeometry {
+  const outerRadius = innerRadius + thickness;
+  return createCurvedSideExtrude(
+    (shape) => {
+      shape.absarc(0, 0, outerRadius, 0, Math.PI, false);
+      shape.lineTo(-innerRadius, 0);
+      shape.absarc(0, 0, innerRadius, Math.PI, 0, true);
+      shape.closePath();
+    },
+    flareWidth,
+    Math.min(0.03, flareWidth * 0.2),
+  );
 }
 
 function createTaxiSignTexture(): THREE.CanvasTexture | null {
@@ -627,6 +740,12 @@ function attachHeadlightCones(
   );
   roadPool.renderOrder = 1;
 
+  conesGroup.userData.coneMaterials = {
+    outerBeamMat,
+    coreBeamMat,
+    roadPoolMat,
+  } satisfies HeadlightConeMaterials;
+
   parent.add(conesGroup);
   return conesGroup;
 }
@@ -642,20 +761,24 @@ function attachStandardLampPairs(
   const brakeLightMat = createBrakeLightMaterial();
 
   const xOffset = halfWidth * 0.68;
-  const headGeo = new THREE.BoxGeometry(0.36, 0.18, 0.12);
-  const tailGeo = new THREE.BoxGeometry(0.42, 0.18, 0.12);
+  const headGeo = new THREE.CapsuleGeometry(0.085, 0.22, 6, 10);
+  headGeo.rotateZ(Math.PI / 2);
+  const tailGeo = new THREE.CapsuleGeometry(0.085, 0.28, 6, 10);
+  tailGeo.rotateZ(Math.PI / 2);
 
   for (const side of [-1, 1] as const) {
     addMesh(parent, headGeo, headlightMat, {
       x: side * xOffset,
       y: lightY,
       z: frontZ,
+      sz: 0.72,
       castShadow: false,
     });
     addMesh(parent, tailGeo, brakeLightMat, {
       x: side * xOffset,
       y: lightY + 0.04,
       z: rearZ,
+      sz: 0.72,
       castShadow: false,
     });
   }
@@ -1092,164 +1215,229 @@ function buildMioBusMesh(colorHex: number, accentHex: number): THREE.Group {
 
   const blueMat = createCarPaintMaterial(colorHex, {
     metalness: 0.48,
-    roughness: 0.22,
+    roughness: 0.2,
+    clearcoat: 0.95,
   });
   const whiteMat = createCarPaintMaterial(accentHex, {
     metalness: 0.34,
-    roughness: 0.24,
+    roughness: 0.22,
+    clearcoat: 0.92,
   });
   const glassMat = createTintedGlassMaterial(0x0c162b, {
     emissive: 0x0b223d,
-    emissiveIntensity: 0.25,
+    emissiveIntensity: 0.28,
   });
   const bellowsMat = new THREE.MeshStandardMaterial({
     color: 0x1c1a2a,
-    roughness: 0.9,
+    roughness: 0.88,
     metalness: 0.08,
   });
   const trimMat = createCarbonMaterial();
   const liveryAccentMat = createCarPaintMaterial(0x1f82c9, {
     metalness: 0.45,
-    roughness: 0.24,
+    roughness: 0.22,
   });
   const routeBoardMat = new THREE.MeshStandardMaterial({
     color: 0xffcf6b,
     emissive: 0xffb338,
-    emissiveIntensity: 0.95,
-    roughness: 0.2,
+    emissiveIntensity: 1.15,
+    roughness: 0.18,
   });
   const acPodMat = createCarPaintMaterial(0xdde4f2, {
-    metalness: 0.28,
-    roughness: 0.32,
+    metalness: 0.3,
+    roughness: 0.26,
   });
 
-  // Curved aerodynamic front articulated coach
-  const frontLowerGeo = createProfileGeometry(
-    [
-      [-0.08, 0.44],
-      [4.44, 0.44],
-      [4.54, 0.72],
-      [4.48, 1.46],
-      [-0.08, 1.46],
-    ],
+  // Smooth curved aerodynamic front articulated coach (quadraticCurveTo nose, windshield & roofline)
+  const frontLowerGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-0.08, 0.46);
+      shape.lineTo(4.24, 0.46);
+      shape.quadraticCurveTo(4.56, 0.5, 4.58, 0.84);
+      shape.quadraticCurveTo(4.56, 1.24, 4.46, 1.46);
+      shape.lineTo(-0.08, 1.46);
+      shape.closePath();
+    },
     2.44,
-    0.06,
+    0.1,
   );
   addMesh(group, frontLowerGeo, blueMat, { name: 'mio_front_lower' });
 
-  const frontUpperGeo = createProfileGeometry(
-    [
-      [-0.08, 1.44],
-      [4.48, 1.44],
-      [4.32, 2.74],
-      [4.04, 2.88],
-      [-0.08, 2.88],
-    ],
-    2.42,
-    0.06,
+  const frontUpperGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-0.08, 1.42);
+      shape.lineTo(4.46, 1.42);
+      shape.quadraticCurveTo(4.42, 2.26, 4.24, 2.7);
+      shape.quadraticCurveTo(4.1, 2.94, 3.68, 2.94);
+      shape.lineTo(0.18, 2.94);
+      shape.quadraticCurveTo(-0.08, 2.94, -0.08, 2.72);
+      shape.closePath();
+    },
+    2.4,
+    0.1,
   );
   addMesh(group, frontUpperGeo, whiteMat, { name: 'mio_front_upper' });
 
-  // Panoramic tinted windows (front coach) + cyan livery stripe
-  addMesh(group, new THREE.BoxGeometry(2.47, 0.96, 4.12), glassMat, {
-    y: 2.08,
-    z: 2.22,
-    castShadow: false,
-  });
-  addMesh(group, new THREE.BoxGeometry(2.2, 1.12, 0.12), glassMat, {
-    y: 2.04,
-    z: 4.38,
-    rx: -0.14,
-    castShadow: false,
-  });
-  addMesh(group, new THREE.BoxGeometry(2.48, 0.1, 4.46), liveryAccentMat, {
-    y: 1.46,
-    z: 2.18,
+  // Smooth curved panoramic tinted glazing wrapping sides & aerodynamic swept front windshield
+  const frontGlassGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(0.12, 1.56);
+      shape.lineTo(4.44, 1.56);
+      shape.quadraticCurveTo(4.42, 2.18, 4.26, 2.54);
+      shape.lineTo(0.12, 2.54);
+      shape.closePath();
+    },
+    2.45,
+    0.05,
+  );
+  addMesh(group, frontGlassGeo, glassMat, {
+    name: 'mio_front_glass',
     castShadow: false,
   });
 
-  // Pleated articulated bellows connector
-  addMesh(group, new THREE.BoxGeometry(2.2, 2.24, 0.92), bellowsMat, {
-    y: 1.66,
-    z: -0.52,
+  // Contoured front bumper skirt & aerodynamic livery accent strip
+  addMesh(group, createRoundedPodGeometry(2.44, 0.28, 0.34, 0.11, 0.04), trimMat, {
+    y: 0.54,
+    z: 4.48,
   });
+  addMesh(group, createRoundedPodGeometry(2.48, 0.12, 4.38, 0.05, 0.02), liveryAccentMat, {
+    y: 1.45,
+    z: 2.16,
+    castShadow: false,
+  });
+
+  // Rounded articulated accordion bellows connector (zero sharp corners)
+  const bellowsGeo = createRoundedPodGeometry(2.18, 2.24, 0.92, 0.32, 0.04);
+  addMesh(group, bellowsGeo, bellowsMat, { y: 1.68, z: -0.52 });
+  const bellowsRibGeo = createRoundedPodGeometry(2.26, 2.3, 0.1, 0.34, 0.025);
   for (let rib = -1; rib <= 1; rib += 1) {
-    addMesh(group, new THREE.BoxGeometry(2.28, 2.28, 0.08), trimMat, {
-      y: 1.66,
+    addMesh(group, bellowsRibGeo, trimMat, {
+      y: 1.68,
       z: -0.52 + rib * 0.26,
       castShadow: false,
     });
   }
 
-  // Rear articulated coach
-  const rearLowerGeo = createProfileGeometry(
-    [
-      [-4.56, 0.44],
-      [-0.94, 0.44],
-      [-0.94, 1.46],
-      [-4.56, 1.46],
-    ],
+  // Smooth curved rear articulated coach with beveled transom & rounded roof edge
+  const rearLowerGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-4.38, 0.46);
+      shape.lineTo(-0.94, 0.46);
+      shape.lineTo(-0.94, 1.46);
+      shape.lineTo(-4.56, 1.46);
+      shape.quadraticCurveTo(-4.62, 0.86, -4.38, 0.46);
+      shape.closePath();
+    },
     2.44,
-    0.06,
+    0.1,
   );
   addMesh(group, rearLowerGeo, blueMat, { name: 'mio_rear_lower' });
 
-  const rearUpperGeo = createProfileGeometry(
-    [
-      [-4.56, 1.44],
-      [-0.94, 1.44],
-      [-0.94, 2.88],
-      [-4.46, 2.88],
-    ],
-    2.42,
-    0.06,
+  const rearUpperGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-4.56, 1.42);
+      shape.lineTo(-0.94, 1.42);
+      shape.lineTo(-0.94, 2.94);
+      shape.lineTo(-4.18, 2.94);
+      shape.quadraticCurveTo(-4.54, 2.92, -4.56, 2.52);
+      shape.closePath();
+    },
+    2.4,
+    0.1,
   );
   addMesh(group, rearUpperGeo, whiteMat, { name: 'mio_rear_upper' });
 
-  addMesh(group, new THREE.BoxGeometry(2.47, 0.96, 3.22), glassMat, {
-    y: 2.08,
-    z: -2.75,
-    castShadow: false,
-  });
-  addMesh(group, new THREE.BoxGeometry(2.48, 0.1, 3.55), liveryAccentMat, {
-    y: 1.46,
-    z: -2.75,
+  const rearGlassGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-4.48, 1.56);
+      shape.lineTo(-1.12, 1.56);
+      shape.lineTo(-1.12, 2.54);
+      shape.lineTo(-4.36, 2.54);
+      shape.quadraticCurveTo(-4.48, 2.38, -4.48, 2.18);
+      shape.closePath();
+    },
+    2.45,
+    0.05,
+  );
+  addMesh(group, rearGlassGeo, glassMat, {
+    name: 'mio_rear_glass',
     castShadow: false,
   });
 
-  // Illuminated front LED destination route board
-  addMesh(group, new THREE.BoxGeometry(1.74, 0.28, 0.14), routeBoardMat, {
+  addMesh(group, createRoundedPodGeometry(2.44, 0.26, 0.32, 0.1, 0.04), trimMat, {
+    y: 0.54,
+    z: -4.48,
+  });
+  addMesh(group, createRoundedPodGeometry(2.48, 0.12, 3.48, 0.05, 0.02), liveryAccentMat, {
+    y: 1.45,
+    z: -2.76,
+    castShadow: false,
+  });
+
+  // Curved flared wheel arches over all 6 MIO bus axles
+  const archGeo = createFlaredWheelArchGeometry(0.49, 0.14, 0.18);
+  for (const wz of [3.15, 0.75, -3.25] as const) {
+    for (const side of [-1, 1] as const) {
+      addMesh(group, archGeo, trimMat, {
+        x: side * 1.18,
+        y: 0.44,
+        z: wz,
+      });
+    }
+  }
+
+  // Curved illuminated front LED destination route board
+  addMesh(group, createRoundedPodGeometry(1.74, 0.28, 0.16, 0.08, 0.03), routeBoardMat, {
     y: 2.66,
-    z: 4.34,
+    z: 4.3,
     name: 'mio_route_board',
     castShadow: false,
   });
 
-  attachContactShadow(group, 2.75, 9.45, 0.6, 0.03);
-
-  // Twin aerodynamic roof AC pods
-  addMesh(group, new THREE.BoxGeometry(1.66, 0.28, 1.85), acPodMat, {
-    y: 3.02,
+  // Twin sleek streamlined aerodynamic roof AC pods (curved airfoil cowlings)
+  const frontAcPodGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-1.05, 0);
+      shape.lineTo(1.05, 0);
+      shape.quadraticCurveTo(0.88, 0.29, 0.42, 0.3);
+      shape.lineTo(-0.56, 0.3);
+      shape.quadraticCurveTo(-0.96, 0.28, -1.05, 0);
+      shape.closePath();
+    },
+    1.62,
+    0.07,
+  );
+  addMesh(group, frontAcPodGeo, acPodMat, {
+    y: 2.91,
     z: 1.9,
+    name: 'mio_ac_pod_front',
   });
-  addMesh(group, new THREE.BoxGeometry(1.66, 0.28, 1.6), acPodMat, {
-    y: 3.02,
+  addMesh(group, frontAcPodGeo, acPodMat, {
+    y: 2.91,
     z: -2.65,
+    sz: 0.88,
+    name: 'mio_ac_pod_rear',
   });
 
-  // Extended bus side wing mirrors
+  // Streamlined tubular bus side mirrors (zero sharp boxes)
+  const mirrorArmGeo = new THREE.CylinderGeometry(0.028, 0.032, 0.32, 8);
+  mirrorArmGeo.rotateZ(Math.PI / 2);
+  const mirrorHeadGeo = new THREE.CapsuleGeometry(0.085, 0.26, 6, 10);
   for (const side of [-1, 1] as const) {
-    addMesh(group, new THREE.BoxGeometry(0.28, 0.06, 0.06), trimMat, {
+    addMesh(group, mirrorArmGeo, trimMat, {
       x: side * 1.32,
       y: 2.18,
-      z: 4.24,
+      z: 4.18,
     });
-    addMesh(group, new THREE.BoxGeometry(0.1, 0.42, 0.18), trimMat, {
-      x: side * 1.44,
+    addMesh(group, mirrorHeadGeo, trimMat, {
+      x: side * 1.46,
       y: 2.02,
-      z: 4.26,
+      z: 4.22,
+      sx: 0.72,
     });
   }
+
+  attachContactShadow(group, 2.75, 9.45, 0.6, 0.03);
 
   const rig = attachWheels(
     group,
@@ -1265,9 +1453,11 @@ function buildMioBusMesh(colorHex: number, accentHex: number): THREE.Group {
     0.32,
     0x3a4052,
   );
-  const brakeLightMaterials = attachStandardLampPairs(group, 1.14, 4.52, -4.58, 0.82);
+  const brakeLightMaterials = attachStandardLampPairs(group, 1.12, 4.54, -4.54, 0.84);
+  const headlightCones = attachHeadlightCones(group, 0.84, 0.84, 4.58, 4.6, 0.92);
 
   group.userData.brakeLightMaterials = brakeLightMaterials;
+  group.userData.headlightCones = headlightCones;
   group.userData.wheels = rig.wheels;
   group.userData.frontWheels = rig.frontWheels;
   return group;
@@ -1279,165 +1469,293 @@ function buildChivaMesh(colorHex: number, accentHex: number): THREE.Group {
 
   const primaryMat = createCarPaintMaterial(colorHex, {
     metalness: 0.35,
-    roughness: 0.28,
+    roughness: 0.26,
   });
   const accentMat = createCarPaintMaterial(accentHex, {
     metalness: 0.32,
-    roughness: 0.28,
+    roughness: 0.26,
   });
   const emeraldMat = createCarPaintMaterial(0x00d98b, {
     metalness: 0.3,
-    roughness: 0.3,
+    roughness: 0.28,
   });
   const cyanMat = createCarPaintMaterial(0x00d8f0, {
     metalness: 0.3,
-    roughness: 0.3,
+    roughness: 0.28,
   });
   const woodMat = new THREE.MeshStandardMaterial({
     color: 0x7b4722,
-    roughness: 0.78,
+    roughness: 0.76,
     metalness: 0.05,
+  });
+  const darkWoodMat = new THREE.MeshStandardMaterial({
+    color: 0x522d14,
+    roughness: 0.82,
+    metalness: 0.04,
   });
   const chromeMat = createChromeMaterial();
   const windshieldMat = createTintedGlassMaterial(0x161d33);
+  const garlandWireMat = new THREE.MeshStandardMaterial({
+    color: 0x1b1922,
+    roughness: 0.7,
+    metalness: 0.2,
+  });
 
-  // Classic curved front engine hood & wheel fenders
-  const noseGeo = createProfileGeometry(
-    [
-      [2.05, 0.52],
-      [3.38, 0.54],
-      [3.44, 1.24],
-      [3.16, 1.5],
-      [2.05, 1.56],
-    ],
+  // Classic curved bulbous vintage Chiva front engine hood (quadraticCurveTo silhouette)
+  const noseGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(1.98, 0.54);
+      shape.lineTo(3.26, 0.56);
+      shape.quadraticCurveTo(3.48, 0.72, 3.46, 1.16);
+      shape.quadraticCurveTo(3.42, 1.48, 3.04, 1.54);
+      shape.quadraticCurveTo(2.48, 1.6, 1.98, 1.58);
+      shape.closePath();
+    },
     1.76,
-    0.07,
+    0.1,
   );
   addMesh(group, noseGeo, accentMat, { name: 'chiva_nose' });
 
-  // Gleaming chrome front grille slats & chrome bumper
-  addMesh(group, new THREE.BoxGeometry(1.98, 0.22, 0.18), chromeMat, {
-    y: 0.62,
+  // Curved flared wheel-arch fenders over front and rear wheels
+  const frontFenderGeo = createFlaredWheelArchGeometry(0.5, 0.16, 0.42);
+  const rearFenderGeo = createFlaredWheelArchGeometry(0.5, 0.14, 0.22);
+  for (const side of [-1, 1] as const) {
+    addMesh(group, frontFenderGeo, primaryMat, {
+      x: side * 0.98,
+      y: 0.44,
+      z: 2.15,
+    });
+    addMesh(group, rearFenderGeo, accentMat, {
+      x: side * 1.14,
+      y: 0.44,
+      z: -1.85,
+    });
+  }
+
+  // Gleaming curved wrap-around chrome front bumper & rounded chrome radiator grille slats
+  addMesh(group, createRoundedPodGeometry(2.04, 0.2, 0.22, 0.08, 0.04), chromeMat, {
+    y: 0.6,
     z: 3.48,
   });
+  const grilleSlatGeo = new THREE.CapsuleGeometry(0.035, 1.06, 6, 10);
+  grilleSlatGeo.rotateZ(Math.PI / 2);
   for (let slat = 0; slat < 4; slat += 1) {
-    addMesh(group, new THREE.BoxGeometry(1.16, 0.07, 0.08), chromeMat, {
-      y: 0.88 + slat * 0.14,
+    addMesh(group, grilleSlatGeo, chromeMat, {
+      y: 0.86 + slat * 0.14,
       z: 3.45,
     });
   }
 
-  // Windshield frame above hood
-  addMesh(group, new THREE.BoxGeometry(2.14, 0.88, 0.12), windshieldMat, {
+  // Contoured curved front cab windshield brow
+  addMesh(group, createRoundedPodGeometry(2.18, 0.92, 0.16, 0.12, 0.03), windshieldMat, {
     y: 2.02,
-    z: 2.12,
+    z: 2.1,
+    rx: -0.08,
   });
 
-  // Festive multi-colored wooden-slat lower body
-  addMesh(group, new THREE.BoxGeometry(2.34, 0.96, 5.18), primaryMat, {
-    y: 1.02,
+  // Sculpted curved multi-colored lower wooden-slat Chiva coach hull (zero flat box edges)
+  const chivaHullGeo = createCurvedSideExtrude(
+    (shape) => {
+      shape.moveTo(-2.88, 0.52);
+      shape.lineTo(2.04, 0.52);
+      shape.quadraticCurveTo(2.14, 0.56, 2.14, 0.72);
+      shape.lineTo(2.14, 1.44);
+      shape.quadraticCurveTo(2.14, 1.54, 1.98, 1.54);
+      shape.lineTo(-2.84, 1.54);
+      shape.quadraticCurveTo(-3.08, 1.52, -3.1, 1.18);
+      shape.quadraticCurveTo(-3.12, 0.62, -2.88, 0.52);
+      shape.closePath();
+    },
+    2.34,
+    0.09,
+  );
+  addMesh(group, chivaHullGeo, primaryMat, { name: 'chiva_hull' });
+
+  // Contoured vibrant fiesta horizontal livery ribbons & rounded wooden slat rub rails
+  addMesh(group, createRoundedPodGeometry(2.4, 0.2, 5.04, 0.07, 0.025), cyanMat, {
+    y: 1.2,
     z: -0.46,
-    name: 'chiva_hull',
   });
-  addMesh(group, new THREE.BoxGeometry(2.4, 0.22, 5.12), cyanMat, {
-    y: 1.18,
-    z: -0.46,
-  });
-  addMesh(group, new THREE.BoxGeometry(2.4, 0.18, 5.12), emeraldMat, {
-    y: 0.82,
+  addMesh(group, createRoundedPodGeometry(2.4, 0.17, 5.04, 0.06, 0.025), emeraldMat, {
+    y: 0.84,
     z: -0.46,
   });
 
-  // Side wooden slat rails & running boards
+  const runningBoardGeo = createRoundedPodGeometry(0.18, 0.09, 4.78, 0.04, 0.02);
+  const slatRailGeo = new THREE.CapsuleGeometry(0.036, 4.9, 6, 10);
+  slatRailGeo.rotateX(Math.PI / 2);
   for (const side of [-1, 1] as const) {
-    addMesh(group, new THREE.BoxGeometry(0.14, 0.08, 4.9), woodMat, {
+    addMesh(group, runningBoardGeo, woodMat, {
       x: side * 1.22,
       y: 0.56,
       z: -0.46,
     });
     for (let slat = 0; slat < 3; slat += 1) {
-      addMesh(group, new THREE.BoxGeometry(0.05, 0.08, 5.05), woodMat, {
+      addMesh(group, slatRailGeo, woodMat, {
         x: side * 1.21,
-        y: 0.72 + slat * 0.28,
+        y: 0.74 + slat * 0.27,
         z: -0.46,
         castShadow: false,
       });
     }
   }
 
-  // Open-air wooden passenger benches & festive vertical pillars
+  // Open-air rounded wooden passenger benches & turned cylindrical canopy pillars
   const benchMats = [woodMat, accentMat, emeraldMat] as const;
+  const benchSeatGeo = createRoundedPodGeometry(2.06, 0.16, 0.46, 0.06, 0.025);
+  const benchBackGeo = createRoundedPodGeometry(2.06, 0.4, 0.12, 0.05, 0.02);
+  const pillarGeo = new THREE.CylinderGeometry(0.062, 0.072, 1.18, 10);
   for (let i = 0; i < 4; i += 1) {
     const zPos = 1.42 - i * 1.26;
     const benchMat = benchMats[i % benchMats.length] ?? woodMat;
-    addMesh(group, new THREE.BoxGeometry(2.08, 0.18, 0.48), benchMat, {
-      y: 1.22,
-      z: zPos,
-    });
-    addMesh(group, new THREE.BoxGeometry(2.08, 0.42, 0.1), woodMat, {
-      y: 1.5,
-      z: zPos - 0.22,
-    });
+    addMesh(group, benchSeatGeo, benchMat, { y: 1.24, z: zPos });
+    addMesh(group, benchBackGeo, woodMat, { y: 1.5, z: zPos - 0.21 });
 
-    for (const side of [-1.1, 1.1] as const) {
-      addMesh(group, new THREE.BoxGeometry(0.13, 1.22, 0.13), accentMat, {
+    for (const side of [-1.08, 1.08] as const) {
+      addMesh(group, pillarGeo, accentMat, {
         x: side,
-        y: 2.04,
+        y: 2.02,
         z: zPos,
       });
     }
   }
 
-  // Canopy roof + wooden rooftop luggage rack + colorful cargo bundles
-  addMesh(group, new THREE.BoxGeometry(2.46, 0.22, 5.48), primaryMat, {
-    y: 2.68,
+  // Curved traditional arched wooden canopy roof (barrel-vaulted cross-section)
+  const archedRoofGeo = createCurvedCrossExtrude(
+    (shape) => {
+      shape.moveTo(-1.26, 2.54);
+      shape.quadraticCurveTo(0, 2.98, 1.26, 2.54);
+      shape.quadraticCurveTo(1.3, 2.66, 1.2, 2.74);
+      shape.quadraticCurveTo(0, 3.16, -1.2, 2.74);
+      shape.quadraticCurveTo(-1.3, 2.66, -1.26, 2.54);
+      shape.closePath();
+    },
+    5.48,
+    0.07,
+  );
+  addMesh(group, archedRoofGeo, primaryMat, {
     z: -0.42,
+    name: 'chiva_arched_roof',
   });
-  for (const side of [-1.12, 1.12] as const) {
-    addMesh(group, new THREE.BoxGeometry(0.08, 0.3, 4.96), woodMat, {
-      x: side,
-      y: 2.94,
-      z: -0.48,
-    });
-  }
-  for (const endZ of [-2.94, 1.98] as const) {
-    addMesh(group, new THREE.BoxGeometry(2.3, 0.3, 0.08), woodMat, {
-      y: 2.94,
-      z: endZ,
-    });
+
+  // Curved traditional arched wooden roof ribs spanning across the barrel ceiling
+  const ribCurvePoints = [
+    new THREE.Vector3(-1.22, 2.56, 0),
+    new THREE.Vector3(-0.62, 2.8, 0),
+    new THREE.Vector3(0, 2.89, 0),
+    new THREE.Vector3(0.62, 2.8, 0),
+    new THREE.Vector3(1.22, 2.56, 0),
+  ];
+  const ribCurve = new THREE.CatmullRomCurve3(ribCurvePoints);
+  const ribGeo = new THREE.TubeGeometry(ribCurve, 14, 0.052, 8, false);
+  for (let r = 0; r < 6; r += 1) {
+    const rz = 2.0 - r * 0.98;
+    addMesh(group, ribGeo, darkWoodMat, { z: rz, castShadow: false });
   }
 
-  const cargoSpecs = [
-    { x: -0.46, z: 0.84, w: 0.84, h: 0.54, d: 1.0, mat: accentMat },
-    { x: 0.46, z: 0.68, w: 0.8, h: 0.48, d: 0.9, mat: cyanMat },
-    { x: 0.0, z: -0.68, w: 1.44, h: 0.58, d: 1.22, mat: emeraldMat },
-    { x: -0.24, z: -2.0, w: 1.1, h: 0.48, d: 0.94, mat: accentMat },
-  ] as const;
-  for (const cargo of cargoSpecs) {
-    addMesh(group, new THREE.BoxGeometry(cargo.w, cargo.h, cargo.d), cargo.mat, {
-      x: cargo.x,
-      y: 2.8 + cargo.h * 0.5,
-      z: cargo.z,
-    });
+  // Tubular wooden rooftop luggage rack railing
+  const longRailGeo = new THREE.CylinderGeometry(0.036, 0.036, 4.9, 8);
+  longRailGeo.rotateX(Math.PI / 2);
+  const crossRailGeo = new THREE.CylinderGeometry(0.036, 0.036, 2.16, 8);
+  crossRailGeo.rotateZ(Math.PI / 2);
+  const rackPostGeo = new THREE.CylinderGeometry(0.035, 0.04, 0.34, 8);
+  for (const side of [-1.06, 1.06] as const) {
+    addMesh(group, longRailGeo, woodMat, { x: side, y: 3.1, z: -0.46 });
+    for (const pz of [-2.86, -1.24, 0.38, 1.94] as const) {
+      addMesh(group, rackPostGeo, woodMat, { x: side, y: 2.94, z: pz });
+    }
+  }
+  for (const endZ of [-2.88, 1.96] as const) {
+    addMesh(group, crossRailGeo, woodMat, { y: 3.1, z: endZ });
   }
 
-  // Warm fiesta string bulbs along both roof eaves
-  const bulbPalette = [0xffcf54, 0xff9e3d, 0xffe680, 0xe86b4a] as const;
-  const bulbGeo = new THREE.SphereGeometry(0.11, 8, 8);
-  for (let i = 0; i < 7; i += 1) {
-    const bulbHex = bulbPalette[i % bulbPalette.length] ?? 0xffcf54;
-    const bulbMat = new THREE.MeshStandardMaterial({
-      color: bulbHex,
-      emissive: bulbHex,
-      emissiveIntensity: 1.05,
-      roughness: 0.18,
-    });
-    const zPos = 2.08 - i * 0.84;
-    for (const side of [-1.26, 1.26] as const) {
+  // Organic rounded colorful rooftop luggage bundles & rolled woven sacks (zero boxy cubes)
+  addMesh(group, new THREE.CapsuleGeometry(0.28, 0.62, 8, 12), accentMat, {
+    x: -0.46,
+    y: 3.16,
+    z: 0.84,
+    rx: Math.PI / 2,
+  });
+  addMesh(group, new THREE.CapsuleGeometry(0.25, 0.52, 8, 12), cyanMat, {
+    x: 0.44,
+    y: 3.14,
+    z: 0.7,
+    rx: Math.PI / 2,
+  });
+  addMesh(group, new THREE.SphereGeometry(0.46, 12, 10), emeraldMat, {
+    x: 0.0,
+    y: 3.22,
+    z: -0.68,
+    sx: 1.45,
+    sy: 0.72,
+    sz: 1.25,
+  });
+  addMesh(group, new THREE.CapsuleGeometry(0.26, 0.64, 8, 12), accentMat, {
+    x: -0.18,
+    y: 3.14,
+    z: -1.96,
+    rz: Math.PI / 2,
+  });
+
+  // Draped catenary party bulb garlands along both curved roof eaves (glows warmly at night!)
+  const bulbPalette = [0xffcf54, 0xff9e3d, 0xffe680, 0xff5c8a] as const;
+  const bulbGeo = new THREE.SphereGeometry(0.11, 10, 8);
+  const bulbMats = bulbPalette.map(
+    (hex) =>
+      new THREE.MeshStandardMaterial({
+        color: hex,
+        emissive: hex,
+        emissiveIntensity: 1.45,
+        roughness: 0.16,
+      }),
+  );
+
+  for (const side of [-1.27, 1.27] as const) {
+    const garlandPoints: THREE.Vector3[] = [];
+    for (let i = 0; i <= 12; i += 1) {
+      const t = i / 12;
+      const gz = 2.16 - t * 5.16;
+      const sag = Math.abs(Math.sin(t * Math.PI * 3)) * 0.14;
+      garlandPoints.push(new THREE.Vector3(side, 2.58 - sag, gz));
+    }
+    const garlandCurve = new THREE.CatmullRomCurve3(garlandPoints);
+    addMesh(
+      group,
+      new THREE.TubeGeometry(garlandCurve, 24, 0.018, 6, false),
+      garlandWireMat,
+      { castShadow: false, receiveShadow: false },
+    );
+
+    for (let i = 0; i < 8; i += 1) {
+      const pt = garlandCurve.getPoint(i / 7);
+      const bulbMat = bulbMats[i % bulbMats.length];
+      if (!bulbMat) {
+        continue;
+      }
       addMesh(group, bulbGeo, bulbMat, {
-        x: side,
-        y: 2.66,
-        z: zPos,
+        x: pt.x,
+        y: pt.y - 0.07,
+        z: pt.z,
+        castShadow: false,
+        receiveShadow: false,
+      });
+    }
+  }
+
+  // Front & rear arched brow party bulbs framing the Chiva silhouette
+  for (const browZ of [2.32, -3.14] as const) {
+    for (let i = 0; i < 5; i += 1) {
+      const t = i / 4;
+      const bx = -1.04 + t * 2.08;
+      const archLift = Math.sin(t * Math.PI) * 0.24;
+      const bulbMat = bulbMats[i % bulbMats.length];
+      if (!bulbMat) {
+        continue;
+      }
+      addMesh(group, bulbGeo, bulbMat, {
+        x: bx,
+        y: 2.6 + archLift,
+        z: browZ,
         castShadow: false,
         receiveShadow: false,
       });
@@ -1458,9 +1776,11 @@ function buildChivaMesh(colorHex: number, accentHex: number): THREE.Group {
     0.32,
     0x4a423a,
   );
-  const brakeLightMaterials = attachStandardLampPairs(group, 0.94, 3.45, -3.08, 0.86);
+  const brakeLightMaterials = attachStandardLampPairs(group, 0.94, 3.44, -3.08, 0.88);
+  const headlightCones = attachHeadlightCones(group, 0.68, 0.88, 3.48, 4.4, 0.88);
 
   group.userData.brakeLightMaterials = brakeLightMaterials;
+  group.userData.headlightCones = headlightCones;
   group.userData.wheels = rig.wheels;
   group.userData.frontWheels = rig.frontWheels;
   return group;
@@ -1666,8 +1986,46 @@ export function createVehicleMesh(
   }
 }
 
+function attachOrganicSunglasses(
+  parent: THREE.Object3D,
+  shadesMat: THREE.Material,
+  y: number,
+  z: number,
+  halfSpacing: number,
+  lensRadius: number,
+): void {
+  const lensGeo = new THREE.SphereGeometry(lensRadius, 10, 8);
+  for (const sx of [-halfSpacing, halfSpacing] as const) {
+    addMesh(parent, lensGeo, shadesMat, {
+      x: sx,
+      y,
+      z,
+      sx: 1.18,
+      sy: 0.72,
+      sz: 0.42,
+      castShadow: false,
+    });
+  }
+  addMesh(
+    parent,
+    new THREE.CylinderGeometry(
+      lensRadius * 0.2,
+      lensRadius * 0.2,
+      halfSpacing * 1.1,
+      6,
+    ),
+    shadesMat,
+    {
+      y: y + 0.007,
+      z: z + 0.006,
+      rz: Math.PI / 2,
+      castShadow: false,
+    },
+  );
+}
+
 /**
- * Creates a stylized realistic 3D mesh for Valeria (feet resting at y = 0, facing +Z).
+ * Creates a smooth organic 3D fallback mesh for Valeria (zero BoxGeometry, feet at y = 0, facing +Z).
  */
 export function createPlayerMesh(): THREE.Group {
   const group = new THREE.Group();
@@ -1684,7 +2042,7 @@ export function createPlayerMesh(): THREE.Group {
     clearcoat: 0.35,
     clearcoatRoughness: 0.3,
   });
-  const cyanStripeMat = new THREE.MeshStandardMaterial({
+  const trimMat = new THREE.MeshStandardMaterial({
     color: 0xd9cbb8,
     roughness: 0.45,
   });
@@ -1701,10 +2059,6 @@ export function createPlayerMesh(): THREE.Group {
     color: 0xeae8e3,
     roughness: 0.48,
   });
-  const soleMat = new THREE.MeshStandardMaterial({
-    color: 0x1b1c22,
-    roughness: 0.88,
-  });
   const hairMat = new THREE.MeshStandardMaterial({
     color: 0x1b1412,
     roughness: 0.76,
@@ -1712,104 +2066,108 @@ export function createPlayerMesh(): THREE.Group {
   });
   const shadesMat = createTintedGlassMaterial(0x11151d);
 
-  // Legs with hip pivots, tapered slim pants, and detailed sneakers resting at y = 0
-  const thighGeo = new THREE.CylinderGeometry(0.095, 0.078, 0.66, 10);
-  const sneakerUpperGeo = new THREE.BoxGeometry(0.16, 0.09, 0.27);
-  const sneakerSoleGeo = new THREE.BoxGeometry(0.17, 0.04, 0.28);
+  const hipGeo = new THREE.SphereGeometry(0.085, 10, 8);
+  const thighGeo = new THREE.CylinderGeometry(0.088, 0.072, 0.34, 12);
+  const kneeGeo = new THREE.SphereGeometry(0.068, 10, 8);
+  const calfGeo = new THREE.CapsuleGeometry(0.058, 0.25, 6, 12);
+  const sneakerGeo = new THREE.CapsuleGeometry(0.058, 0.135, 6, 12);
+  sneakerGeo.rotateX(Math.PI / 2);
 
   const buildLegPivot = (xPos: number): THREE.Group => {
     const pivot = new THREE.Group();
     pivot.position.set(xPos, 0.8, 0);
-    addMesh(pivot, thighGeo, pantsMat, { y: -0.34 });
-    addMesh(pivot, sneakerUpperGeo, sneakerMat, { y: -0.715, z: 0.03 });
-    addMesh(pivot, sneakerSoleGeo, soleMat, { y: -0.78, z: 0.03 });
-    addMesh(pivot, new THREE.BoxGeometry(0.165, 0.03, 0.09), cyanStripeMat, {
-      y: -0.72,
-      z: -0.06,
-      castShadow: false,
-    });
+    addMesh(pivot, hipGeo, pantsMat);
+    addMesh(pivot, thighGeo, pantsMat, { y: -0.18 });
+    addMesh(pivot, kneeGeo, pantsMat, { y: -0.35 });
+    addMesh(pivot, calfGeo, pantsMat, { y: -0.52 });
+    addMesh(pivot, sneakerGeo, sneakerMat, { y: -0.752, z: 0.045, sy: 0.82 });
     return pivot;
   };
 
-  const leftLegPivot = buildLegPivot(0.13);
-  const rightLegPivot = buildLegPivot(-0.13);
+  const leftLegPivot = buildLegPivot(0.115);
+  const rightLegPivot = buildLegPivot(-0.115);
   group.add(leftLegPivot, rightLegPivot);
 
-  // Tailored torso: inner graphic tank + Vice-Sunset satin bomber jacket with collar & cyan stripe
-  addMesh(group, new THREE.CylinderGeometry(0.2, 0.17, 0.56, 12), innerTopMat, {
-    y: 1.09,
+  // Rounded hips, sculpted tapered bomber jacket torso, collar & trim rings (zero BoxGeometry)
+  addMesh(group, new THREE.SphereGeometry(0.185, 14, 10), pantsMat, {
+    y: 0.84,
+    sx: 1.08,
+    sy: 0.68,
+    sz: 0.76,
   });
-  addMesh(group, new THREE.BoxGeometry(0.48, 0.44, 0.29), jacketMat, {
+  addMesh(group, new THREE.CylinderGeometry(0.2, 0.165, 0.48, 14), jacketMat, {
     y: 1.13,
-    z: -0.02,
+    sx: 1.08,
+    sz: 0.78,
   });
-  // Upturned bomber collar & cyan hem trim
-  addMesh(group, new THREE.CylinderGeometry(0.14, 0.16, 0.1, 12), jacketMat, {
-    y: 1.38,
+  addMesh(group, new THREE.SphereGeometry(0.195, 14, 10), jacketMat, {
+    y: 1.34,
+    sx: 1.08,
+    sy: 0.56,
+    sz: 0.78,
+  });
+  addMesh(group, new THREE.CylinderGeometry(0.11, 0.095, 0.44, 10), innerTopMat, {
+    y: 1.12,
+    z: 0.08,
+    sx: 0.9,
+    sz: 0.45,
+  });
+  addMesh(group, new THREE.CylinderGeometry(0.135, 0.155, 0.1, 12), jacketMat, {
+    y: 1.39,
     z: -0.01,
   });
-  addMesh(group, new THREE.BoxGeometry(0.5, 0.055, 0.31), cyanStripeMat, {
-    y: 0.91,
-    z: -0.02,
+  addMesh(group, new THREE.TorusGeometry(0.168, 0.025, 8, 18), trimMat, {
+    y: 0.9,
+    rx: Math.PI / 2,
+    sx: 1.06,
+    sy: 0.78,
     castShadow: false,
   });
-  // Vertical cyan bomber accent stripes
-  for (const sx of [-0.14, 0.14] as const) {
-    addMesh(group, new THREE.BoxGeometry(0.04, 0.4, 0.03), cyanStripeMat, {
-      x: sx,
-      y: 1.13,
-      z: 0.135,
-      castShadow: false,
-    });
-  }
 
-  // Arms with shoulder pivots, bomber sleeves, cyan cuff stripes & hands
-  const sleeveGeo = new THREE.CylinderGeometry(0.072, 0.064, 0.34, 10);
-  const forearmGeo = new THREE.CylinderGeometry(0.056, 0.048, 0.22, 8);
-  const handGeo = new THREE.SphereGeometry(0.052, 8, 8);
+  // Rounded shoulder joints & articulated capsule arms with hands
+  const shoulderGeo = new THREE.SphereGeometry(0.08, 10, 8);
+  const sleeveGeo = new THREE.CapsuleGeometry(0.062, 0.22, 6, 10);
+  const cuffGeo = new THREE.TorusGeometry(0.062, 0.015, 6, 12);
+  cuffGeo.rotateX(Math.PI / 2);
+  const forearmGeo = new THREE.CapsuleGeometry(0.048, 0.18, 6, 10);
+  const handGeo = new THREE.SphereGeometry(0.05, 8, 8);
 
   const buildArmPivot = (xPos: number): THREE.Group => {
     const pivot = new THREE.Group();
-    pivot.position.set(xPos, 1.31, 0);
-    addMesh(pivot, sleeveGeo, jacketMat, { y: -0.16 });
-    addMesh(pivot, new THREE.CylinderGeometry(0.074, 0.07, 0.04, 10), cyanStripeMat, {
-      y: -0.32,
-      castShadow: false,
-    });
-    addMesh(pivot, forearmGeo, skinMat, { y: -0.42 });
-    addMesh(pivot, handGeo, skinMat, { y: -0.55 });
+    pivot.position.set(xPos, 1.32, 0);
+    addMesh(pivot, shoulderGeo, jacketMat);
+    addMesh(pivot, sleeveGeo, jacketMat, { y: -0.14 });
+    addMesh(pivot, cuffGeo, trimMat, { y: -0.28, castShadow: false });
+    addMesh(pivot, forearmGeo, skinMat, { y: -0.39 });
+    addMesh(pivot, handGeo, skinMat, { y: -0.52, sx: 0.88, sy: 1.12, sz: 0.78 });
     return pivot;
   };
 
-  const leftArmPivot = buildArmPivot(0.32);
-  const rightArmPivot = buildArmPivot(-0.32);
+  const leftArmPivot = buildArmPivot(0.255);
+  const rightArmPivot = buildArmPivot(-0.255);
   group.add(leftArmPivot, rightArmPivot);
 
-  // Neck, sculpted head, reflective sunset visor shades & sweeping ponytail
-  addMesh(group, new THREE.CylinderGeometry(0.065, 0.075, 0.12, 10), skinMat, {
-    y: 1.43,
-  });
-  addMesh(group, new THREE.SphereGeometry(0.155, 14, 12), skinMat, {
-    y: 1.56,
-  });
-  addMesh(group, new THREE.SphereGeometry(0.166, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62), hairMat, {
+  // Neck, sculpted oval head, sleek rounded shades, hair cap & sweeping ponytail
+  addMesh(group, new THREE.CylinderGeometry(0.058, 0.068, 0.12, 10), skinMat, { y: 1.44 });
+  addMesh(group, new THREE.SphereGeometry(0.142, 14, 12), skinMat, {
     y: 1.58,
-    z: -0.02,
+    sx: 0.86,
+    sy: 1.05,
+    sz: 0.92,
   });
-  addMesh(group, new THREE.BoxGeometry(0.28, 0.075, 0.08), shadesMat, {
-    y: 1.57,
-    z: 0.135,
-    castShadow: false,
-  });
+  addMesh(
+    group,
+    new THREE.SphereGeometry(0.15, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62),
+    hairMat,
+    { y: 1.6, z: -0.015, sx: 0.89, sy: 1.06, sz: 0.95 },
+  );
+  attachOrganicSunglasses(group, shadesMat, 1.595, 0.118, 0.046, 0.044);
 
   // Sculpted two-segment ponytail sweeping back
-  addMesh(group, new THREE.SphereGeometry(0.075, 8, 8), hairMat, {
-    y: 1.59,
-    z: -0.17,
-  });
-  addMesh(group, new THREE.ConeGeometry(0.09, 0.42, 10), hairMat, {
-    y: 1.42,
-    z: -0.25,
+  addMesh(group, new THREE.SphereGeometry(0.072, 10, 8), hairMat, { y: 1.61, z: -0.15 });
+  addMesh(group, new THREE.ConeGeometry(0.085, 0.4, 10), hairMat, {
+    y: 1.44,
+    z: -0.23,
     rx: -0.44,
   });
 
@@ -1907,15 +2265,175 @@ function attachFerrariNitroFlames(parent: THREE.Group): THREE.Group {
   return nitroFlames;
 }
 
+function attachFerrariPoliceKit(
+  group: THREE.Group,
+  roofY: number,
+  halfWidth: number,
+): void {
+  const emeraldTrimMat = createCarPaintMaterial(0x0b7a45, {
+    metalness: 0.54,
+    roughness: 0.18,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.06,
+    envMapIntensity: 1.25,
+  });
+  const railMat = createCarbonMaterial();
+
+  // Contoured aerodynamic Policía Nacional emerald-green side-skirt blades & rear aero trim
+  const sideBladeGeo = createRoundedPodGeometry(0.06, 0.14, 2.24, 0.03, 0.015);
+  for (const side of [-1, 1] as const) {
+    addMesh(group, sideBladeGeo, emeraldTrimMat, {
+      x: side * (halfWidth * 0.98),
+      y: 0.44,
+      z: -0.08,
+      castShadow: false,
+    });
+  }
+  addMesh(group, createRoundedPodGeometry(1.38, 0.06, 0.22, 0.025, 0.012), emeraldTrimMat, {
+    y: 0.84,
+    z: -2.14,
+    castShadow: false,
+  });
+
+  // Low-profile aerodynamic LED police lightbar mounted cleanly on the Ferrari roofline
+  const barY = roofY + 0.04;
+  const barZ = -0.14;
+  addMesh(group, createRoundedPodGeometry(1.16, 0.065, 0.24, 0.03, 0.015), railMat, {
+    y: barY,
+    z: barZ,
+  });
+  addMesh(group, createRoundedPodGeometry(0.32, 0.09, 0.22, 0.035, 0.015), emeraldTrimMat, {
+    y: barY + 0.045,
+    z: barZ,
+  });
+
+  const beaconGeo = new THREE.CapsuleGeometry(0.062, 0.34, 8, 12);
+  beaconGeo.rotateZ(Math.PI / 2);
+
+  const redBeacon = addMesh(
+    group,
+    beaconGeo,
+    new THREE.MeshStandardMaterial({
+      color: 0xff294d,
+      emissive: 0xff1c42,
+      emissiveIntensity: 2.5,
+      roughness: 0.12,
+    }),
+    {
+      x: -0.34,
+      y: barY + 0.055,
+      z: barZ,
+      sy: 0.72,
+      name: 'police_red_beacon',
+      castShadow: false,
+    },
+  );
+
+  const blueBeacon = addMesh(
+    group,
+    beaconGeo,
+    new THREE.MeshStandardMaterial({
+      color: 0x2684ff,
+      emissive: 0x1a75ff,
+      emissiveIntensity: 2.5,
+      roughness: 0.12,
+    }),
+    {
+      x: 0.34,
+      y: barY + 0.055,
+      z: barZ,
+      sy: 0.72,
+      name: 'police_blue_beacon',
+      castShadow: false,
+    },
+  );
+
+  const sirenLight = new THREE.PointLight(0xff294d, 0, 16, 2);
+  sirenLight.name = 'police_siren_light';
+  sirenLight.position.set(0, barY + 0.36, barZ);
+  sirenLight.castShadow = false;
+  group.add(sirenLight);
+
+  group.userData.redBeacon = redBeacon;
+  group.userData.blueBeacon = blueBeacon;
+  group.userData.sirenLight = sirenLight;
+}
+
+function attachFerrariTaxiKit(
+  group: THREE.Group,
+  roofY: number,
+  halfWidth: number,
+): void {
+  const baseMat = createCarbonMaterial();
+  const taxiSignTex = createTaxiSignTexture();
+  const taxiDomeMat = new THREE.MeshStandardMaterial({
+    color: 0xffe066,
+    emissive: 0xffb800,
+    emissiveIntensity: 1.35,
+    ...(taxiSignTex ? { map: taxiSignTex } : {}),
+    roughness: 0.18,
+    metalness: 0.08,
+  });
+
+  // Sleek curved backlit TAXI roof dome mounted flush onto the Ferrari roofline
+  const domeZ = -0.14;
+  addMesh(group, createRoundedPodGeometry(0.78, 0.05, 0.32, 0.025, 0.012), baseMat, {
+    y: roofY + 0.02,
+    z: domeZ,
+  });
+
+  const domeGeo = createCurvedCrossExtrude(
+    (shape) => {
+      shape.moveTo(-0.36, 0);
+      shape.lineTo(0.36, 0);
+      shape.quadraticCurveTo(0.38, 0.21, 0.16, 0.23);
+      shape.lineTo(-0.16, 0.23);
+      shape.quadraticCurveTo(-0.38, 0.21, -0.36, 0);
+      shape.closePath();
+    },
+    0.28,
+    0.03,
+  );
+  addMesh(group, domeGeo, taxiDomeMat, {
+    y: roofY + 0.035,
+    z: domeZ,
+    name: 'taxi_roof_sign',
+    castShadow: false,
+  });
+
+  // Subtle checkered Amarillito accent stripe along the lower door sills
+  const checkerTex = createCheckerTrimTexture();
+  const checkerMat = new THREE.MeshStandardMaterial({
+    color: checkerTex ? 0xffffff : 0x161622,
+    ...(checkerTex ? { map: checkerTex } : {}),
+    roughness: 0.38,
+    metalness: 0.18,
+  });
+  const sillStripGeo = createRoundedPodGeometry(0.05, 0.11, 2.05, 0.02, 0.01);
+  for (const side of [-1, 1] as const) {
+    addMesh(group, sillStripGeo, checkerMat, {
+      x: side * (halfWidth * 0.98),
+      y: 0.42,
+      z: -0.06,
+      castShadow: false,
+    });
+  }
+}
+
 /**
- * Builds the player Ferrari 458 Italia from the loaded GLB template: deep-cloned with
- * independent materials, rotated +180° around Y (nose +Z, quad-taillights -Z), normalized
- * to 4.55m length resting at y = 0, upgraded to glossy Rosso Corsa clearcoat + smoked glass +
- * emissive crimson brake lights, rigged with front steering pivots and spinning wheels.
+ * Builds a sculpted Ferrari 458 Italia livery rig from the loaded GLB template:
+ * - 'banshee': glossy metallic Rosso Corsa Red (0xb80e24) with afterburner nitro flames
+ * - 'police': glossy metallic pearl-white (0xf2f5f8) Policía Nacional Interceptor with emerald
+ *   accents (0x0b7a45) and sleek aerodynamic glowing red/blue roof LED lightbar + siren PointLight
+ * - 'taxi': glossy metallic Cali Yellow (0xe5ad00) Amarillito Sports Taxi with curved backlit TAXI dome
+ * Deep-clones all materials/geometries so the shared template remains strictly untouched.
  */
-export function createFerrariPlayerMesh(ferrariTemplate: THREE.Group): THREE.Group {
+export function createFerrariLiveryMesh(
+  ferrariTemplate: THREE.Group,
+  kind: FerrariLiveryKind,
+): THREE.Group {
   const group = new THREE.Group();
-  group.name = 'vehicle_banshee_ferrari';
+  group.name = `vehicle_${kind}_ferrari`;
 
   const clonedModel = cloneGroupWithMaterials(ferrariTemplate);
   const innerGroup = new THREE.Group();
@@ -1924,10 +2442,20 @@ export function createFerrariPlayerMesh(ferrariTemplate: THREE.Group): THREE.Gro
   innerGroup.add(clonedModel);
   group.add(innerGroup);
 
+  const paintSpec: Record<
+    FerrariLiveryKind,
+    { readonly color: number; readonly metalness: number; readonly roughness: number }
+  > = {
+    banshee: { color: 0xb80e24, metalness: 0.65, roughness: 0.15 },
+    police: { color: 0xf2f5f8, metalness: 0.52, roughness: 0.14 },
+    taxi: { color: 0xe5ad00, metalness: 0.56, roughness: 0.16 },
+  };
+  const chosenPaint = paintSpec[kind];
+
   const bodyMat = new THREE.MeshPhysicalMaterial({
-    color: 0xb80e24,
-    metalness: 0.65,
-    roughness: 0.15,
+    color: chosenPaint.color,
+    metalness: chosenPaint.metalness,
+    roughness: chosenPaint.roughness,
     clearcoat: 1.0,
     clearcoatRoughness: 0.05,
     envMapIntensity: 1.35,
@@ -1952,7 +2480,7 @@ export function createFerrariPlayerMesh(ferrariTemplate: THREE.Group): THREE.Gro
   const headlightMat = new THREE.MeshStandardMaterial({
     color: 0xfff8ea,
     emissive: 0xffecc8,
-    emissiveIntensity: 1.6,
+    emissiveIntensity: 1.7,
     roughness: 0.1,
     metalness: 0.15,
   });
@@ -2023,6 +2551,8 @@ export function createFerrariPlayerMesh(ferrariTemplate: THREE.Group): THREE.Gro
 
   // Normalize length to ~4.55m and seat tires cleanly on y = 0
   innerGroup.updateMatrixWorld(true);
+  let roofY = 1.22;
+  let halfWidth = 0.98;
   const rawBox = new THREE.Box3().setFromObject(innerGroup);
   if (!rawBox.isEmpty()) {
     const rawSize = rawBox.getSize(new THREE.Vector3());
@@ -2038,6 +2568,12 @@ export function createFerrariPlayerMesh(ferrariTemplate: THREE.Group): THREE.Gro
       -scaledBox.min.y,
       -scaledCenter.z,
     );
+    innerGroup.updateMatrixWorld(true);
+    const normBox = new THREE.Box3().setFromObject(innerGroup);
+    if (!normBox.isEmpty()) {
+      roofY = Math.max(1.0, normBox.max.y);
+      halfWidth = Math.max(0.82, (normBox.max.x - normBox.min.x) * 0.5);
+    }
   }
 
   // Rig front steering pivots and all 4 spinning wheels
@@ -2071,16 +2607,37 @@ export function createFerrariPlayerMesh(ferrariTemplate: THREE.Group): THREE.Gro
     }
   }
 
-  const headlightCones = attachHeadlightCones(group, 0.72, 0.62, 2.22, 4.8, 0.88);
-  const nitroFlames = attachFerrariNitroFlames(group);
+  const headlightCones = attachHeadlightCones(
+    group,
+    0.72,
+    0.62,
+    2.22,
+    kind === 'police' ? 5.2 : 4.8,
+    kind === 'police' ? 0.94 : 0.88,
+  );
   attachContactShadow(group, 2.35, 4.9, 0.64, 0.03);
 
+  if (kind === 'banshee') {
+    group.userData.nitroFlames = attachFerrariNitroFlames(group);
+  } else if (kind === 'police') {
+    attachFerrariPoliceKit(group, roofY, halfWidth);
+  } else if (kind === 'taxi') {
+    attachFerrariTaxiKit(group, roofY, halfWidth);
+  }
+
+  group.userData.liveryKind = kind;
   group.userData.wheels = wheels;
   group.userData.frontWheels = frontWheels;
   group.userData.brakeLightMaterials = [brakeLightMat];
   group.userData.headlightCones = headlightCones;
-  group.userData.nitroFlames = nitroFlames;
   return group;
+}
+
+/**
+ * Builds the player Ferrari 458 Italia ('banshee' Rosso Corsa Red livery).
+ */
+export function createFerrariPlayerMesh(ferrariTemplate: THREE.Group): THREE.Group {
+  return createFerrariLiveryMesh(ferrariTemplate, 'banshee');
 }
 
 function findAnimationClip(
@@ -2577,63 +3134,106 @@ function buildMateoSpeakersProp(): THREE.Group {
     metalness: 0.75,
   });
 
-  // Articulated Mateo NPC standing beside the DJ speaker stacks (grounded at y = 0)
+  // Articulated organic Mateo NPC standing beside the DJ speaker stacks (zero BoxGeometry, grounded at y = 0)
   const mateo = new THREE.Group();
   mateo.name = 'npc_mateo';
   mateo.position.set(-1.15, 0, 0.25);
 
-  const legGeo = new THREE.CylinderGeometry(0.095, 0.082, 0.7, 10);
-  const shoeGeo = new THREE.BoxGeometry(0.16, 0.1, 0.28);
-  for (const sx of [-0.13, 0.13] as const) {
-    addMesh(mateo, legGeo, jeansMat, { x: sx, y: 0.44 });
-    addMesh(mateo, shoeGeo, shoeMat, { x: sx, y: 0.05, z: 0.03 });
+  const hipGeo = new THREE.SphereGeometry(0.088, 10, 8);
+  const thighGeo = new THREE.CylinderGeometry(0.092, 0.075, 0.34, 12);
+  const kneeGeo = new THREE.SphereGeometry(0.072, 10, 8);
+  const calfGeo = new THREE.CapsuleGeometry(0.06, 0.25, 6, 12);
+  const shoeGeo = new THREE.CapsuleGeometry(0.06, 0.14, 6, 12);
+  shoeGeo.rotateX(Math.PI / 2);
+
+  for (const sx of [-0.12, 0.12] as const) {
+    addMesh(mateo, hipGeo, jeansMat, { x: sx, y: 0.8 });
+    addMesh(mateo, thighGeo, jeansMat, { x: sx, y: 0.62 });
+    addMesh(mateo, kneeGeo, jeansMat, { x: sx, y: 0.45 });
+    addMesh(mateo, calfGeo, jeansMat, { x: sx, y: 0.28 });
+    addMesh(mateo, shoeGeo, shoeMat, { x: sx, y: 0.05, z: 0.045, sy: 0.82 });
   }
 
-  // Torso: white tee + open turquoise Cali jacket with gold stripe trim
-  addMesh(mateo, new THREE.CylinderGeometry(0.21, 0.19, 0.58, 12), shirtMat, { y: 1.08 });
-  addMesh(mateo, new THREE.BoxGeometry(0.5, 0.48, 0.3), jacketMat, { y: 1.12, z: -0.02 });
-  addMesh(mateo, new THREE.BoxGeometry(0.52, 0.05, 0.32), goldTrimMat, {
-    y: 0.89,
-    z: -0.02,
+  // Rounded hips + tapered athletic torso (white tee + open turquoise Cali jacket + gold hem ring)
+  addMesh(mateo, new THREE.SphereGeometry(0.19, 14, 10), jeansMat, {
+    y: 0.84,
+    sx: 1.08,
+    sy: 0.68,
+    sz: 0.78,
+  });
+  addMesh(mateo, new THREE.CylinderGeometry(0.215, 0.175, 0.48, 14), jacketMat, {
+    y: 1.13,
+    sx: 1.12,
+    sz: 0.8,
+  });
+  addMesh(mateo, new THREE.SphereGeometry(0.21, 14, 10), jacketMat, {
+    y: 1.34,
+    sx: 1.12,
+    sy: 0.56,
+    sz: 0.8,
+  });
+  addMesh(mateo, new THREE.CylinderGeometry(0.12, 0.105, 0.44, 10), shirtMat, {
+    y: 1.12,
+    z: 0.09,
+    sx: 0.92,
+    sz: 0.45,
+  });
+  addMesh(mateo, new THREE.TorusGeometry(0.18, 0.024, 8, 18), goldTrimMat, {
+    y: 0.9,
+    rx: Math.PI / 2,
+    sx: 1.1,
+    sy: 0.8,
     castShadow: false,
   });
 
+  // Rounded shoulder joints + articulated capsule arms
+  const shoulderGeo = new THREE.SphereGeometry(0.084, 10, 8);
+  const upperArmGeo = new THREE.CapsuleGeometry(0.064, 0.2, 6, 10);
+  const forearmGeo = new THREE.CapsuleGeometry(0.052, 0.2, 6, 10);
+  const handGeo = new THREE.SphereGeometry(0.056, 8, 8);
+
   // Resting left arm
   const leftArm = new THREE.Group();
-  leftArm.position.set(0.32, 1.31, 0);
-  addMesh(leftArm, new THREE.CylinderGeometry(0.072, 0.062, 0.34, 8), jacketMat, { y: -0.17 });
-  addMesh(leftArm, new THREE.CylinderGeometry(0.055, 0.048, 0.22, 8), skinMat, { y: -0.43 });
+  leftArm.position.set(0.275, 1.32, 0);
+  addMesh(leftArm, shoulderGeo, jacketMat);
+  addMesh(leftArm, upperArmGeo, jacketMat, { y: -0.14 });
+  addMesh(leftArm, forearmGeo, skinMat, { y: -0.37 });
+  addMesh(leftArm, handGeo, skinMat, { y: -0.52, sx: 0.88, sy: 1.12, sz: 0.78 });
   mateo.add(leftArm);
 
   // Raised enthusiastic waving right arm (animated in WorldRenderer)
   const wavingArm = new THREE.Group();
   wavingArm.name = 'mateo_waving_arm';
-  wavingArm.position.set(-0.32, 1.32, 0);
+  wavingArm.position.set(-0.275, 1.33, 0);
   wavingArm.rotation.z = -2.35;
-  addMesh(wavingArm, new THREE.CylinderGeometry(0.072, 0.062, 0.34, 8), jacketMat, { y: -0.17 });
-  addMesh(wavingArm, new THREE.CylinderGeometry(0.055, 0.048, 0.24, 8), skinMat, { y: -0.44 });
-  addMesh(wavingArm, new THREE.SphereGeometry(0.06, 8, 8), skinMat, { y: -0.58 });
+  addMesh(wavingArm, shoulderGeo, jacketMat);
+  addMesh(wavingArm, upperArmGeo, jacketMat, { y: -0.14 });
+  addMesh(wavingArm, forearmGeo, skinMat, { y: -0.38 });
+  addMesh(wavingArm, handGeo, skinMat, { y: -0.53, sx: 0.9, sy: 1.15, sz: 0.8 });
   mateo.add(wavingArm);
 
-  // Head, shades, and signature red Cali cap
-  addMesh(mateo, new THREE.CylinderGeometry(0.07, 0.08, 0.12, 8), skinMat, { y: 1.43 });
-  addMesh(mateo, new THREE.SphereGeometry(0.16, 12, 10), skinMat, { y: 1.56 });
-  addMesh(mateo, new THREE.BoxGeometry(0.27, 0.07, 0.08), shadesMat, {
-    y: 1.57,
-    z: 0.135,
-    castShadow: false,
+  // Rounded neck, sculpted oval head, rounded oval sunglasses & curved red Cali cap
+  addMesh(mateo, new THREE.CylinderGeometry(0.062, 0.072, 0.12, 10), skinMat, { y: 1.44 });
+  addMesh(mateo, new THREE.SphereGeometry(0.146, 14, 12), skinMat, {
+    y: 1.58,
+    sx: 0.86,
+    sy: 1.05,
+    sz: 0.92,
   });
+  attachOrganicSunglasses(mateo, shadesMat, 1.595, 0.122, 0.046, 0.044);
   addMesh(
     mateo,
-    new THREE.SphereGeometry(0.172, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
+    new THREE.SphereGeometry(0.155, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.56),
     capMat,
-    { y: 1.59 },
+    { y: 1.61, sx: 0.9, sy: 1.04, sz: 0.96 },
   );
-  addMesh(mateo, new THREE.BoxGeometry(0.24, 0.035, 0.18), capMat, {
-    y: 1.61,
-    z: 0.16,
-    rx: 0.12,
-  });
+  // Curved baseball cap visor brim built with a flattened partial cylinder (zero BoxGeometry)
+  addMesh(
+    mateo,
+    new THREE.CylinderGeometry(0.138, 0.144, 0.024, 14, 1, false, -Math.PI * 0.46, Math.PI * 0.92),
+    capMat,
+    { y: 1.62, z: 0.11, rx: 0.14 },
+  );
   group.add(mateo);
 
   // Two stacked black & gold DJ PA sound speaker towers beside Mateo
@@ -2924,8 +3524,9 @@ export function createGpsChevronMesh(): THREE.Group {
 }
 
 /**
- * Creates a lightweight articulated 3D walking Cali pedestrian (grounded at y = 0, facing +Z)
- * with shadow-casting limbs and hip/shoulder pivots exposed in userData.
+ * Creates a smooth organic articulated 3D walking Cali pedestrian (zero BoxGeometry, grounded at
+ * y = 0, facing +Z) with sculpted oval head, hair style variety, sunglasses, rounded shoulders,
+ * tapered torso, and capsule limbs/sneakers with hip/shoulder pivots exposed in userData.
  */
 export function createPedestrianMesh(
   shirtColorHex: number,
@@ -2934,65 +3535,120 @@ export function createPedestrianMesh(
   const group = new THREE.Group();
   group.name = 'cali_pedestrian';
 
-  const skinTonePalette = [0xd89e74, 0xc4855a, 0x9c6240, 0xe3b18a] as const;
-  const skinHex =
-    skinTonePalette[Math.abs(shirtColorHex + pantsColorHex) % skinTonePalette.length] ??
-    0xc98c62;
+  const variantSeed = Math.abs(shirtColorHex * 3 + pantsColorHex * 7);
+  const skinTonePalette = [0xd89e74, 0xc4855a, 0x9c6240, 0xe3b18a, 0x824e32] as const;
+  const hairTonePalette = [0x1b1411, 0x2a1d16, 0x151110, 0x3b281c] as const;
+  const skinHex = skinTonePalette[variantSeed % skinTonePalette.length] ?? 0xc98c62;
+  const hairHex = hairTonePalette[(variantSeed >> 2) % hairTonePalette.length] ?? 0x1c1512;
 
-  const skinMat = new THREE.MeshStandardMaterial({ color: skinHex, roughness: 0.66 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: skinHex, roughness: 0.64 });
   const shirtMat = new THREE.MeshStandardMaterial({
     color: shirtColorHex,
-    roughness: 0.58,
+    roughness: 0.56,
     metalness: 0.05,
   });
   const pantsMat = new THREE.MeshStandardMaterial({
     color: pantsColorHex,
-    roughness: 0.82,
+    roughness: 0.8,
     metalness: 0.04,
   });
-  const shoeMat = new THREE.MeshStandardMaterial({ color: 0x1e2028, roughness: 0.78 });
-  const hairMat = new THREE.MeshStandardMaterial({ color: 0x1c1512, roughness: 0.8 });
+  const beltMat = new THREE.MeshStandardMaterial({ color: 0x261d18, roughness: 0.72 });
+  const shoeMat = new THREE.MeshStandardMaterial({ color: 0xe8e6e1, roughness: 0.54 });
+  const hairMat = new THREE.MeshStandardMaterial({ color: hairHex, roughness: 0.78 });
+  const shadesMat = createTintedGlassMaterial(0x11151d);
 
-  const legGeo = new THREE.CylinderGeometry(0.082, 0.068, 0.66, 8);
-  const shoeGeo = new THREE.BoxGeometry(0.14, 0.09, 0.24);
+  // Articulated rounded legs with hip/knee spheres, tapered thigh/calf capsules & rounded sneakers
+  const hipGeo = new THREE.SphereGeometry(0.08, 10, 8);
+  const thighGeo = new THREE.CylinderGeometry(0.082, 0.066, 0.34, 12);
+  const kneeGeo = new THREE.SphereGeometry(0.064, 10, 8);
+  const calfGeo = new THREE.CapsuleGeometry(0.055, 0.25, 6, 12);
+  const sneakerGeo = new THREE.CapsuleGeometry(0.055, 0.13, 6, 12);
+  sneakerGeo.rotateX(Math.PI / 2);
+
   const buildLegPivot = (xPos: number): THREE.Group => {
     const pivot = new THREE.Group();
-    pivot.position.set(xPos, 0.76, 0);
-    addMesh(pivot, legGeo, pantsMat, { y: -0.34 });
-    addMesh(pivot, shoeGeo, shoeMat, { y: -0.715, z: 0.03 });
+    pivot.position.set(xPos, 0.8, 0);
+    addMesh(pivot, hipGeo, pantsMat);
+    addMesh(pivot, thighGeo, pantsMat, { y: -0.18 });
+    addMesh(pivot, kneeGeo, pantsMat, { y: -0.35 });
+    addMesh(pivot, calfGeo, pantsMat, { y: -0.52 });
+    addMesh(pivot, sneakerGeo, shoeMat, { y: -0.753, z: 0.042, sy: 0.82 });
     return pivot;
   };
 
-  const leftLeg = buildLegPivot(0.11);
-  const rightLeg = buildLegPivot(-0.11);
+  const leftLeg = buildLegPivot(0.105);
+  const rightLeg = buildLegPivot(-0.105);
   group.add(leftLeg, rightLeg);
 
-  // Torso
-  addMesh(group, new THREE.BoxGeometry(0.42, 0.54, 0.24), shirtMat, { y: 1.04 });
+  // Rounded hips, waist belt & tapered athletic torso (zero BoxGeometry)
+  addMesh(group, new THREE.SphereGeometry(0.18, 14, 10), pantsMat, {
+    y: 0.84,
+    sx: 1.06,
+    sy: 0.68,
+    sz: 0.74,
+  });
+  addMesh(group, new THREE.TorusGeometry(0.154, 0.022, 8, 16), beltMat, {
+    y: 0.9,
+    rx: Math.PI / 2,
+    sx: 1.05,
+    sy: 0.74,
+    castShadow: false,
+  });
+  addMesh(group, new THREE.CylinderGeometry(0.195, 0.155, 0.44, 14), shirtMat, {
+    y: 1.12,
+    sx: 1.08,
+    sz: 0.72,
+  });
+  addMesh(group, new THREE.SphereGeometry(0.19, 14, 10), shirtMat, {
+    y: 1.32,
+    sx: 1.08,
+    sy: 0.56,
+    sz: 0.72,
+  });
 
-  // Arms
-  const upperArmGeo = new THREE.CylinderGeometry(0.062, 0.056, 0.24, 6);
-  const forearmGeo = new THREE.CylinderGeometry(0.05, 0.044, 0.28, 6);
+  // Rounded shoulder joints & articulated capsule arms with rounded hands
+  const shoulderGeo = new THREE.SphereGeometry(0.076, 10, 8);
+  const upperArmGeo = new THREE.CapsuleGeometry(0.056, 0.17, 6, 10);
+  const forearmGeo = new THREE.CapsuleGeometry(0.045, 0.19, 6, 10);
+  const handGeo = new THREE.SphereGeometry(0.046, 8, 8);
+
   const buildArmPivot = (xPos: number): THREE.Group => {
     const pivot = new THREE.Group();
-    pivot.position.set(xPos, 1.26, 0);
-    addMesh(pivot, upperArmGeo, shirtMat, { y: -0.12 });
-    addMesh(pivot, forearmGeo, skinMat, { y: -0.36 });
+    pivot.position.set(xPos, 1.31, 0);
+    addMesh(pivot, shoulderGeo, shirtMat);
+    addMesh(pivot, upperArmGeo, shirtMat, { y: -0.11 });
+    addMesh(pivot, forearmGeo, skinMat, { y: -0.32 });
+    addMesh(pivot, handGeo, skinMat, { y: -0.46, sx: 0.88, sy: 1.14, sz: 0.78 });
     return pivot;
   };
 
-  const leftArm = buildArmPivot(0.28);
-  const rightArm = buildArmPivot(-0.28);
+  const leftArm = buildArmPivot(0.245);
+  const rightArm = buildArmPivot(-0.245);
   group.add(leftArm, rightArm);
 
-  // Head & hair
-  addMesh(group, new THREE.SphereGeometry(0.145, 10, 8), skinMat, { y: 1.49 });
+  // Rounded neck, sculpted oval head, hair style variety (fade cap or high bun) & sleek sunglasses
+  addMesh(group, new THREE.CylinderGeometry(0.054, 0.064, 0.12, 10), skinMat, { y: 1.43 });
+  addMesh(group, new THREE.SphereGeometry(0.135, 14, 12), skinMat, {
+    y: 1.57,
+    sx: 0.86,
+    sy: 1.05,
+    sz: 0.92,
+  });
   addMesh(
     group,
-    new THREE.SphereGeometry(0.154, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    new THREE.SphereGeometry(0.143, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.58),
     hairMat,
-    { y: 1.51, z: -0.015 },
+    { y: 1.59, z: -0.01, sx: 0.89, sy: 1.06, sz: 0.96 },
   );
+  if (variantSeed % 2 === 0) {
+    // High Cali sculpted hair bun
+    addMesh(group, new THREE.SphereGeometry(0.068, 10, 8), hairMat, {
+      y: 1.67,
+      z: -0.11,
+    });
+  }
+
+  attachOrganicSunglasses(group, shadesMat, 1.585, 0.112, 0.042, 0.04);
 
   attachContactShadow(group, 0.76, 0.76, 0.4, 0.025);
 

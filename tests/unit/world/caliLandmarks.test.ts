@@ -9,6 +9,7 @@ import type {
 import {
   applyPhotographicAssets,
   buildCaliWorld,
+  setWorldNightLighting,
 } from '../../../src/world/caliLandmarks';
 import type {
   LoadedCharacterAsset,
@@ -21,11 +22,16 @@ import {
   createCameraOrbitState,
   createSunsetLighting,
   createSunsetSkyDome,
+  setBloomTimeOfDay,
+  setLightingTimeOfDay,
+  setSkyDomeTimeOfDay,
   updateCameraRig,
   updateShadowFocus,
   updateSkyDomeTime,
+  type PostProcessingRig,
 } from '../../../src/world/sceneSetup';
 import {
+  createFerrariLiveryMesh,
   createFerrariPlayerMesh,
   createGpsChevronMesh,
   createMissionPropMeshes,
@@ -1008,5 +1014,241 @@ describe('daylight checkpoints, 3D mission props, GPS chevrons, pedestrians, and
 
     expect(sampleGpsRoutePose(route, 200)).toBeNull();
     expect(sampleGpsRoutePose([], 10)).toBeNull();
+  });
+});
+
+describe('starlit night lighting, sculpted Ferrari liveries, curved buses/chivas, and organic pedestrians', () => {
+  it('switches sky dome, directional/hemisphere lighting, bloom, and world night emissives cleanly between golden_hour and night', () => {
+    const skyDome = createSunsetSkyDome();
+    const skyMat = skyDome.material as THREE.ShaderMaterial;
+    const sunDisc = skyDome.getObjectByName('western_sun_disc');
+    const moonDisc = skyDome.getObjectByName('western_crescent_moon');
+
+    expect(sunDisc?.visible).toBe(true);
+    expect(moonDisc).toBeDefined();
+    expect(moonDisc?.visible).toBe(false);
+
+    setSkyDomeTimeOfDay(skyDome, 'night');
+    expect((skyMat.uniforms.uZenithColor?.value as THREE.Color).getHex()).toBe(0x040714);
+    expect((skyMat.uniforms.uHorizonColor?.value as THREE.Color).getHex()).toBe(0x13102b);
+    expect(skyMat.uniforms.uNightMix?.value).toBe(1);
+    expect(sunDisc?.visible).toBe(false);
+    expect(moonDisc?.visible).toBe(true);
+
+    setSkyDomeTimeOfDay(skyDome, 'golden_hour');
+    expect((skyMat.uniforms.uZenithColor?.value as THREE.Color).getHex()).toBe(0x1f3b6b);
+    expect(skyMat.uniforms.uNightMix?.value).toBe(0);
+    expect(sunDisc?.visible).toBe(true);
+    expect(moonDisc?.visible).toBe(false);
+    disposeObjectTree(skyDome);
+
+    const lighting = createSunsetLighting();
+    const keyLight = lighting.getObjectByName('sunset_key_light') as THREE.DirectionalLight;
+    const hemi = lighting.getObjectByName('sunset_hemisphere_light') as THREE.HemisphereLight;
+    const skyRim = lighting.getObjectByName('sunset_sky_rim') as THREE.DirectionalLight;
+
+    setLightingTimeOfDay(lighting, 'night');
+    expect(keyLight.color.getHex()).toBe(0x7da2ff);
+    expect(keyLight.intensity).toBeCloseTo(0.65, 2);
+    expect(hemi.color.getHex()).toBe(0x1e2a55);
+    expect(hemi.groundColor.getHex()).toBe(0x100d1f);
+    expect(hemi.intensity).toBeCloseTo(0.42, 2);
+    expect(skyRim.color.getHex()).toBe(0x3b4e99);
+    expect(skyRim.intensity).toBeCloseTo(0.25, 2);
+
+    setLightingTimeOfDay(lighting, 'golden_hour');
+    expect(keyLight.color.getHex()).toBe(0xffe0b5);
+    expect(keyLight.intensity).toBeCloseTo(2.85, 2);
+    expect(hemi.color.getHex()).toBe(0x9bc4e8);
+    expect(hemi.groundColor.getHex()).toBe(0x6b5240);
+    expect(hemi.intensity).toBeCloseTo(0.9, 2);
+    expect(skyRim.color.getHex()).toBe(0x88b4e6);
+    expect(skyRim.intensity).toBeCloseTo(0.35, 2);
+    disposeObjectTree(lighting);
+
+    const mockBloomRig: PostProcessingRig = {
+      composer: {} as PostProcessingRig['composer'],
+      bloomPass: { threshold: 1.05, strength: 0.24, radius: 0.35 } as PostProcessingRig['bloomPass'],
+      resize: () => undefined,
+      render: () => undefined,
+      dispose: () => undefined,
+    };
+    setBloomTimeOfDay(mockBloomRig, 'night', false);
+    expect(mockBloomRig.bloomPass.threshold).toBeCloseTo(0.78, 2);
+    expect(mockBloomRig.bloomPass.strength).toBeCloseTo(0.62, 2);
+    expect(mockBloomRig.bloomPass.radius).toBeCloseTo(0.48, 2);
+
+    setBloomTimeOfDay(mockBloomRig, 'night', true);
+    expect(mockBloomRig.bloomPass.strength).toBeCloseTo(0.3, 2);
+
+    setBloomTimeOfDay(mockBloomRig, 'golden_hour', false);
+    expect(mockBloomRig.bloomPass.threshold).toBeCloseTo(1.05, 2);
+    expect(mockBloomRig.bloomPass.strength).toBeCloseTo(0.24, 2);
+
+    const { group: worldGroup, waterMesh } = buildCaliWorld(CALI_MAP);
+    const waterMat = waterMesh.material as THREE.ShaderMaterial;
+    const neonSigns = worldGroup.getObjectByName('cali_neon_signs')!;
+    const cristoRey = worldGroup.getObjectByName('landmark_cristo_rey')!;
+    const estadio = worldGroup.getObjectByName('landmark_estadio_pascual')!;
+    const buildings = worldGroup.getObjectByName('cali_buildings')!;
+    const streetlights = worldGroup.getObjectByName('cali_streetlights')!;
+
+    setWorldNightLighting(worldGroup, waterMesh, 'night');
+    expect((waterMat.uniforms.uDeepColor?.value as THREE.Color).getHex()).toBe(0x040917);
+
+    let maxNeonEmissiveNight = 0;
+    neonSigns.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshStandardMaterial) {
+        maxNeonEmissiveNight = Math.max(maxNeonEmissiveNight, node.material.emissiveIntensity);
+      }
+    });
+    expect(maxNeonEmissiveNight).toBeGreaterThanOrEqual(1.8);
+
+    let maxCristoEmissiveNight = 0;
+    cristoRey.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshStandardMaterial) {
+        maxCristoEmissiveNight = Math.max(maxCristoEmissiveNight, node.material.emissiveIntensity);
+      }
+    });
+    expect(maxCristoEmissiveNight).toBeGreaterThanOrEqual(1.2);
+
+    let maxEstadioEmissiveNight = 0;
+    estadio.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshStandardMaterial) {
+        maxEstadioEmissiveNight = Math.max(maxEstadioEmissiveNight, node.material.emissiveIntensity);
+      }
+    });
+    expect(maxEstadioEmissiveNight).toBeGreaterThanOrEqual(3.0);
+
+    let maxBuildingWindowNight = 0;
+    buildings.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        const mats = Array.isArray(node.material) ? node.material : [node.material];
+        for (const mat of mats) {
+          if (mat instanceof THREE.MeshStandardMaterial && mat.emissiveIntensity > maxBuildingWindowNight) {
+            maxBuildingWindowNight = mat.emissiveIntensity;
+          }
+        }
+      }
+    });
+    expect(maxBuildingWindowNight).toBeGreaterThanOrEqual(1.65);
+
+    let maxStreetlightPoolNight = 0;
+    streetlights.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshBasicMaterial) {
+        maxStreetlightPoolNight = Math.max(maxStreetlightPoolNight, node.material.opacity);
+      }
+    });
+    expect(maxStreetlightPoolNight).toBeGreaterThanOrEqual(0.5);
+
+    setWorldNightLighting(worldGroup, waterMesh, 'golden_hour');
+    expect((waterMat.uniforms.uDeepColor?.value as THREE.Color).getHex()).toBe(0x10282c);
+    let maxNeonEmissiveDay = 0;
+    neonSigns.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshStandardMaterial) {
+        maxNeonEmissiveDay = Math.max(maxNeonEmissiveDay, node.material.emissiveIntensity);
+      }
+    });
+    expect(maxNeonEmissiveDay).toBeLessThan(1.4);
+    disposeObjectTree(worldGroup);
+  });
+
+  it('uses ZERO BoxGeometry meshes on organic pedestrians, Valeria fallback, and Mateo NPC', () => {
+    const pedestrian = createPedestrianMesh(0xff5e7e, 0x1b263b);
+    let pedMeshCount = 0;
+    let pedBoxCount = 0;
+    pedestrian.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        pedMeshCount += 1;
+        if (node.geometry instanceof THREE.BoxGeometry) {
+          pedBoxCount += 1;
+        }
+      }
+    });
+    expect(pedMeshCount).toBeGreaterThanOrEqual(10);
+    expect(pedBoxCount).toBe(0);
+    disposeObjectTree(pedestrian);
+
+    const player = createPlayerMesh();
+    let playerBoxCount = 0;
+    player.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.geometry instanceof THREE.BoxGeometry) {
+        playerBoxCount += 1;
+      }
+    });
+    expect(playerBoxCount).toBe(0);
+    disposeObjectTree(player);
+
+    const props = createMissionPropMeshes();
+    const mateo = props.mateo_speakers.getObjectByName('npc_mateo');
+    expect(mateo).toBeInstanceOf(THREE.Group);
+    let mateoMeshCount = 0;
+    let mateoBoxCount = 0;
+    mateo?.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        mateoMeshCount += 1;
+        if (node.geometry instanceof THREE.BoxGeometry) {
+          mateoBoxCount += 1;
+        }
+      }
+    });
+    expect(mateoMeshCount).toBeGreaterThanOrEqual(10);
+    expect(mateoBoxCount).toBe(0);
+    for (const prop of Object.values(props)) {
+      disposeObjectTree(prop);
+    }
+  });
+
+  it('builds distinct sculpted Ferrari livery rigs for banshee, police (with beacons & sirenLight), and taxi', () => {
+    const template = createMockFerrariTemplate();
+    const originalBody = template.getObjectByName('body') as THREE.Mesh;
+    const originalBodyMat = originalBody.material;
+
+    const banshee = createFerrariLiveryMesh(template, 'banshee');
+    const police = createFerrariLiveryMesh(template, 'police');
+    const taxi = createFerrariLiveryMesh(template, 'taxi');
+
+    // Template stays strictly immutable
+    expect(originalBody.material).toBe(originalBodyMat);
+
+    const bansheeBody = banshee.getObjectByName('body') as THREE.Mesh;
+    const policeBody = police.getObjectByName('body') as THREE.Mesh;
+    const taxiBody = taxi.getObjectByName('body') as THREE.Mesh;
+
+    expect((bansheeBody.material as THREE.MeshPhysicalMaterial).color.getHex()).toBe(0xb80e24);
+    expect((policeBody.material as THREE.MeshPhysicalMaterial).color.getHex()).toBe(0xf2f5f8);
+    expect((taxiBody.material as THREE.MeshPhysicalMaterial).color.getHex()).toBe(0xe5ad00);
+
+    // Police Ferrari carries working red/blue LED beacons, dynamic siren PointLight, and headlights
+    expect(police.userData.redBeacon).toBeInstanceOf(THREE.Mesh);
+    expect(police.userData.blueBeacon).toBeInstanceOf(THREE.Mesh);
+    expect(police.userData.sirenLight).toBeInstanceOf(THREE.PointLight);
+    expect(police.userData.headlightCones).toBeInstanceOf(THREE.Object3D);
+    expect((police.userData.wheels as THREE.Object3D[]).length).toBe(4);
+    expect((police.userData.frontWheels as THREE.Object3D[]).length).toBe(2);
+
+    // Taxi Ferrari carries backlit curved TAXI roof dome, headlights, brake lights, and 4 rotating wheels
+    expect(taxi.getObjectByName('taxi_roof_sign')).toBeInstanceOf(THREE.Mesh);
+    expect(taxi.userData.headlightCones).toBeInstanceOf(THREE.Object3D);
+    expect((taxi.userData.brakeLightMaterials as THREE.MeshStandardMaterial[]).length).toBeGreaterThanOrEqual(1);
+    expect((taxi.userData.wheels as THREE.Object3D[]).length).toBe(4);
+
+    disposeObjectTree(banshee);
+    disposeObjectTree(police);
+    disposeObjectTree(taxi);
+    disposeObjectTree(template);
+  });
+
+  it('builds non-boxy curved ExtrudeGeometry hulls on mio_bus and chiva', () => {
+    const mio = createVehicleMesh('mio_bus', 0x1677ff, 0xf8f7ff);
+    const chiva = createVehicleMesh('chiva', 0xff2e93, 0xffb800);
+
+    const mioFront = mio.getObjectByName('mio_front_upper') as THREE.Mesh | undefined;
+    const chivaHull = chiva.getObjectByName('chiva_hull') as THREE.Mesh | undefined;
+    expect(mioFront?.geometry).toBeInstanceOf(THREE.ExtrudeGeometry);
+    expect(chivaHull?.geometry).toBeInstanceOf(THREE.ExtrudeGeometry);
+
+    disposeObjectTree(mio);
+    disposeObjectTree(chiva);
   });
 });

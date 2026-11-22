@@ -12,17 +12,23 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { getTerrainElevation } from '../config/caliMap';
-import type { CameraMode, WorldSnapshot } from '../types/game';
+import type { CameraMode, TimeOfDay, WorldSnapshot } from '../types/game';
 
 const SKY_RADIUS = 540;
 const SUN_DIRECTION = new THREE.Vector3(-0.94, 0.16, -0.14).normalize();
+const MOON_DIRECTION = new THREE.Vector3(-0.78, 0.38, -0.22).normalize();
 const SUN_SHADOW_OFFSET = new THREE.Vector3(-152, 76, -24);
 const SHADOW_FRUSTUM_HALF = 72;
 
-const BLOOM_THRESHOLD = 1.05;
-const BLOOM_RADIUS = 0.35;
-const BLOOM_STRENGTH_FULL = 0.24;
-const BLOOM_STRENGTH_REDUCED = 0.14;
+const BLOOM_THRESHOLD_DAY = 1.05;
+const BLOOM_RADIUS_DAY = 0.35;
+const BLOOM_STRENGTH_DAY_FULL = 0.24;
+const BLOOM_STRENGTH_DAY_REDUCED = 0.14;
+
+const BLOOM_THRESHOLD_NIGHT = 0.78;
+const BLOOM_RADIUS_NIGHT = 0.48;
+const BLOOM_STRENGTH_NIGHT_FULL = 0.62;
+const BLOOM_STRENGTH_NIGHT_REDUCED = 0.3;
 
 const CHASE_CRUISE_FOV = 58;
 const CHASE_BOOST_FOV = 72;
@@ -55,6 +61,8 @@ uniform vec3 uLowerMidColor;
 uniform vec3 uHorizonColor;
 uniform vec3 uGroundColor;
 uniform vec3 uSunDirection;
+uniform vec3 uMoonDirection;
+uniform float uNightMix;
 uniform float uTime;
 
 varying vec3 vLocalDir;
@@ -91,9 +99,12 @@ float fbm(vec2 p) {
 void main() {
   vec3 dir = normalize(vLocalDir);
   vec3 sunDir = normalize(uSunDirection);
+  vec3 moonDir = normalize(uMoonDirection);
+  float dayMix = 1.0 - clamp(uNightMix, 0.0, 1.0);
+  float nightMix = clamp(uNightMix, 0.0, 1.0);
   float h = dir.y;
 
-  // Rayleigh-inspired multi-band Vice-Sunset atmospheric gradient
+  // Rayleigh-inspired multi-band atmospheric gradient (golden hour or midnight starlit indigo)
   vec3 skyColor;
   if (h < 0.0) {
     float groundMix = clamp(-h * 4.0, 0.0, 1.0);
@@ -106,20 +117,31 @@ void main() {
     skyColor = mix(uUpperMidColor, uZenithColor, smoothstep(0.38, 0.78, h));
   }
 
-  // Forward Mie atmospheric golden-hour scatter & warm horizon glow
-  float sunDot = max(dot(dir, sunDir), 0.0);
   float horizonBand = pow(1.0 - clamp(abs(h), 0.0, 1.0), 4.2);
-  float rayleighGlow = horizonBand * (0.12 + 0.34 * pow(sunDot, 2.0));
-  float mieGlow = pow(sunDot, 5.5) * 0.38;
-  float sunHalo = pow(sunDot, 38.0) * 0.56;
-  float sunCore = smoothstep(0.9968, 0.999, sunDot);
 
-  skyColor += vec3(1.0, 0.72, 0.44) * rayleighGlow;
-  skyColor += vec3(1.0, 0.68, 0.42) * mieGlow;
-  skyColor += vec3(1.0, 0.86, 0.56) * sunHalo;
-  skyColor = mix(skyColor, vec3(1.0, 0.96, 0.86), sunCore);
+  // Forward Mie atmospheric golden-hour scatter & warm horizon glow (completely off at night)
+  float sunDot = max(dot(dir, sunDir), 0.0);
+  if (dayMix > 0.001) {
+    float rayleighGlow = horizonBand * (0.12 + 0.34 * pow(sunDot, 2.0));
+    float mieGlow = pow(sunDot, 5.5) * 0.38;
+    float sunHalo = pow(sunDot, 38.0) * 0.56;
+    float sunCore = smoothstep(0.9968, 0.999, sunDot);
 
-  // Layered procedural FBM golden-hour clouds drifting across the sky vault
+    skyColor += vec3(1.0, 0.72, 0.44) * rayleighGlow * dayMix;
+    skyColor += vec3(1.0, 0.68, 0.42) * mieGlow * dayMix;
+    skyColor += vec3(1.0, 0.86, 0.56) * sunHalo * dayMix;
+    skyColor = mix(skyColor, vec3(1.0, 0.96, 0.86), sunCore * dayMix);
+  }
+
+  // Soft lunar halo & subtle Cali night city skyglow along the horizon
+  if (nightMix > 0.001) {
+    float moonDot = max(dot(dir, moonDir), 0.0);
+    float moonHalo = pow(moonDot, 14.0) * 0.16 + pow(moonDot, 84.0) * 0.28;
+    skyColor += vec3(0.55, 0.72, 1.0) * moonHalo * nightMix;
+    skyColor += vec3(0.28, 0.19, 0.44) * horizonBand * 0.26 * nightMix;
+  }
+
+  // Layered procedural FBM clouds drifting across the sky vault
   float cloudAlpha = 0.0;
   if (h > 0.01) {
     vec2 cloudUv = dir.xz / (h + 0.19);
@@ -145,27 +167,99 @@ void main() {
     vec3 cloudApricotEdge = vec3(0.95, 0.65, 0.46);
     vec3 cloudGoldUnderside = vec3(1.0, 0.88, 0.66);
 
-    vec3 cloudColor = mix(cloudTopSlate, cloudApricotEdge, smoothstep(0.18, 0.62, undersideLight));
-    cloudColor = mix(
-      cloudColor,
+    vec3 cloudColorDay = mix(cloudTopSlate, cloudApricotEdge, smoothstep(0.18, 0.62, undersideLight));
+    cloudColorDay = mix(
+      cloudColorDay,
       cloudGoldUnderside,
       smoothstep(0.56, 0.96, undersideLight) * (0.45 + 0.55 * pow(sunDot, 1.8))
     );
-    skyColor = mix(skyColor, cloudColor, cloudAlpha * 0.84);
+
+    float moonDotCloud = max(dot(dir, moonDir), 0.0);
+    vec3 cloudColorNight = mix(
+      vec3(0.06, 0.08, 0.18),
+      vec3(0.22, 0.28, 0.46),
+      smoothstep(0.25, 0.9, undersideLight * 0.55 + pow(moonDotCloud, 4.0) * 0.7)
+    );
+
+    vec3 cloudColor = mix(cloudColorDay, cloudColorNight, nightMix);
+    float cloudOpacity = mix(0.84, 0.38, nightMix);
+    skyColor = mix(skyColor, cloudColor, cloudAlpha * cloudOpacity);
   }
 
-  // Faint early-dusk stars high in the cerulean zenith
-  if (h > 0.32) {
-    vec2 starGrid = floor((dir.xz / (h + 0.18)) * 96.0);
-    float starHash = hash21(starGrid);
-    if (starHash > 0.995) {
-      float twinkle = 0.68 + 0.32 * sin(uTime * 1.9 + starHash * 62.83);
-      float zenithMask = smoothstep(0.35, 0.78, h) * (1.0 - cloudAlpha);
-      skyColor += vec3(0.92, 0.95, 1.0) * twinkle * zenithMask * 0.32;
+  // Multi-scale twinkling starfield: subtle zenith stars at dusk, vivid starlit vault at night
+  if (h > 0.03) {
+    vec2 skyProj = dir.xz / (h + 0.22);
+
+    // Layer 1: bright hero stars
+    vec2 heroCell = floor(skyProj * 82.0);
+    vec2 heroLocal = fract(skyProj * 82.0) - 0.5;
+    float heroHash = hash21(heroCell);
+    float heroThreshold = mix(0.995, 0.962, nightMix);
+    if (heroHash > heroThreshold) {
+      vec2 starOffset = vec2(hash21(heroCell + 11.7) - 0.5, hash21(heroCell + 29.3) - 0.5) * 0.55;
+      float starDist = length(heroLocal - starOffset);
+      float starSpot = smoothstep(0.22, 0.03, starDist);
+      float twinkle = 0.62 + 0.38 * sin(uTime * (2.1 + fract(heroHash * 31.7) * 2.4) + heroHash * 62.83);
+      float elevMask = mix(smoothstep(0.35, 0.78, h), smoothstep(0.04, 0.24, h), nightMix);
+      float cloudClear = 1.0 - cloudAlpha * mix(1.0, 0.78, nightMix);
+      vec3 starTint = mix(vec3(0.82, 0.90, 1.0), vec3(1.0, 0.95, 0.84), fract(heroHash * 19.3));
+      float starGain = mix(0.32, 1.45, nightMix);
+      skyColor += starTint * starSpot * twinkle * elevMask * cloudClear * starGain;
+    }
+
+    // Layer 2: dense sparkling midnight dust stars (night only)
+    if (nightMix > 0.05) {
+      vec2 fineCell = floor(skyProj * 165.0);
+      vec2 fineLocal = fract(skyProj * 165.0) - 0.5;
+      float fineHash = hash21(fineCell + 73.1);
+      if (fineHash > 0.974) {
+        float fineSpot = smoothstep(0.26, 0.05, length(fineLocal));
+        float fineTwinkle = 0.55 + 0.45 * sin(uTime * 3.1 + fineHash * 91.2);
+        float fineMask = smoothstep(0.06, 0.34, h) * (1.0 - cloudAlpha * 0.85);
+        skyColor += vec3(0.84, 0.92, 1.0) * fineSpot * fineTwinkle * fineMask * nightMix * 0.78;
+      }
     }
   }
 
   gl_FragColor = vec4(skyColor, 1.0);
+}
+`;
+
+const CRESCENT_MOON_VERTEX_SHADER = `
+varying vec2 vUv;
+
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const CRESCENT_MOON_FRAGMENT_SHADER = `
+varying vec2 vUv;
+
+void main() {
+  vec2 p = (vUv - 0.5) * 2.0;
+  float dist = length(p);
+
+  float outerDisc = 1.0 - smoothstep(0.42, 0.46, dist);
+  float cutDist = length(p - vec2(0.18, 0.11));
+  float innerCut = 1.0 - smoothstep(0.36, 0.405, cutDist);
+  float crescent = clamp(outerDisc * (1.0 - innerCut), 0.0, 1.0);
+
+  // Subtle lunar mare surface variation across illuminated crescent
+  float mare = 0.92 + 0.08 * sin(p.x * 9.0 + p.y * 6.0) * cos(p.y * 11.0 - p.x * 5.0);
+  vec3 moonColor = vec3(0.97, 0.99, 1.0) * mare * 1.18;
+
+  // Soft translucent cool-silver lunar corona halo fading cleanly to 0 at edge
+  float halo = smoothstep(1.0, 0.25, dist) * 0.32 * (1.0 - innerCut * 0.45);
+  vec3 haloColor = vec3(0.68, 0.82, 1.0);
+
+  vec3 finalColor = mix(haloColor, moonColor, crescent);
+  float finalAlpha = clamp(crescent + halo, 0.0, 1.0);
+  if (finalAlpha < 0.005) {
+    discard;
+  }
+  gl_FragColor = vec4(finalColor, finalAlpha);
 }
 `;
 
@@ -196,8 +290,8 @@ function finiteOr(value: number, fallback: number): number {
 }
 
 /**
- * Creates a large BackSide golden-hour photographic sky dome fallback with Rayleigh/Mie scatter,
- * drifting FBM sunset clouds, and western sun disc behind Cerro Los Cristales.
+ * Creates a large BackSide golden-hour / starlit-night photographic sky dome with Rayleigh/Mie
+ * scatter, drifting FBM clouds, western sun disc, and luminous crescent moon for Cali night mode.
  */
 export function createSunsetSkyDome(): THREE.Mesh {
   const skyGeometry = new THREE.SphereGeometry(SKY_RADIUS, 32, 20);
@@ -211,6 +305,8 @@ export function createSunsetSkyDome(): THREE.Mesh {
       uHorizonColor: { value: new THREE.Color(0xffca80) },
       uGroundColor: { value: new THREE.Color(0x3a322c) },
       uSunDirection: { value: SUN_DIRECTION.clone() },
+      uMoonDirection: { value: MOON_DIRECTION.clone() },
+      uNightMix: { value: 0 },
       uTime: { value: 0 },
     },
     side: THREE.BackSide,
@@ -251,11 +347,75 @@ export function createSunsetSkyDome(): THREE.Mesh {
   sunCorona.lookAt(0, 0, 0);
   skyMesh.add(sunCorona);
 
+  const crescentMoon = new THREE.Mesh(
+    new THREE.CircleGeometry(46, 36),
+    new THREE.ShaderMaterial({
+      vertexShader: CRESCENT_MOON_VERTEX_SHADER,
+      fragmentShader: CRESCENT_MOON_FRAGMENT_SHADER,
+      transparent: true,
+      depthWrite: false,
+      fog: false,
+    }),
+  );
+  crescentMoon.name = 'western_crescent_moon';
+  crescentMoon.position.copy(MOON_DIRECTION).multiplyScalar(458);
+  crescentMoon.lookAt(0, 0, 0);
+  crescentMoon.visible = false;
+  skyMesh.add(crescentMoon);
+
+  skyMesh.userData.timeOfDay = 'golden_hour' satisfies TimeOfDay;
   return skyMesh;
 }
 
 /**
- * Advances the procedural sky dome shader time uniform to animate drifting sunset clouds.
+ * Switches sky dome shader uniforms and celestial discs seamlessly between golden hour
+ * and starlit midnight Cali (deep indigo zenith, twinkling stars, crescent moon, zero sun).
+ */
+export function setSkyDomeTimeOfDay(
+  skyDome: THREE.Mesh,
+  timeOfDay: TimeOfDay,
+): void {
+  const isNight = timeOfDay === 'night';
+  const material = skyDome.material;
+  if (material instanceof THREE.ShaderMaterial) {
+    const uniforms = material.uniforms;
+    if (uniforms.uZenithColor?.value instanceof THREE.Color) {
+      uniforms.uZenithColor.value.setHex(isNight ? 0x040714 : 0x1f3b6b);
+    }
+    if (uniforms.uUpperMidColor?.value instanceof THREE.Color) {
+      uniforms.uUpperMidColor.value.setHex(isNight ? 0x080c22 : 0x5c688a);
+    }
+    if (uniforms.uLowerMidColor?.value instanceof THREE.Color) {
+      uniforms.uLowerMidColor.value.setHex(isNight ? 0x0e1029 : 0xe08e68);
+    }
+    if (uniforms.uHorizonColor?.value instanceof THREE.Color) {
+      uniforms.uHorizonColor.value.setHex(isNight ? 0x13102b : 0xffca80);
+    }
+    if (uniforms.uGroundColor?.value instanceof THREE.Color) {
+      uniforms.uGroundColor.value.setHex(isNight ? 0x05060f : 0x3a322c);
+    }
+    if (uniforms.uNightMix) {
+      uniforms.uNightMix.value = isNight ? 1 : 0;
+    }
+  }
+
+  const sunDisc = skyDome.getObjectByName('western_sun_disc');
+  if (sunDisc) {
+    sunDisc.visible = !isNight;
+  }
+  const sunCorona = skyDome.getObjectByName('western_sun_corona');
+  if (sunCorona) {
+    sunCorona.visible = !isNight;
+  }
+  const crescentMoon = skyDome.getObjectByName('western_crescent_moon');
+  if (crescentMoon) {
+    crescentMoon.visible = isNight;
+  }
+  skyDome.userData.timeOfDay = timeOfDay;
+}
+
+/**
+ * Advances the procedural sky dome shader time uniform to animate drifting clouds and stars.
  */
 export function updateSkyDomeTime(
   skyDome: THREE.Mesh,
@@ -311,8 +471,40 @@ export function createSunsetLighting(): THREE.Group {
 }
 
 /**
- * Smoothly repositions the directional sun light and its ±72m shadow frustum around the active player
- * focus coordinates for razor-sharp shadows across the entire Cali map.
+ * Switches scene key, hemisphere, and rim lights seamlessly between golden-hour sun
+ * and cool moonlit Cali night illumination.
+ */
+export function setLightingTimeOfDay(
+  lightingGroup: THREE.Group,
+  timeOfDay: TimeOfDay,
+): void {
+  const isNight = timeOfDay === 'night';
+
+  const keyLight =
+    lightingGroup.userData.keyLight ??
+    lightingGroup.getObjectByName('sunset_key_light');
+  if (keyLight instanceof THREE.DirectionalLight) {
+    keyLight.color.setHex(isNight ? 0x7da2ff : 0xffe0b5);
+    keyLight.intensity = isNight ? 0.65 : 2.85;
+  }
+
+  const hemisphere = lightingGroup.getObjectByName('sunset_hemisphere_light');
+  if (hemisphere instanceof THREE.HemisphereLight) {
+    hemisphere.color.setHex(isNight ? 0x1e2a55 : 0x9bc4e8);
+    hemisphere.groundColor.setHex(isNight ? 0x100d1f : 0x6b5240);
+    hemisphere.intensity = isNight ? 0.42 : 0.9;
+  }
+
+  const skyRim = lightingGroup.getObjectByName('sunset_sky_rim');
+  if (skyRim instanceof THREE.DirectionalLight) {
+    skyRim.color.setHex(isNight ? 0x3b4e99 : 0x88b4e6);
+    skyRim.intensity = isNight ? 0.25 : 0.35;
+  }
+}
+
+/**
+ * Smoothly repositions the directional sun/moon light and its ±72m shadow frustum around the
+ * active player focus coordinates for razor-sharp shadows across the entire Cali map.
  */
 export function updateShadowFocus(
   lightingGroup: THREE.Group,
@@ -341,6 +533,27 @@ export function updateShadowFocus(
 }
 
 /**
+ * Tunes UnrealBloom thresholds and glow strength for crisp golden-hour restraint vs
+ * dramatic night headlights, sirens, neon signs, windows, and Cristo Rey floodlights.
+ */
+export function setBloomTimeOfDay(
+  rig: PostProcessingRig,
+  timeOfDay: TimeOfDay,
+  reducedMotion: boolean,
+): void {
+  const isNight = timeOfDay === 'night';
+  rig.bloomPass.threshold = isNight ? BLOOM_THRESHOLD_NIGHT : BLOOM_THRESHOLD_DAY;
+  rig.bloomPass.radius = isNight ? BLOOM_RADIUS_NIGHT : BLOOM_RADIUS_DAY;
+  rig.bloomPass.strength = isNight
+    ? reducedMotion
+      ? BLOOM_STRENGTH_NIGHT_REDUCED
+      : BLOOM_STRENGTH_NIGHT_FULL
+    : reducedMotion
+      ? BLOOM_STRENGTH_DAY_REDUCED
+      : BLOOM_STRENGTH_DAY_FULL;
+}
+
+/**
  * Constructs an EffectComposer pipeline with RenderPass, UnrealBloomPass, and OutputPass.
  * Returns null cleanly if WebGL post-processing cannot be initialized.
  */
@@ -366,9 +579,9 @@ export function createPostProcessing(
     const renderPass = new RenderPass(scene, camera);
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(safeWidth, safeHeight),
-      reducedMotion ? BLOOM_STRENGTH_REDUCED : BLOOM_STRENGTH_FULL,
-      BLOOM_RADIUS,
-      BLOOM_THRESHOLD,
+      reducedMotion ? BLOOM_STRENGTH_DAY_REDUCED : BLOOM_STRENGTH_DAY_FULL,
+      BLOOM_RADIUS_DAY,
+      BLOOM_THRESHOLD_DAY,
     );
     const outputPass = new OutputPass();
 

@@ -17,6 +17,7 @@ import type {
   CaliMapConfig,
   LandmarkDef,
   RiverCorridor,
+  TimeOfDay,
   Vec2,
 } from '../types/game';
 import type { LoadedWorldTextureSets, PhotoPbrMaterialMaps } from './assetLoader';
@@ -43,6 +44,39 @@ export type SurfaceRole =
   | 'palm_leaves'
   | 'jacaranda_bark'
   | 'jacaranda_leaves';
+
+interface NightEmissiveSpec {
+  readonly dayIntensity: number;
+  readonly nightIntensity: number;
+  readonly dayEmissiveHex?: number;
+  readonly nightEmissiveHex?: number;
+  readonly requireEmissiveMap?: boolean;
+}
+
+interface NightOpacitySpec {
+  readonly dayOpacity: number;
+  readonly nightOpacity: number;
+}
+
+function tagNightEmissive(
+  material: THREE.MeshStandardMaterial,
+  spec: NightEmissiveSpec,
+): THREE.MeshStandardMaterial {
+  material.userData.nightEmissive = spec;
+  return material;
+}
+
+function tagNightOpacity(
+  material: THREE.MeshBasicMaterial,
+  dayOpacity: number,
+  nightOpacity: number,
+): THREE.MeshBasicMaterial {
+  material.userData.nightOpacity = {
+    dayOpacity,
+    nightOpacity,
+  } satisfies NightOpacitySpec;
+  return material;
+}
 
 const TERRAIN_EXTENT = 520;
 const TERRAIN_SEGMENTS = 208;
@@ -377,14 +411,18 @@ function buildRiverAndBridges(map: CaliMapConfig): {
   eastBank.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
   riverGroup.add(eastBank);
 
-  const bulevarTrim = new THREE.Mesh(
-    new THREE.BoxGeometry(0.45, 0.24, 110),
+  const bulevarTrimMat = tagNightEmissive(
     new THREE.MeshStandardMaterial({
       color: 0xc9b492,
       emissive: 0xffb35c,
       emissiveIntensity: 0.18,
       roughness: 0.65,
     }),
+    { dayIntensity: 0.18, nightIntensity: 0.95 },
+  );
+  const bulevarTrim = new THREE.Mesh(
+    new THREE.BoxGeometry(0.45, 0.24, 110),
+    bulevarTrimMat,
   );
   bulevarTrim.position.set(river.minX - 0.6, 0.36, 16);
   riverGroup.add(bulevarTrim);
@@ -412,12 +450,15 @@ function buildRiverAndBridges(map: CaliMapConfig): {
     roughness: 0.34,
     metalness: 0.72,
   });
-  const warmLanternMat = new THREE.MeshStandardMaterial({
-    color: 0xffd796,
-    emissive: 0xffb95e,
-    emissiveIntensity: 0.9,
-    roughness: 0.24,
-  });
+  const warmLanternMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffd796,
+      emissive: 0xffb95e,
+      emissiveIntensity: 0.9,
+      roughness: 0.24,
+    }),
+    { dayIntensity: 0.9, nightIntensity: 2.4 },
+  );
 
   for (const bridge of river.bridges) {
     const bridgeNode = new THREE.Group();
@@ -1149,23 +1190,30 @@ function buildStreetlightsGroup(): THREE.Group {
     roughness: 0.45,
     metalness: 0.76,
   });
-  const bulbMat = new THREE.MeshStandardMaterial({
-    color: 0xffe4a8,
-    emissive: 0xffc663,
-    emissiveIntensity: 1.45,
-    roughness: 0.18,
-  });
+  const bulbMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffe4a8,
+      emissive: 0xffc663,
+      emissiveIntensity: 1.45,
+      roughness: 0.18,
+    }),
+    { dayIntensity: 1.45, nightIntensity: 2.8 },
+  );
   const poolTex = createSoftGlowPoolTexture(
     'rgba(255, 210, 128, 0.55)',
     'rgba(255, 168, 92, 0.18)',
   );
-  const poolMat = new THREE.MeshBasicMaterial({
-    map: poolTex,
-    transparent: true,
-    opacity: 0.18,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
+  const poolMat = tagNightOpacity(
+    new THREE.MeshBasicMaterial({
+      map: poolTex,
+      transparent: true,
+      opacity: 0.18,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+    0.18,
+    0.56,
+  );
 
   const poleGeo = new THREE.CylinderGeometry(0.09, 0.15, 6.6, 8);
   const armGeo = new THREE.BoxGeometry(1.7, 0.11, 0.11);
@@ -1266,40 +1314,62 @@ function createBuildingSharedMaterials(): BuildingSharedMaterials {
       roughness: 0.56,
       metalness: 0.52,
     }),
-    storefrontGlassMat: new THREE.MeshPhysicalMaterial({
-      color: 0x15202e,
-      roughness: 0.08,
-      metalness: 0.38,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.05,
-      envMapIntensity: 1.55,
-    }),
-    reflectiveGlassMat: new THREE.MeshPhysicalMaterial({
-      color: 0x162433,
-      roughness: 0.07,
-      metalness: 0.48,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.04,
-      envMapIntensity: 1.65,
-    }),
-    warmInteriorGlassMat: new THREE.MeshStandardMaterial({
-      color: 0xffd596,
-      emissive: 0xffb866,
-      emissiveIntensity: 0.65,
-      roughness: 0.14,
-      metalness: 0.2,
-    }),
+    storefrontGlassMat: tagNightEmissive(
+      new THREE.MeshPhysicalMaterial({
+        color: 0x15202e,
+        roughness: 0.08,
+        metalness: 0.38,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.05,
+        envMapIntensity: 1.55,
+      }),
+      {
+        dayIntensity: 0,
+        nightIntensity: 0.55,
+        dayEmissiveHex: 0x000000,
+        nightEmissiveHex: 0xffe0a8,
+      },
+    ) as THREE.MeshPhysicalMaterial,
+    reflectiveGlassMat: tagNightEmissive(
+      new THREE.MeshPhysicalMaterial({
+        color: 0x162433,
+        roughness: 0.07,
+        metalness: 0.48,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.04,
+        envMapIntensity: 1.65,
+      }),
+      {
+        dayIntensity: 0,
+        nightIntensity: 0.28,
+        dayEmissiveHex: 0x000000,
+        nightEmissiveHex: 0x162442,
+      },
+    ) as THREE.MeshPhysicalMaterial,
+    warmInteriorGlassMat: tagNightEmissive(
+      new THREE.MeshStandardMaterial({
+        color: 0xffd596,
+        emissive: 0xffb866,
+        emissiveIntensity: 0.65,
+        roughness: 0.14,
+        metalness: 0.2,
+      }),
+      { dayIntensity: 0.65, nightIntensity: 1.65 },
+    ),
     antennaMat: new THREE.MeshStandardMaterial({
       color: 0x8d939c,
       roughness: 0.4,
       metalness: 0.82,
     }),
-    beaconRedMat: new THREE.MeshStandardMaterial({
-      color: 0xff2b4a,
-      emissive: 0xff1e3c,
-      emissiveIntensity: 1.65,
-      roughness: 0.16,
-    }),
+    beaconRedMat: tagNightEmissive(
+      new THREE.MeshStandardMaterial({
+        color: 0xff2b4a,
+        emissive: 0xff1e3c,
+        emissiveIntensity: 1.65,
+        roughness: 0.16,
+      }),
+      { dayIntensity: 1.65, nightIntensity: 2.6 },
+    ),
     woodTrimMat: new THREE.MeshStandardMaterial({
       color: 0x573723,
       roughness: 0.84,
@@ -1544,21 +1614,29 @@ function createSingleBuilding(
     textureCache.set(cacheKey, facadeTex);
   }
 
-  const facadeMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    map: facadeTex.map,
-    roughnessMap: facadeTex.roughnessMap,
-    roughness: 1.0,
-    bumpMap: facadeTex.bumpMap,
-    bumpScale: style === 'modern_glass' ? 0.04 : 0.08,
-    emissive: 0xffe4bc,
-    emissiveMap: facadeTex.emissiveMap,
-    emissiveIntensity:
-      style === 'modern_glass' ? 0.42 : style === 'colonial_stucco' ? 0.26 : 0.36,
-    metalness:
-      style === 'modern_glass' ? 0.5 : style === 'downtown_midrise' ? 0.1 : 0.04,
-    envMapIntensity: style === 'modern_glass' ? 1.55 : 0.8,
-  });
+  const dayFacadeEmissive =
+    style === 'modern_glass' ? 0.42 : style === 'colonial_stucco' ? 0.26 : 0.36;
+  const facadeMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: facadeTex.map,
+      roughnessMap: facadeTex.roughnessMap,
+      roughness: 1.0,
+      bumpMap: facadeTex.bumpMap,
+      bumpScale: style === 'modern_glass' ? 0.04 : 0.08,
+      emissive: 0xffe4bc,
+      emissiveMap: facadeTex.emissiveMap,
+      emissiveIntensity: dayFacadeEmissive,
+      metalness:
+        style === 'modern_glass' ? 0.5 : style === 'downtown_midrise' ? 0.1 : 0.04,
+      envMapIntensity: style === 'modern_glass' ? 1.55 : 0.8,
+    }),
+    {
+      dayIntensity: dayFacadeEmissive,
+      nightIntensity: 1.65,
+      requireEmissiveMap: true,
+    },
+  );
 
   if (style === 'colonial_stucco') {
     facadeMat.userData.surfaceRole = 'plaster' satisfies SurfaceRole;
@@ -1872,15 +1950,18 @@ function buildNeonSignsGroup(map: CaliMapConfig): THREE.Group {
       signTexture = createNeonSignTexture(spec.label, spec.colorHex);
       signTextureCache.set(signCacheKey, signTexture);
     }
-    const panelMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      map: signTexture,
-      emissive: 0xffffff,
-      emissiveMap: signTexture,
-      emissiveIntensity: 1.15,
-      roughness: 0.24,
-      metalness: 0.1,
-    });
+    const panelMat = tagNightEmissive(
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: signTexture,
+        emissive: 0xffffff,
+        emissiveMap: signTexture,
+        emissiveIntensity: 1.15,
+        roughness: 0.24,
+        metalness: 0.1,
+      }),
+      { dayIntensity: 1.15, nightIntensity: 1.8 },
+    );
 
     const frontFace = new THREE.Mesh(
       new THREE.PlaneGeometry(spec.width, spec.height),
@@ -1912,34 +1993,57 @@ function buildCristoReyLandmark(landmark: LandmarkDef): THREE.Group {
   });
   terraceStoneMat.userData.surfaceRole = 'sidewalk' satisfies SurfaceRole;
 
-  const pedestalMat = new THREE.MeshStandardMaterial({
-    color: 0xe6dfd3,
-    roughness: 0.68,
-  });
+  const pedestalMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xe6dfd3,
+      roughness: 0.68,
+    }),
+    {
+      dayIntensity: 0,
+      nightIntensity: 0.48,
+      dayEmissiveHex: 0x000000,
+      nightEmissiveHex: 0xffdca8,
+    },
+  );
   pedestalMat.userData.surfaceRole = 'plaster' satisfies SurfaceRole;
 
-  const statueMat = new THREE.MeshStandardMaterial({
-    color: 0xede6da,
-    emissive: 0xffe4bc,
-    emissiveIntensity: 0.12,
-    roughness: 0.48,
-    flatShading: false,
-  });
-  const goldMat = new THREE.MeshStandardMaterial({
-    color: 0xc99c45,
-    emissive: 0x997024,
-    emissiveIntensity: 0.35,
-    roughness: 0.32,
-    metalness: 0.72,
-  });
-  const uplightBeamMat = new THREE.MeshBasicMaterial({
-    color: 0xffd796,
-    transparent: true,
-    opacity: 0.08,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
+  const statueMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xede6da,
+      emissive: 0xffe4bc,
+      emissiveIntensity: 0.12,
+      roughness: 0.48,
+      flatShading: false,
+    }),
+    {
+      dayIntensity: 0.12,
+      nightIntensity: 1.35,
+      dayEmissiveHex: 0xffe4bc,
+      nightEmissiveHex: 0xfff3dc,
+    },
+  );
+  const goldMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xc99c45,
+      emissive: 0x997024,
+      emissiveIntensity: 0.35,
+      roughness: 0.32,
+      metalness: 0.72,
+    }),
+    { dayIntensity: 0.35, nightIntensity: 1.95 },
+  );
+  const uplightBeamMat = tagNightOpacity(
+    new THREE.MeshBasicMaterial({
+      color: 0xffd796,
+      transparent: true,
+      opacity: 0.08,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+    0.08,
+    0.36,
+  );
 
   // Multi-tier Mirador stone terraces & glowing golden balustrade
   const lowerTerrace = new THREE.Mesh(
@@ -2055,19 +2159,25 @@ function buildLaErmitaLandmark(landmark: LandmarkDef): THREE.Group {
     metalness: 0.14,
     flatShading: false,
   });
-  const roseGlowMat = new THREE.MeshStandardMaterial({
-    color: 0xd96b4e,
-    emissive: 0xff8b4a,
-    emissiveIntensity: 0.9,
-    roughness: 0.22,
-  });
-  const goldMat = new THREE.MeshStandardMaterial({
-    color: 0xd9a845,
-    emissive: 0xb88424,
-    emissiveIntensity: 0.42,
-    roughness: 0.28,
-    metalness: 0.68,
-  });
+  const roseGlowMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xd96b4e,
+      emissive: 0xff8b4a,
+      emissiveIntensity: 0.9,
+      roughness: 0.22,
+    }),
+    { dayIntensity: 0.9, nightIntensity: 2.2 },
+  );
+  const goldMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xd9a845,
+      emissive: 0xb88424,
+      emissiveIntensity: 0.42,
+      roughness: 0.28,
+      metalness: 0.68,
+    }),
+    { dayIntensity: 0.42, nightIntensity: 1.35 },
+  );
 
   // Stone sanctuary plinth
   const plinthMat = new THREE.MeshStandardMaterial({ color: 0x8f887d, roughness: 0.88 });
@@ -2187,19 +2297,22 @@ function buildTorreDeCaliLandmark(landmark: LandmarkDef): THREE.Group {
     0x1e2c3d,
     0xd6c7a8,
   );
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    map: curtainTex.map,
-    roughnessMap: curtainTex.roughnessMap,
-    roughness: 0.82,
-    bumpMap: curtainTex.bumpMap,
-    bumpScale: 0.045,
-    emissive: 0xffe2b5,
-    emissiveMap: curtainTex.emissiveMap,
-    emissiveIntensity: 0.45,
-    metalness: 0.65,
-    envMapIntensity: 1.7,
-  });
+  const glassMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: curtainTex.map,
+      roughnessMap: curtainTex.roughnessMap,
+      roughness: 0.82,
+      bumpMap: curtainTex.bumpMap,
+      bumpScale: 0.045,
+      emissive: 0xffe2b5,
+      emissiveMap: curtainTex.emissiveMap,
+      emissiveIntensity: 0.45,
+      metalness: 0.65,
+      envMapIntensity: 1.7,
+    }),
+    { dayIntensity: 0.45, nightIntensity: 1.65, requireEmissiveMap: true },
+  );
   const roofMat = new THREE.MeshStandardMaterial({
     color: 0x524f4b,
     roughness: 0.8,
@@ -2217,12 +2330,15 @@ function buildTorreDeCaliLandmark(landmark: LandmarkDef): THREE.Group {
     roughness: 0.34,
     metalness: 0.78,
   });
-  const aviationBeaconMat = new THREE.MeshStandardMaterial({
-    color: 0xff3b3b,
-    emissive: 0xff2828,
-    emissiveIntensity: 1.6,
-    roughness: 0.18,
-  });
+  const aviationBeaconMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xff3b3b,
+      emissive: 0xff2828,
+      emissiveIntensity: 1.6,
+      roughness: 0.18,
+    }),
+    { dayIntensity: 1.6, nightIntensity: 2.6 },
+  );
 
   // Grand stepped architectural stone plaza podium
   const podium = new THREE.Mesh(
@@ -2320,34 +2436,44 @@ function buildBulevarDelRioLandmark(
     roughness: 0.32,
     metalness: 0.74,
   });
-  const archAmberCoveMat = new THREE.MeshStandardMaterial({
-    color: 0xffd08a,
-    emissive: 0xffae4a,
-    emissiveIntensity: 0.95,
-    roughness: 0.22,
-  });
+  const archAmberCoveMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffd08a,
+      emissive: 0xffae4a,
+      emissiveIntensity: 0.95,
+      roughness: 0.22,
+    }),
+    { dayIntensity: 0.95, nightIntensity: 2.2 },
+  );
   const lampPostMat = new THREE.MeshStandardMaterial({
     color: 0x262a31,
     roughness: 0.45,
     metalness: 0.72,
   });
-  const lampGlobeMat = new THREE.MeshStandardMaterial({
-    color: 0xffe4b0,
-    emissive: 0xffbf66,
-    emissiveIntensity: 1.35,
-    roughness: 0.18,
-  });
+  const lampGlobeMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffe4b0,
+      emissive: 0xffbf66,
+      emissiveIntensity: 1.35,
+      roughness: 0.18,
+    }),
+    { dayIntensity: 1.35, nightIntensity: 2.6 },
+  );
   const poolTex = createSoftGlowPoolTexture(
     'rgba(255, 206, 124, 0.5)',
     'rgba(255, 168, 86, 0.16)',
   );
-  const poolMat = new THREE.MeshBasicMaterial({
-    map: poolTex,
-    transparent: true,
-    opacity: 0.2,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
+  const poolMat = tagNightOpacity(
+    new THREE.MeshBasicMaterial({
+      map: poolTex,
+      transparent: true,
+      opacity: 0.2,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+    0.2,
+    0.55,
+  );
 
   // Riverside stone-tiled boardwalk promenade
   const boardwalk = new THREE.Mesh(
@@ -2437,11 +2563,14 @@ function buildEstadioPascualLandmark(landmark: LandmarkDef): THREE.Group {
     color: 0x1ea35f,
     roughness: 0.82,
   });
-  const lineMat = new THREE.MeshStandardMaterial({
-    color: 0xf8f7ff,
-    emissive: 0xf8f7ff,
-    emissiveIntensity: 0.55,
-  });
+  const lineMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xf8f7ff,
+      emissive: 0xf8f7ff,
+      emissiveIntensity: 0.55,
+    }),
+    { dayIntensity: 0.55, nightIntensity: 1.05 },
+  );
   const redBowlMat = new THREE.MeshStandardMaterial({
     color: 0xa6202a,
     roughness: 0.72,
@@ -2459,20 +2588,27 @@ function buildEstadioPascualLandmark(landmark: LandmarkDef): THREE.Group {
     roughness: 0.54,
     metalness: 0.52,
   });
-  const floodlightMat = new THREE.MeshStandardMaterial({
-    color: 0xfff8e0,
-    emissive: 0xffe8b0,
-    emissiveIntensity: 1.55,
-    roughness: 0.16,
-  });
-  const beamMat = new THREE.MeshBasicMaterial({
-    color: 0xfff0c8,
-    transparent: true,
-    opacity: 0.055,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
+  const floodlightMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xfff8e0,
+      emissive: 0xffe8b0,
+      emissiveIntensity: 1.55,
+      roughness: 0.16,
+    }),
+    { dayIntensity: 1.55, nightIntensity: 3.4 },
+  );
+  const beamMat = tagNightOpacity(
+    new THREE.MeshBasicMaterial({
+      color: 0xfff0c8,
+      transparent: true,
+      opacity: 0.055,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+    0.055,
+    0.26,
+  );
 
   // Emerald pitch + mowed turf stripes + crisp white soccer markings
   const pitch = new THREE.Mesh(new THREE.BoxGeometry(25, 0.4, 31), pitchMat);
@@ -2574,12 +2710,15 @@ function buildSanAntonioLandmark(landmark: LandmarkDef): THREE.Group {
   });
   terracottaMat.userData.surfaceRole = 'roof' satisfies SurfaceRole;
 
-  const warmGlowMat = new THREE.MeshStandardMaterial({
-    color: 0xffd57a,
-    emissive: 0xffb347,
-    emissiveIntensity: 1.25,
-    roughness: 0.24,
-  });
+  const warmGlowMat = tagNightEmissive(
+    new THREE.MeshStandardMaterial({
+      color: 0xffd57a,
+      emissive: 0xffb347,
+      emissiveIntensity: 1.25,
+      roughness: 0.24,
+    }),
+    { dayIntensity: 1.25, nightIntensity: 2.4 },
+  );
   const woodMat = new THREE.MeshStandardMaterial({
     color: 0x5c3620,
     roughness: 0.85,
@@ -2588,13 +2727,17 @@ function buildSanAntonioLandmark(landmark: LandmarkDef): THREE.Group {
     'rgba(255, 206, 118, 0.55)',
     'rgba(255, 164, 82, 0.18)',
   );
-  const poolMat = new THREE.MeshBasicMaterial({
-    map: poolTex,
-    transparent: true,
-    opacity: 0.22,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
+  const poolMat = tagNightOpacity(
+    new THREE.MeshBasicMaterial({
+      map: poolTex,
+      transparent: true,
+      opacity: 0.22,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+    0.22,
+    0.55,
+  );
 
   // Cobblestone hillside plaza base
   const plazaMat = new THREE.MeshStandardMaterial({ color: 0x8d8579, roughness: 0.9 });
@@ -3232,6 +3375,101 @@ export function applyPhotographicAssets(
   for (const oldTex of replacedProceduralTextures) {
     if (!stillReferenced.has(oldTex)) {
       oldTex.dispose();
+    }
+  }
+}
+
+function isNightEmissiveSpec(value: unknown): value is NightEmissiveSpec {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const rec = value as Record<string, unknown>;
+  return (
+    typeof rec.dayIntensity === 'number' && typeof rec.nightIntensity === 'number'
+  );
+}
+
+function isNightOpacitySpec(value: unknown): value is NightOpacitySpec {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const rec = value as Record<string, unknown>;
+  return (
+    typeof rec.dayOpacity === 'number' && typeof rec.nightOpacity === 'number'
+  );
+}
+
+/**
+ * Switches Cali world emissive architectural lighting, neon signs, streetlamps & road light pools,
+ * Estadio Pascual Guerrero floodlights, Cristo Rey monument uplight glow, and Río Cali GLSL water
+ * uniforms seamlessly between golden hour and starlit midnight Cali.
+ */
+export function setWorldNightLighting(
+  worldGroup: THREE.Group,
+  waterMesh: THREE.Mesh,
+  timeOfDay: TimeOfDay,
+): void {
+  const isNight = timeOfDay === 'night';
+  const visited = new Set<THREE.Material>();
+
+  worldGroup.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    const materials = Array.isArray(node.material)
+      ? node.material
+      : [node.material];
+    for (const mat of materials) {
+      if (!mat || visited.has(mat)) {
+        continue;
+      }
+      visited.add(mat);
+
+      if (mat instanceof THREE.MeshStandardMaterial) {
+        const spec = mat.userData.nightEmissive;
+        if (isNightEmissiveSpec(spec)) {
+          if (spec.requireEmissiveMap && !mat.emissiveMap) {
+            continue;
+          }
+          mat.emissiveIntensity = isNight
+            ? spec.nightIntensity
+            : spec.dayIntensity;
+          if (isNight && typeof spec.nightEmissiveHex === 'number') {
+            mat.emissive.setHex(spec.nightEmissiveHex);
+          } else if (!isNight && typeof spec.dayEmissiveHex === 'number') {
+            mat.emissive.setHex(spec.dayEmissiveHex);
+          }
+        }
+      } else if (mat instanceof THREE.MeshBasicMaterial) {
+        const spec = mat.userData.nightOpacity;
+        if (isNightOpacitySpec(spec)) {
+          mat.opacity = isNight ? spec.nightOpacity : spec.dayOpacity;
+        }
+      }
+    }
+  });
+
+  const waterMat = waterMesh.material;
+  if (waterMat instanceof THREE.ShaderMaterial) {
+    const uniforms = waterMat.uniforms;
+    if (uniforms.uDeepColor?.value instanceof THREE.Color) {
+      uniforms.uDeepColor.value.setHex(isNight ? 0x040917 : 0x10282c);
+    }
+    if (uniforms.uShallowColor?.value instanceof THREE.Color) {
+      uniforms.uShallowColor.value.setHex(isNight ? 0x0c1b36 : 0x234f4a);
+    }
+    if (uniforms.uSkyHorizonColor?.value instanceof THREE.Color) {
+      uniforms.uSkyHorizonColor.value.setHex(isNight ? 0x4a2f5c : 0xf2bc84);
+    }
+    if (uniforms.uSkyZenithColor?.value instanceof THREE.Color) {
+      uniforms.uSkyZenithColor.value.setHex(isNight ? 0x060b1d : 0x2c4a76);
+    }
+    if (uniforms.uSunDirection?.value instanceof THREE.Vector3) {
+      if (isNight) {
+        uniforms.uSunDirection.value.set(-0.78, 0.38, -0.22).normalize();
+      } else {
+        uniforms.uSunDirection.value.set(-0.94, 0.16, -0.14).normalize();
+      }
     }
   }
 }
