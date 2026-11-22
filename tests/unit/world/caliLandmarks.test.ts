@@ -12,6 +12,8 @@ import {
   createSunsetLighting,
   createSunsetSkyDome,
   updateCameraRig,
+  updateShadowFocus,
+  updateSkyDomeTime,
 } from '../../../src/world/sceneSetup';
 import {
   createObjectiveBeacon,
@@ -170,6 +172,59 @@ describe('buildCaliWorld', () => {
     });
     expect(checkedNormals).toBeGreaterThan(100);
   });
+
+  it('uses an animated GLSL ShaderMaterial with uTime on waterMesh and builds cinematic city props with PBR shadow-casting buildings', () => {
+    expect(waterMesh.material).toBeInstanceOf(THREE.ShaderMaterial);
+    const waterMat = waterMesh.material as THREE.ShaderMaterial;
+    expect(waterMat.uniforms.uTime).toBeDefined();
+    expect(typeof waterMat.uniforms.uTime?.value).toBe('number');
+
+    const crosswalks = group.getObjectByName('cali_crosswalks');
+    const sidewalks = group.getObjectByName('cali_sidewalks');
+    const neonSigns = group.getObjectByName('cali_neon_signs');
+    const trafficSignals = group.getObjectByName('cali_traffic_signals');
+    const streetlights = group.getObjectByName('cali_streetlights');
+
+    expect(crosswalks).toBeInstanceOf(THREE.Group);
+    expect(countGeometryVertices(crosswalks as THREE.Object3D)).toBeGreaterThan(0);
+    expect(sidewalks).toBeInstanceOf(THREE.Group);
+    expect(countGeometryVertices(sidewalks as THREE.Object3D)).toBeGreaterThan(0);
+    expect(neonSigns).toBeInstanceOf(THREE.Group);
+    expect(countGeometryVertices(neonSigns as THREE.Object3D)).toBeGreaterThan(0);
+    expect(trafficSignals).toBeInstanceOf(THREE.Group);
+    expect(countGeometryVertices(trafficSignals as THREE.Object3D)).toBeGreaterThan(0);
+    expect(streetlights).toBeInstanceOf(THREE.Group);
+    expect(countGeometryVertices(streetlights as THREE.Object3D)).toBeGreaterThan(0);
+
+    const buildings = group.getObjectByName('cali_buildings');
+    expect(buildings).toBeInstanceOf(THREE.Group);
+    let shadowCastingBuildings = 0;
+    let pbrFacadeMaterials = 0;
+    buildings?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.castShadow) {
+        shadowCastingBuildings += 1;
+        const mats = Array.isArray(node.material) ? node.material : [node.material];
+        for (const mat of mats) {
+          if (
+            mat instanceof THREE.MeshStandardMaterial &&
+            mat.map &&
+            mat.roughnessMap &&
+            mat.bumpMap &&
+            mat.emissiveMap
+          ) {
+            pbrFacadeMaterials += 1;
+            break;
+          }
+        }
+      }
+    });
+    expect(shadowCastingBuildings).toBeGreaterThanOrEqual(
+      CALI_MAP.buildingColliders.length,
+    );
+    expect(pbrFacadeMaterials).toBeGreaterThanOrEqual(
+      CALI_MAP.buildingColliders.length,
+    );
+  });
 });
 
 describe('vehicle, player, and objective meshes', () => {
@@ -324,5 +379,95 @@ describe('updateCameraRig', () => {
       expect(Number.isFinite(camera.position.y)).toBe(true);
       expect(Number.isFinite(camera.position.z)).toBe(true);
     }
+  });
+
+  it('opens FOV during nitro boost and stays finite under collision impact', () => {
+    const cruiseWorld = createSampleWorld({
+      player: {
+        mode: 'driving',
+        x: -4,
+        y: 0,
+        z: 12,
+        heading: Math.PI / 2,
+        speedMps: 12,
+        speedKmh: 43.2,
+        vehicleId: 'player_banshee',
+        nearbyVehicleId: null,
+        canEnterVehicle: false,
+        nitro: 75,
+        isDrifting: false,
+        isBoosting: false,
+        isSprinting: false,
+        inRiverHazard: false,
+      },
+      vehicles: [
+        {
+          id: 'player_banshee',
+          kind: 'banshee',
+          role: 'player',
+          x: -4,
+          y: 0,
+          z: 12,
+          heading: Math.PI / 2,
+          speedMps: 12,
+          speedKmh: 43.2,
+          steerAngle: 0,
+          isDrifting: false,
+          isBoosting: false,
+          nitro: 75,
+          sirenActive: false,
+          colorHex: 0xff2e93,
+          accentHex: 0x00f0ff,
+          halfWidth: 1.05,
+          halfLength: 2.25,
+        },
+      ],
+      collisionImpact: 0,
+    });
+
+    const boostImpactWorld = createSampleWorld({
+      collisionImpact: 0.85,
+    });
+
+    const camera = new THREE.PerspectiveCamera(58, 16 / 9, 0.4, 900);
+    updateCameraRig(camera, cruiseWorld, 'chase', 0.016, 0, false);
+    const cruiseFov = camera.fov;
+
+    for (let step = 0; step < 24; step += 1) {
+      updateCameraRig(camera, boostImpactWorld, 'chase', 0.05, step * 0.05, false);
+    }
+
+    expect(camera.fov).toBeGreaterThan(cruiseFov + 4);
+    expect(Number.isFinite(camera.fov)).toBe(true);
+    expect(Number.isFinite(camera.position.x)).toBe(true);
+    expect(Number.isFinite(camera.position.y)).toBe(true);
+    expect(Number.isFinite(camera.position.z)).toBe(true);
+  });
+});
+
+describe('cinematic sky and shadow helpers', () => {
+  it('advances sky dome shader uTime via updateSkyDomeTime', () => {
+    const skyDome = createSunsetSkyDome();
+    const skyMaterial = skyDome.material as THREE.ShaderMaterial;
+    expect(skyMaterial.uniforms.uTime?.value).toBe(0);
+
+    updateSkyDomeTime(skyDome, 14.25);
+    expect(skyMaterial.uniforms.uTime?.value).toBeCloseTo(14.25, 5);
+  });
+
+  it('tracks player coordinates via updateShadowFocus on sunset lighting rig', () => {
+    const lighting = createSunsetLighting();
+    const keyLight = lighting.userData.keyLight as THREE.DirectionalLight;
+    expect(keyLight).toBeInstanceOf(THREE.DirectionalLight);
+
+    const initialLightX = keyLight.position.x;
+    const initialLightZ = keyLight.position.z;
+
+    updateShadowFocus(lighting, 74, -24);
+
+    expect(keyLight.target.position.x).toBeCloseTo(74, 3);
+    expect(keyLight.target.position.z).toBeCloseTo(-24, 3);
+    expect(keyLight.position.x).toBeCloseTo(initialLightX + 74, 3);
+    expect(keyLight.position.z).toBeCloseTo(initialLightZ - 24, 3);
   });
 });
