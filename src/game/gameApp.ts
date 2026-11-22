@@ -358,6 +358,9 @@ export class GameApp {
       audio: this.audioEngine.getState(),
       fps: Math.round(this.smoothedFps),
       garage: { ...this.garageConfig },
+      ...(this.worldRenderer
+        ? { perf: { fps: Math.round(this.smoothedFps), ...this.worldRenderer.getRenderStats() } }
+        : {}),
       ...(assetsLoaded !== undefined ? { assetsLoaded } : {}),
     };
   }

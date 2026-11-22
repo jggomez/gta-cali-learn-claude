@@ -25,6 +25,7 @@ import type {
   Vec2,
   VehicleKind,
   VehicleSnapshot,
+  RenderPerfStats,
   WorldSnapshot,
 } from '../types/game';
 import {
@@ -41,6 +42,7 @@ import {
   type CaliWorldBuildResult,
 } from './caliLandmarks';
 import { ParticleSystem, SkidMarkPool } from './particles';
+import { RenderStatsRecorder } from './renderStats';
 import {
   bindRenderTargetDisposal,
   createSunsetEnvironmentMap,
@@ -677,6 +679,7 @@ export class WorldRenderer {
   private readonly cristoReyPosition: Vec2;
   private readonly landmarkCount: number;
   private readonly reducedMotion: boolean;
+  private readonly renderStats: RenderStatsRecorder;
 
   private currentTimeOfDay: TimeOfDay = 'golden_hour';
   private currentBoostMix = 0;
@@ -720,6 +723,7 @@ export class WorldRenderer {
     }
 
     this.renderer = renderer;
+    this.renderStats = new RenderStatsRecorder(this.renderer.info);
     const pixelRatio =
       typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio)
         ? Math.min(window.devicePixelRatio, 2)
@@ -1008,11 +1012,17 @@ export class WorldRenderer {
       this.skyDome.position.set(this.camera.position.x, 0, this.camera.position.z);
     }
 
+    this.renderStats.beginFrame();
     if (this.postProcessing) {
       this.postProcessing.render();
     } else {
       this.renderer.render(this.scene, this.camera);
     }
+    this.renderStats.endFrame();
+  }
+
+  public getRenderStats(): RenderPerfStats {
+    return this.renderStats.getStats();
   }
 
   public resize(width: number, height: number): void {

@@ -429,6 +429,18 @@ export interface StorageRecords {
   readonly garage?: GarageConfig;
 }
 
+export interface RenderPerfStats {
+  readonly drawCalls: number;
+  readonly triangles: number;
+  readonly geometries: number;
+  readonly textures: number;
+  readonly programs: number;
+}
+
+export interface GamePerfSnapshot extends RenderPerfStats {
+  readonly fps: number;
+}
+
 export interface GameDebugSnapshot {
   readonly mode: GameMode;
   readonly cameraMode: CameraMode;
@@ -438,4 +450,5 @@ export interface GameDebugSnapshot {
   readonly fps: number;
   readonly assetsLoaded?: boolean;
   readonly garage?: GarageConfig;
+  readonly perf?: GamePerfSnapshot;
 }
