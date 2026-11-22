@@ -2,9 +2,10 @@
  * Pure presentation WebGL renderer for GTA VI: Cali (La Sucursal del Cielo).
  * Consumes immutable WorldSnapshot and MissionSnapshot objects without mutating simulation state.
  * Wires local HDRI golden-hour PMREM reflections & sky, 1K photographic PBR city textures,
- * real Ferrari 458 Italia & rigged animated character GLBs, 2048px player-tracking soft shadows,
- * subtle HDR UnrealBloom post-processing, GTA V free-orbit camera look, dynamic headlights &
- * siren lights, braking taillights, GLSL water/sky fallback, and GPU particles.
+ * real Ferrari 458 Italia & rigged Morena Calena Valeria + diverse civilian character GLBs,
+ * Cristo Rey SambaDance summit dancer, pooled asphalt drift skid marks, 2048px player-tracking
+ * soft shadows, HDR UnrealBloom + CinematicGrade post-processing, GTA V free-orbit camera look,
+ * dynamic headlights & siren lights, braking taillights, GLSL water/sky fallback, and GPU particles.
  */
 
 import * as THREE from 'three';
@@ -30,7 +31,7 @@ import {
   buildCaliWorld,
   setWorldNightLighting,
 } from './caliLandmarks';
-import { ParticleSystem } from './particles';
+import { ParticleSystem, SkidMarkPool } from './particles';
 import {
   bindRenderTargetDisposal,
   createSunsetEnvironmentMap,
@@ -43,6 +44,7 @@ import {
   createSunsetLighting,
   createSunsetSkyDome,
   setBloomTimeOfDay,
+  setGradeTimeOfDay,
   setLightingTimeOfDay,
   setSkyDomeTimeOfDay,
   updateCameraRig,
@@ -52,6 +54,7 @@ import {
   type PostProcessingRig,
 } from './sceneSetup';
 import {
+  createCivilianPedestrianRig,
   createFerrariLiveryMesh,
   createGpsChevronMesh,
   createMissionPropMeshes,
@@ -59,11 +62,13 @@ import {
   createPedestrianMesh,
   createPlayerMesh,
   createRiggedCharacterMesh,
+  createValeriaPlayerMesh,
   createVehicleMesh,
   type FerrariLiveryKind,
   type HeadlightConeMaterials,
   type MissionPropKey,
   type RiggedCharacterActions,
+  type RiggedCharacterRig,
 } from './vehicleMeshes';
 
 const HEADLIGHT_LOOK_AHEAD_METERS = 45;
@@ -71,6 +76,13 @@ const TAILLIGHT_CRUISE_INTENSITY = 1.15;
 const TAILLIGHT_BRAKE_INTENSITY = 2.8;
 const BRAKE_DECEL_THRESHOLD_MPS2 = -3.2;
 const DRIFT_SMOKE_MIN_SPEED_MPS = 4.5;
+const SKID_MARK_MIN_SPEED_MPS = 5.0;
+const SKID_MARK_MIN_INTERVAL_SECONDS = 0.045;
+const SKID_MARK_MIN_DISTANCE_METERS = 0.75;
+const SKID_MARK_MIN_DISTANCE_SQ =
+  SKID_MARK_MIN_DISTANCE_METERS * SKID_MARK_MIN_DISTANCE_METERS;
+const REAR_TIRE_TRACK_RATIO = 0.82;
+const REAR_TIRE_AXLE_RATIO = 0.62;
 const COLLISION_SPARK_THRESHOLD = 0.14;
 const COLLISION_SPARK_COOLDOWN_SECONDS = 0.09;
 const CHARACTER_RUN_SPEED_THRESHOLD_MPS = 5.2;
@@ -79,6 +91,17 @@ const PEDESTRIAN_CULL_DISTANCE_METERS = 95;
 const PEDESTRIAN_CULL_DISTANCE_SQ =
   PEDESTRIAN_CULL_DISTANCE_METERS * PEDESTRIAN_CULL_DISTANCE_METERS;
 const PEDESTRIAN_CROSSFADE_SECONDS = 0.2;
+const CRISTO_REY_DANCER_ACTIVE_DISTANCE_METERS = 110;
+const CRISTO_REY_DANCER_ACTIVE_DISTANCE_SQ =
+  CRISTO_REY_DANCER_ACTIVE_DISTANCE_METERS *
+  CRISTO_REY_DANCER_ACTIVE_DISTANCE_METERS;
+const CRISTO_REY_PLAYER_DANCE_DISTANCE_METERS = 65;
+const CRISTO_REY_PLAYER_DANCE_DISTANCE_SQ =
+  CRISTO_REY_PLAYER_DANCE_DISTANCE_METERS *
+  CRISTO_REY_PLAYER_DANCE_DISTANCE_METERS;
+const SUMMIT_DANCER_SKIN_TONE_HEX = 0xb97c5b;
+const BOOST_GRADE_RISE_RATE = 8.5;
+const BOOST_GRADE_FALL_RATE = 4.5;
 const FLOATING_ARROW_BASE_Y = 8.0;
 const GPS_CHEVRON_DISTANCES = [10, 22, 34, 46, 58] as const;
 const GPS_CHEVRON_ELEVATION_OFFSET = 0.35;
@@ -92,6 +115,64 @@ export interface GpsRoutePose {
   readonly x: number;
   readonly z: number;
   readonly heading: number;
+}
+
+export interface RearTireWorldPositions {
+  readonly leftX: number;
+  readonly leftY: number;
+  readonly leftZ: number;
+  readonly rightX: number;
+  readonly rightY: number;
+  readonly rightZ: number;
+}
+
+/**
+ * Computes world-space rear-left and rear-right tire contact coordinates for a +Z forward
+ * right-handed vehicle (vehicle left along +X = (cos, -sin), rear along -Z = (-sin, -cos)).
+ */
+export function computeRearTireWorldPositions(
+  vehicle: Pick<VehicleSnapshot, 'x' | 'z' | 'heading' | 'halfWidth' | 'halfLength'>,
+  elevationAt: (x: number, z: number) => number,
+): RearTireWorldPositions {
+  const x = Number.isFinite(vehicle.x) ? vehicle.x : 0;
+  const z = Number.isFinite(vehicle.z) ? vehicle.z : 0;
+  const heading = Number.isFinite(vehicle.heading) ? vehicle.heading : 0;
+  const safeHalfWidth =
+    Number.isFinite(vehicle.halfWidth) && vehicle.halfWidth > 0
+      ? vehicle.halfWidth
+      : 1.0;
+  const safeHalfLength =
+    Number.isFinite(vehicle.halfLength) && vehicle.halfLength > 0
+      ? vehicle.halfLength
+      : 2.2;
+
+  const forwardX = Math.sin(heading);
+  const forwardZ = Math.cos(heading);
+  const leftDirX = Math.cos(heading);
+  const leftDirZ = -Math.sin(heading);
+
+  const rearOffset = safeHalfLength * REAR_TIRE_AXLE_RATIO;
+  const trackHalfWidth = safeHalfWidth * REAR_TIRE_TRACK_RATIO;
+
+  const axleX = x - forwardX * rearOffset;
+  const axleZ = z - forwardZ * rearOffset;
+
+  const leftX = axleX + leftDirX * trackHalfWidth;
+  const leftZ = axleZ + leftDirZ * trackHalfWidth;
+  const rightX = axleX - leftDirX * trackHalfWidth;
+  const rightZ = axleZ - leftDirZ * trackHalfWidth;
+
+  const rawLeftY = elevationAt(leftX, leftZ);
+  const rawRightY = elevationAt(rightX, rightZ);
+
+  return {
+    leftX,
+    leftY: Number.isFinite(rawLeftY) ? rawLeftY : 0,
+    leftZ,
+    rightX,
+    rightY: Number.isFinite(rawRightY) ? rawRightY : 0,
+    rightZ,
+  };
 }
 
 /**
@@ -163,12 +244,19 @@ function getHeadlightMountHeight(kind: VehicleKind): number {
   }
 }
 
-type CharacterLocomotionState = 'idle' | 'walk' | 'run';
+type CharacterLocomotionState = 'idle' | 'walk' | 'run' | 'dance';
 
 interface PooledVehicleEntry {
   readonly kind: VehicleKind;
   readonly usesFerrariModel: boolean;
   readonly mesh: THREE.Group;
+}
+
+interface VehicleSkidState {
+  cooldownSeconds: number;
+  lastX: number;
+  lastZ: number;
+  hasLastStamp: boolean;
 }
 
 interface PooledPedestrianEntry {
@@ -177,7 +265,9 @@ interface PooledPedestrianEntry {
   readonly actions: RiggedCharacterActions;
   activeActionName: CharacterLocomotionState | null;
   readonly isRigged: boolean;
+  readonly variantIndex: number;
   readonly shirtColorHex: number;
+  readonly pantsColorHex: number;
   readonly phaseOffsetSeconds: number;
 }
 
@@ -340,28 +430,36 @@ export class WorldRenderer {
   private loadedAssets: LoadedWorldAssets | null = null;
   private ferrariTemplate: THREE.Group | null = null;
   private characterAsset: LoadedCharacterAsset | null = null;
+  private valeriaAsset: LoadedCharacterAsset | null = null;
   private readonly postProcessing: PostProcessingRig | null;
   private readonly waterMesh: THREE.Mesh;
   private playerMesh: THREE.Group;
+  private playerIsRigged = false;
   private characterMixer: THREE.AnimationMixer | null = null;
   private characterActions: RiggedCharacterActions = {};
   private activeCharacterState: CharacterLocomotionState = 'idle';
   private mateoMixer: THREE.AnimationMixer | null = null;
   private mateoIsRigged = false;
+  private summitDancerGroup: THREE.Group | null = null;
+  private summitDancerMixer: THREE.AnimationMixer | null = null;
   private readonly objectiveBeacon: THREE.Group;
   private readonly missionProps: Record<MissionPropKey, THREE.Group>;
   private readonly gpsChevrons: readonly THREE.Group[];
   private readonly particles: ParticleSystem;
+  private readonly skidMarks: SkidMarkPool;
   private readonly headlightSpot: THREE.SpotLight;
   private readonly headlightTarget: THREE.Object3D;
   private readonly vehiclePool = new Map<string, PooledVehicleEntry>();
   private readonly pedestrianPool = new Map<string, PooledPedestrianEntry>();
   private readonly prevSpeeds = new Map<string, number>();
+  private readonly vehicleSkidState = new Map<string, VehicleSkidState>();
   private readonly cameraOrbit: CameraOrbitState = createCameraOrbitState();
+  private readonly cristoReyPosition: Vec2;
   private readonly landmarkCount: number;
   private readonly reducedMotion: boolean;
 
   private currentTimeOfDay: TimeOfDay = 'golden_hour';
+  private currentBoostMix = 0;
   private elapsedSeconds = 0;
   private orbitAngle = 0;
   private sparkCooldown = 0;
@@ -372,6 +470,9 @@ export class WorldRenderer {
   constructor(canvas: HTMLCanvasElement, map: CaliMapConfig = CALI_MAP) {
     this.map = map;
     this.reducedMotion = detectReducedMotion();
+    this.cristoReyPosition =
+      this.map.landmarks.find((landmark) => landmark.id === 'cristo_rey')
+        ?.position ?? this.map.missionWaypoints.mission2Summit;
 
     let renderer: THREE.WebGLRenderer;
     try {
@@ -474,6 +575,9 @@ export class WorldRenderer {
     this.particles = new ParticleSystem();
     this.scene.add(this.particles.group);
 
+    this.skidMarks = new SkidMarkPool();
+    this.scene.add(this.skidMarks.group);
+
     this.headlightSpot = new THREE.SpotLight(
       0xfff1cc,
       2.6,
@@ -500,8 +604,16 @@ export class WorldRenderer {
       initialHeight,
       this.reducedMotion,
     );
+    if (this.postProcessing) {
+      setGradeTimeOfDay(
+        this.postProcessing,
+        this.currentTimeOfDay,
+        this.reducedMotion,
+        0,
+      );
+    }
 
-    // Load local HDRI sky, 1K photographic city PBR textures, Ferrari 458, and rigged character
+    // Load local HDRI sky, 1K photographic city PBR textures, Ferrari 458, Valeria, and rigged character
     void this.loadRealWorldAssets();
   }
 
@@ -528,6 +640,12 @@ export class WorldRenderer {
     setLightingTimeOfDay(this.lightingGroup, timeOfDay);
     if (this.postProcessing) {
       setBloomTimeOfDay(this.postProcessing, timeOfDay, this.reducedMotion);
+      setGradeTimeOfDay(
+        this.postProcessing,
+        timeOfDay,
+        this.reducedMotion,
+        this.currentBoostMix,
+      );
     }
     setWorldNightLighting(this.worldGroup, this.waterMesh, timeOfDay);
 
@@ -567,6 +685,29 @@ export class WorldRenderer {
     this.orbitAngle += safeDt * (cameraMode === 'victory_orbit' ? 0.5 : 0.35);
     this.sparkCooldown = Math.max(0, this.sparkCooldown - safeDt);
 
+    const targetBoostMix = world.player.isBoosting ? 1 : 0;
+    const boostLerpRate =
+      targetBoostMix > this.currentBoostMix
+        ? BOOST_GRADE_RISE_RATE
+        : BOOST_GRADE_FALL_RATE;
+    const boostAlpha = 1 - Math.exp(-boostLerpRate * safeDt);
+    this.currentBoostMix = THREE.MathUtils.lerp(
+      this.currentBoostMix,
+      targetBoostMix,
+      boostAlpha,
+    );
+    if (targetBoostMix === 0 && this.currentBoostMix < 0.001) {
+      this.currentBoostMix = 0;
+    }
+    if (this.postProcessing) {
+      setGradeTimeOfDay(
+        this.postProcessing,
+        this.currentTimeOfDay,
+        this.reducedMotion,
+        this.currentBoostMix,
+      );
+    }
+
     const animTime = this.reducedMotion ? 0 : this.elapsedSeconds;
     if (this.skyDome.visible) {
       updateSkyDomeTime(this.skyDome, animTime);
@@ -574,14 +715,15 @@ export class WorldRenderer {
     updateShadowFocus(this.lightingGroup, world.player.x, world.player.z);
 
     this.animateWater(safeDt, animTime);
-    this.syncPlayer(world, safeDt);
+    this.syncPlayer(world, mission, safeDt);
     this.syncVehicles(world.vehicles, safeDt);
     this.syncPedestrians(world.pedestrians, world.player.x, world.player.z, safeDt);
     this.syncPlayerHeadlight(world);
     this.syncCollisionSparks(world);
     this.particles.update(safeDt);
+    this.skidMarks.update(safeDt);
     this.syncObjectiveBeacon(mission, safeDt);
-    this.syncMissionProps(mission, safeDt);
+    this.syncMissionProps(mission, safeDt, world.player.x, world.player.z);
     this.syncGpsChevrons(mission);
 
     updateCameraRig(
@@ -641,17 +783,37 @@ export class WorldRenderer {
     disposeAnimationMixer(this.characterMixer);
     this.characterMixer = null;
     this.characterActions = {};
+    if (this.playerIsRigged) {
+      this.scene.remove(this.playerMesh);
+      disposeRiggedCharacterGroup(this.playerMesh);
+      this.playerIsRigged = false;
+    }
 
     disposeAnimationMixer(this.mateoMixer);
     this.mateoMixer = null;
-    this.mateoIsRigged = false;
+    if (this.mateoIsRigged) {
+      const mateoSpeakers = this.missionProps.mateo_speakers;
+      const mateoNode = mateoSpeakers.getObjectByName('npc_mateo');
+      if (mateoNode) {
+        mateoSpeakers.remove(mateoNode);
+        if (mateoNode instanceof THREE.Group) {
+          disposeRiggedCharacterGroup(mateoNode);
+        }
+      }
+      this.mateoIsRigged = false;
+    }
+
+    this.disposeSummitDancer();
 
     for (const entry of this.pedestrianPool.values()) {
-      disposeAnimationMixer(entry.mixer);
+      this.disposePedestrianEntry(entry);
     }
 
     this.scene.remove(this.particles.group);
     this.particles.dispose();
+
+    this.scene.remove(this.skidMarks.group);
+    this.skidMarks.dispose();
 
     this.postProcessing?.dispose();
 
@@ -666,11 +828,13 @@ export class WorldRenderer {
     this.loadedAssets = null;
     this.ferrariTemplate = null;
     this.characterAsset = null;
+    this.valeriaAsset = null;
 
     disposeObjectTree(this.scene);
     this.vehiclePool.clear();
     this.pedestrianPool.clear();
     this.prevSpeeds.clear();
+    this.vehicleSkidState.clear();
     this.renderer.dispose();
   }
 
@@ -683,34 +847,54 @@ export class WorldRenderer {
         return;
       }
 
-      this.loadedAssets = assets;
-
-      if (assets.hdriTexture) {
-        this.applyHdriEnvironment(assets.hdriTexture);
-      }
-
-      applyPhotographicAssets(this.worldGroup, assets.textures);
-      if (this.currentTimeOfDay === 'night') {
-        setWorldNightLighting(this.worldGroup, this.waterMesh, 'night');
-      }
-
-      if (assets.ferrari) {
-        this.ferrariTemplate = assets.ferrari;
-        this.upgradePooledVehiclesToFerrari(assets.ferrari);
-      }
-
-      if (assets.character) {
-        this.characterAsset = assets.character;
-        this.upgradePlayerToRiggedCharacter(assets.character);
-        this.upgradePooledPedestriansToRigged(assets.character);
-        this.upgradeMateoToRiggedCharacter(assets.character);
-      }
+      this.applyLoadedAssets(assets);
     } catch {
       // Fall back cleanly to procedural assets while signaling load completion
     } finally {
       if (!this.disposed) {
         this.worldAssetsLoaded = true;
       }
+    }
+  }
+
+  private applyLoadedAssets(assets: LoadedWorldAssets): void {
+    this.loadedAssets = assets;
+
+    if (assets.hdriTexture) {
+      this.applyHdriEnvironment(assets.hdriTexture);
+    }
+
+    applyPhotographicAssets(this.worldGroup, assets.textures);
+    if (this.currentTimeOfDay === 'night') {
+      setWorldNightLighting(this.worldGroup, this.waterMesh, 'night');
+    }
+
+    if (assets.ferrari) {
+      this.ferrariTemplate = assets.ferrari;
+      this.upgradePooledVehiclesToFerrari(assets.ferrari);
+    }
+
+    this.characterAsset = assets.character;
+    this.valeriaAsset = assets.valeria;
+
+    if (assets.valeria) {
+      this.upgradePlayerToRiggedRig(
+        createValeriaPlayerMesh(assets.valeria, assets.character),
+      );
+    } else if (assets.character) {
+      this.upgradePlayerToRiggedRig(createRiggedCharacterMesh(assets.character));
+    }
+
+    if (assets.valeria || assets.character) {
+      this.upgradePooledPedestriansToRigged(assets.valeria, assets.character);
+    }
+
+    if (assets.character) {
+      this.upgradeMateoToRiggedCharacter(assets.character);
+    }
+
+    if (assets.valeria) {
+      this.mountSummitDancer(assets.valeria, assets.character);
     }
   }
 
@@ -785,21 +969,23 @@ export class WorldRenderer {
     }
   }
 
-  private upgradePlayerToRiggedCharacter(
-    characterAsset: LoadedCharacterAsset,
-  ): void {
-    const rig = createRiggedCharacterMesh(characterAsset);
+  private upgradePlayerToRiggedRig(rig: RiggedCharacterRig): void {
     rig.group.position.copy(this.playerMesh.position);
     rig.group.rotation.copy(this.playerMesh.rotation);
     rig.group.visible = this.playerMesh.visible;
 
     const previousMesh = this.playerMesh;
     this.scene.remove(previousMesh);
-    disposeObjectTree(previousMesh);
+    if (this.playerIsRigged) {
+      disposeRiggedCharacterGroup(previousMesh);
+    } else {
+      disposeObjectTree(previousMesh);
+    }
 
     disposeAnimationMixer(this.characterMixer);
 
     this.playerMesh = rig.group;
+    this.playerIsRigged = true;
     this.characterMixer = rig.mixer;
     this.characterActions = rig.actions;
     this.activeCharacterState = 'idle';
@@ -808,18 +994,25 @@ export class WorldRenderer {
 
   private createRiggedPedestrianEntry(
     pedId: string,
+    variantIndex: number,
     shirtColorHex: number,
-    characterAsset: LoadedCharacterAsset,
-  ): PooledPedestrianEntry {
-    const seed = hashPedestrianSeed(pedId);
-    const heightMeters = 1.72 + (seed % 14) * 0.01;
-    const phaseOffsetSeconds = (seed % 100) * 0.025;
+    pantsColorHex: number,
+    valeriaAsset: LoadedCharacterAsset | null,
+    characterAsset: LoadedCharacterAsset | null,
+  ): PooledPedestrianEntry | null {
+    const rig = createCivilianPedestrianRig(
+      valeriaAsset,
+      characterAsset,
+      variantIndex,
+      shirtColorHex,
+      pantsColorHex,
+    );
+    if (!rig) {
+      return null;
+    }
 
-    const rig = createRiggedCharacterMesh(characterAsset, {
-      tintHex: shirtColorHex,
-      heightMeters,
-    });
-    rig.group.name = 'cali_pedestrian_rigged';
+    const seed = hashPedestrianSeed(pedId);
+    const phaseOffsetSeconds = (seed % 100) * 0.025;
     if (!this.reducedMotion) {
       rig.mixer.update(phaseOffsetSeconds);
     }
@@ -828,9 +1021,11 @@ export class WorldRenderer {
       group: rig.group,
       mixer: rig.mixer,
       actions: rig.actions,
-      activeActionName: 'idle',
+      activeActionName: rig.actions.idle ? 'idle' : null,
       isRigged: true,
+      variantIndex,
       shirtColorHex,
+      pantsColorHex,
       phaseOffsetSeconds,
     };
   }
@@ -846,17 +1041,26 @@ export class WorldRenderer {
   }
 
   private upgradePooledPedestriansToRigged(
-    characterAsset: LoadedCharacterAsset,
+    valeriaAsset: LoadedCharacterAsset | null,
+    characterAsset: LoadedCharacterAsset | null,
   ): void {
+    if (!valeriaAsset && !characterAsset) {
+      return;
+    }
+
     for (const [id, entry] of this.pedestrianPool.entries()) {
-      if (entry.isRigged) {
-        continue;
-      }
       const riggedEntry = this.createRiggedPedestrianEntry(
         id,
+        entry.variantIndex,
         entry.shirtColorHex,
+        entry.pantsColorHex,
+        valeriaAsset,
         characterAsset,
       );
+      if (!riggedEntry) {
+        continue;
+      }
+
       riggedEntry.group.position.copy(entry.group.position);
       riggedEntry.group.rotation.copy(entry.group.rotation);
       riggedEntry.group.visible = entry.group.visible;
@@ -897,6 +1101,54 @@ export class WorldRenderer {
     this.mateoIsRigged = true;
   }
 
+  private mountSummitDancer(
+    valeriaAsset: LoadedCharacterAsset,
+    characterAsset: LoadedCharacterAsset | null,
+  ): void {
+    this.disposeSummitDancer();
+
+    const rig = createValeriaPlayerMesh(valeriaAsset, characterAsset, {
+      skinToneHex: SUMMIT_DANCER_SKIN_TONE_HEX,
+    });
+    rig.group.name = 'npc_summit_dancer';
+    rig.group.position.set(1.55, 0, 2.05);
+    rig.group.rotation.y = -0.22;
+
+    if (rig.actions.dance) {
+      rig.mixer.stopAllAction();
+      rig.actions.dance
+        .reset()
+        .setLoop(THREE.LoopRepeat, Infinity)
+        .setEffectiveTimeScale(1)
+        .setEffectiveWeight(1)
+        .play();
+    }
+
+    this.missionProps.summit_stage.add(rig.group);
+    this.summitDancerGroup = rig.group;
+    this.summitDancerMixer = rig.mixer;
+  }
+
+  private disposeSummitDancer(): void {
+    disposeAnimationMixer(this.summitDancerMixer);
+    this.summitDancerMixer = null;
+    if (this.summitDancerGroup) {
+      this.summitDancerGroup.parent?.remove(this.summitDancerGroup);
+      disposeRiggedCharacterGroup(this.summitDancerGroup);
+      this.summitDancerGroup = null;
+    }
+  }
+
+  private isNearCristoRey(
+    x: number,
+    z: number,
+    maxDistanceSq: number,
+  ): boolean {
+    const dx = x - this.cristoReyPosition.x;
+    const dz = z - this.cristoReyPosition.z;
+    return dx * dx + dz * dz <= maxDistanceSq;
+  }
+
   private animateWater(dt: number, animTime: number): void {
     const waterMat = this.waterMesh.material;
     if (waterMat instanceof THREE.ShaderMaterial) {
@@ -917,7 +1169,11 @@ export class WorldRenderer {
     }
   }
 
-  private syncPlayer(world: WorldSnapshot, dt: number): void {
+  private syncPlayer(
+    world: WorldSnapshot,
+    mission: MissionSnapshot,
+    dt: number,
+  ): void {
     const { player } = world;
     const isOnFoot = player.mode === 'on_foot';
     this.playerMesh.visible = isOnFoot;
@@ -931,8 +1187,17 @@ export class WorldRenderer {
     const absSpeed = Math.abs(player.speedMps);
 
     if (this.characterMixer) {
-      const targetState: CharacterLocomotionState =
-        absSpeed <= 0.35
+      const shouldDanceAtCristoRey =
+        mission.mode === 'victory' &&
+        this.characterActions.dance !== undefined &&
+        this.isNearCristoRey(
+          player.x,
+          player.z,
+          CRISTO_REY_PLAYER_DANCE_DISTANCE_SQ,
+        );
+      const targetState: CharacterLocomotionState = shouldDanceAtCristoRey
+        ? 'dance'
+        : absSpeed <= 0.35
           ? 'idle'
           : player.isSprinting || absSpeed > CHARACTER_RUN_SPEED_THRESHOLD_MPS
             ? 'run'
@@ -942,12 +1207,20 @@ export class WorldRenderer {
         const prevAction = this.characterActions[this.activeCharacterState];
         const nextAction = this.characterActions[targetState];
         if (nextAction) {
-          nextAction.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
+          nextAction
+            .reset()
+            .setLoop(THREE.LoopRepeat, Infinity)
+            .setEffectiveTimeScale(1)
+            .setEffectiveWeight(1)
+            .play();
           if (prevAction && prevAction !== nextAction) {
             prevAction.crossFadeTo(nextAction, CHARACTER_CROSSFADE_SECONDS, false);
           }
+          this.activeCharacterState = targetState;
+        } else if (this.activeCharacterState === 'dance' && prevAction) {
+          prevAction.fadeOut(CHARACTER_CROSSFADE_SECONDS);
+          this.activeCharacterState = targetState;
         }
-        this.activeCharacterState = targetState;
       }
 
       this.characterMixer.update(this.reducedMotion ? 0 : dt);
@@ -1096,6 +1369,7 @@ export class WorldRenderer {
 
       this.updateVehicleTransform(entry.mesh, vehicle, dt, isBrakingOrReversing);
       this.emitVehicleParticles(vehicle);
+      this.emitVehicleSkidMarks(vehicle, dt);
     }
 
     // Remove & dispose vehicles that are no longer present in the snapshot
@@ -1105,8 +1379,69 @@ export class WorldRenderer {
         disposeObjectTree(entry.mesh);
         this.vehiclePool.delete(id);
         this.prevSpeeds.delete(id);
+        this.vehicleSkidState.delete(id);
       }
     }
+  }
+
+  private emitVehicleSkidMarks(vehicle: VehicleSnapshot, dt: number): void {
+    let skidState = this.vehicleSkidState.get(vehicle.id);
+    if (!skidState) {
+      skidState = {
+        cooldownSeconds: 0,
+        lastX: vehicle.x,
+        lastZ: vehicle.z,
+        hasLastStamp: false,
+      };
+      this.vehicleSkidState.set(vehicle.id, skidState);
+    }
+
+    skidState.cooldownSeconds = Math.max(0, skidState.cooldownSeconds - dt);
+
+    if (!vehicle.isDrifting || vehicle.speedMps <= SKID_MARK_MIN_SPEED_MPS) {
+      skidState.hasLastStamp = false;
+      return;
+    }
+
+    if (skidState.cooldownSeconds > 0) {
+      return;
+    }
+
+    const dx = vehicle.x - skidState.lastX;
+    const dz = vehicle.z - skidState.lastZ;
+    const distSq = dx * dx + dz * dz;
+    if (skidState.hasLastStamp && distSq < SKID_MARK_MIN_DISTANCE_SQ) {
+      return;
+    }
+
+    const segmentLength = skidState.hasLastStamp
+      ? THREE.MathUtils.clamp(Math.sqrt(distSq) * 1.15, 0.85, 2.2)
+      : 0.95;
+    const opacity = THREE.MathUtils.clamp(
+      0.42 + (vehicle.speedMps - SKID_MARK_MIN_SPEED_MPS) * 0.015,
+      0.42,
+      0.68,
+    );
+
+    const tires = computeRearTireWorldPositions(vehicle, (tx, tz) =>
+      sampleObjectiveGroundY(tx, tz, this.map),
+    );
+    this.skidMarks.emitPair(
+      tires.leftX,
+      tires.leftY,
+      tires.leftZ,
+      tires.rightX,
+      tires.rightY,
+      tires.rightZ,
+      vehicle.heading,
+      segmentLength,
+      opacity,
+    );
+
+    skidState.cooldownSeconds = SKID_MARK_MIN_INTERVAL_SECONDS;
+    skidState.lastX = vehicle.x;
+    skidState.lastZ = vehicle.z;
+    skidState.hasLastStamp = true;
   }
 
   private emitVehicleParticles(vehicle: VehicleSnapshot): void {
@@ -1263,25 +1598,36 @@ export class WorldRenderer {
     const list = pedestrians ?? [];
     const activeIds = new Set<string>();
 
-    for (const ped of list) {
+    for (let index = 0; index < list.length; index += 1) {
+      const ped = list[index];
+      if (!ped) {
+        continue;
+      }
       activeIds.add(ped.id);
       let entry = this.pedestrianPool.get(ped.id);
       if (!entry) {
-        entry = this.characterAsset
-          ? this.createRiggedPedestrianEntry(
-              ped.id,
-              ped.shirtColorHex,
-              this.characterAsset,
-            )
-          : {
-              group: createPedestrianMesh(ped.shirtColorHex, ped.pantsColorHex),
-              mixer: null,
-              actions: {},
-              activeActionName: null,
-              isRigged: false,
-              shirtColorHex: ped.shirtColorHex,
-              phaseOffsetSeconds: (hashPedestrianSeed(ped.id) % 100) * 0.025,
-            };
+        const riggedEntry =
+          this.valeriaAsset || this.characterAsset
+            ? this.createRiggedPedestrianEntry(
+                ped.id,
+                index,
+                ped.shirtColorHex,
+                ped.pantsColorHex,
+                this.valeriaAsset,
+                this.characterAsset,
+              )
+            : null;
+        entry = riggedEntry ?? {
+          group: createPedestrianMesh(ped.shirtColorHex, ped.pantsColorHex),
+          mixer: null,
+          actions: {},
+          activeActionName: null,
+          isRigged: false,
+          variantIndex: index,
+          shirtColorHex: ped.shirtColorHex,
+          pantsColorHex: ped.pantsColorHex,
+          phaseOffsetSeconds: (hashPedestrianSeed(ped.id) % 100) * 0.025,
+        };
         this.scene.add(entry.group);
         this.pedestrianPool.set(ped.id, entry);
       }
@@ -1323,8 +1669,8 @@ export class WorldRenderer {
                   false,
                 );
               }
+              entry.activeActionName = targetAction;
             }
-            entry.activeActionName = targetAction;
           }
           entry.mixer.update(dt);
         }
@@ -1432,23 +1778,49 @@ export class WorldRenderer {
     }
   }
 
-  private syncMissionProps(mission: MissionSnapshot, dt: number): void {
+  private syncMissionProps(
+    mission: MissionSnapshot,
+    dt: number,
+    playerX: number,
+    playerZ: number,
+  ): void {
     const objective = mission.activeObjective;
     const target = objective?.target ?? null;
     const propKind = objective?.propKind;
     const activeKey: MissionPropKey | null =
       target && propKind && propKind !== 'none' ? propKind : null;
+    const isNearCristoRey = this.isNearCristoRey(
+      playerX,
+      playerZ,
+      CRISTO_REY_DANCER_ACTIVE_DISTANCE_SQ,
+    );
 
     for (const key of MISSION_PROP_KEYS) {
       const prop = this.missionProps[key];
-      const isVisible = key === activeKey && target !== null;
+      const isSummitStage = key === 'summit_stage';
+      const isObjectiveMatch = key === activeKey && target !== null;
+      const isVisible = isSummitStage
+        ? isObjectiveMatch ||
+          mission.mode === 'victory' ||
+          (this.summitDancerGroup !== null && isNearCristoRey)
+        : isObjectiveMatch;
       prop.visible = isVisible;
-      if (!isVisible || !target) {
+      if (!isVisible) {
         continue;
       }
 
-      const groundY = sampleObjectiveGroundY(target.x, target.z, this.map);
-      prop.position.set(target.x, groundY, target.z);
+      const propTarget: Vec2 | null = isObjectiveMatch
+        ? target
+        : isSummitStage
+          ? this.map.missionWaypoints.mission2Summit
+          : null;
+      if (!propTarget) {
+        prop.visible = false;
+        continue;
+      }
+
+      const groundY = sampleObjectiveGroundY(propTarget.x, propTarget.z, this.map);
+      prop.position.set(propTarget.x, groundY, propTarget.z);
 
       if (key === 'vinyl_briefcase') {
         const record = prop.userData.spinningRecord as THREE.Object3D | undefined;
@@ -1496,6 +1868,9 @@ export class WorldRenderer {
               ? 0.72
               : 0.35 + 0.65 * Math.abs(Math.sin(this.elapsedSeconds * 5.5 + idx * 0.85));
           });
+        }
+        if (this.summitDancerMixer && !this.reducedMotion) {
+          this.summitDancerMixer.update(dt);
         }
       }
     }
