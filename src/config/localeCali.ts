@@ -112,10 +112,10 @@ export const LOCALE_CALI = {
       stageDetail: 'Cruza el puente sur hacia la Calle 5 frente al Estadio Pascual Guerrero.',
       ringBridgeLabel: 'Atraviesa el anillo de turbo en Puente Bulevar Sur',
       ringBridgeDetail:
-        'Lánzate al oeste por Calle 5 y cruza el anillo sobre el Río Cali (+15s y Nitro).',
+        'Lánzate al oeste por Calle 5 y cruza el anillo sobre el Río Cali (+10s y Nitro).',
       ringBulevarLabel: 'Cruza el anillo de turbo en el Bulevar del Río',
       ringBulevarDetail:
-        'Acelera al norte por Avenida Colombia hacia el segundo anillo (+15s y Nitro).',
+        'Acelera al norte por Avenida Colombia hacia el segundo anillo (+10s y Nitro).',
       rampLabel: 'Toma la rampa hacia Cristo Rey',
       rampDetail:
         'Gira al oeste en Av. Circunvalar (Calle 13) para subir al Cerro Los Cristales.',
@@ -140,7 +140,7 @@ export const LOCALE_CALI = {
   dialogues: {
     m1Intro: {
       speaker: 'valeria' as const,
-      text: '¡Quiubo, parce! Móntate en el Banshee que el vinilo maestro nos espera en la Torre de Cali.',
+      text: '¡Quiubo, parce! Corre a pie hasta la Torre de Cali y agarra el vinilo dorado antes de que llegue la tomba.',
     },
     m1Pickup: {
       speaker: 'mateo' as const,
@@ -148,7 +148,7 @@ export const LOCALE_CALI = {
     },
     m1Bulevar: {
       speaker: 'valeria' as const,
-      text: '¡Qué chimba de derrape! Cruza el Puente de La Ermita y los perdemos frente a la iglesia, ¡oís!',
+      text: '¡Qué chimba de cruce por La Ermita, ve! Ahora dale duro hasta la casa segura de Barrio San Antonio y los perdemos.',
     },
     m1Passed: {
       speaker: 'mateo' as const,
@@ -172,7 +172,7 @@ export const LOCALE_CALI = {
     },
     m2Ring1: {
       speaker: 'valeria' as const,
-      text: '¡Qué chimba de pique por el Puente Bulevar Sur! Quince segundos extra y nitro lleno: dale al Bulevar del Río.',
+      text: '¡Qué chimba de pique por el Puente Bulevar Sur! Diez segundos extra y nitro lleno: dale al Bulevar del Río.',
     },
     m2Ring2: {
       speaker: 'mateo' as const,
@@ -214,8 +214,8 @@ export const LOCALE_CALI = {
 
   banners: {
     m1Start: {
-      title: 'FUGA EN EL BULEVAR',
-      subtitle: 'Arranca desde San Antonio hacia la Torre de Cali.',
+      title: 'GOLPE EN LA TORRE',
+      subtitle: 'Corre a pie por el vinilo dorado frente a la Torre de Cali.',
     },
     m1Pickup: {
       title: '¡VINILO ASEGURADO!',
@@ -246,7 +246,7 @@ export const LOCALE_CALI = {
       subtitle: '95 segundos desde el Pascual hasta Cristo Rey.',
     },
     m2RingBonus: {
-      title: '¡ANILLO DE TURBO +15s!',
+      title: '¡ANILLO DE TURBO +10s!',
       subtitle: 'Nitro recargado — sigue a toda mecha por Cali.',
     },
     m2Stage: {

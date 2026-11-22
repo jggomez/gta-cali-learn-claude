@@ -219,6 +219,9 @@ describe('MissionDirector', () => {
     expect(snap.isCountdown).toBe(false);
     expect(snap.failureReason).toBeNull();
     expect(snap.missionTitle).toBe(LOCALE_CALI.missions.mission_1_bulevar.title);
+    expect(snap.banner?.title).toBe('GOLPE EN LA TORRE');
+    expect(snap.banner?.subtitle).toContain('a pie');
+    expect(snap.dialogue?.text).toContain('Corre a pie hasta la Torre de Cali');
     expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission1Pickup.id);
     expect(snap.activeObjective?.kind).toBe('reach_point');
     expect(snap.activeObjective?.requiresOnFoot).toBe(true);
@@ -272,6 +275,7 @@ describe('MissionDirector', () => {
     expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m1Bridge.title);
     expect(snap.banner?.accent).toBe('gold');
     expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m1Bulevar.text);
+    expect(snap.dialogue?.text).toContain('Barrio San Antonio');
     expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission1Hideout.id);
     expect(snap.activeObjective?.kind).toBe('escape_police');
     expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.mission1.hideoutLabel);
@@ -318,6 +322,7 @@ describe('MissionDirector', () => {
     expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission2RingBridge.id);
     expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.mission2.ringBridgeLabel);
     expect(snap.activeObjective?.detail).toBe(LOCALE_CALI.objectives.mission2.ringBridgeDetail);
+    expect(snap.activeObjective?.detail).toContain('+10s');
     expect(snap.activeObjective?.stepIndex).toBe(0);
     expect(snap.activeObjective?.totalSteps).toBe(4);
     expect(snap.activeObjective?.propKind).toBe('mateo_speakers');
@@ -337,11 +342,14 @@ describe('MissionDirector', () => {
     expect(snap.timerSeconds).toBe(90);
     expect(snap.targetWantedStars).toBe(3);
     expect(snap.banner?.title).toBe(LOCALE_CALI.banners.m2RingBonus.title);
+    expect(snap.banner?.title).toContain('+10s');
     expect(snap.banner?.accent).toBe('emerald');
     expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.m2Ring1.text);
+    expect(snap.dialogue?.text).toContain('Diez segundos extra');
     expect(snap.activeObjective?.id).toBe(CALI_MAP.missionWaypoints.mission2RingBulevar.id);
     expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.mission2.ringBulevarLabel);
     expect(snap.activeObjective?.detail).toBe(LOCALE_CALI.objectives.mission2.ringBulevarDetail);
+    expect(snap.activeObjective?.detail).toContain('+10s');
     expect(snap.activeObjective?.stepIndex).toBe(1);
     expect(snap.activeObjective?.totalSteps).toBe(4);
 
