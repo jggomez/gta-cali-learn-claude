@@ -6,18 +6,30 @@
 import type {
   AabbCollider,
   CaliMapConfig,
+  GarageConfig,
   LandmarkDef,
   LandmarkId,
   MissionId,
   MissionStartConfig,
   MissionWaypointsConfig,
+  PayNSprayZone,
   RiverCorridor,
+  RoadblockZone,
   RoadSegment,
   SpawnPose,
+  StuntJumpDef,
   TrafficRoute,
 } from '../types/game';
 
 export const WORLD_HALF_SIZE = 240;
+
+export const DEFAULT_GARAGE_CONFIG: GarageConfig = {
+  carKind: 'renault4_turbo',
+  paintHex: 0xe63946,
+  neonHex: 0x00f0ff,
+  avatar: 'valeria',
+  outfit: 'urbano_cali',
+};
 
 const CRISTO_REY_Z = -24;
 const CRISTO_REY_MAX_ELEVATION = 22;
@@ -372,6 +384,13 @@ export const MISSION_STARTS: Readonly<Record<MissionId, MissionStartConfig>> = {
     initialWantedStars: 3,
     defaultTimeOfDay: 'night',
   },
+  mission_3_pique_bulevar: {
+    playerSpawn: { x: -4, z: 62, heading: Math.PI },
+    carSpawn: { x: -4, z: 62, heading: Math.PI },
+    startInVehicle: true,
+    initialWantedStars: 0,
+    defaultTimeOfDay: 'golden_hour',
+  },
   free_roam: {
     playerSpawn: { x: 6, z: 14, heading: Math.PI / 2 },
     carSpawn: { x: -4, z: 18, heading: Math.PI },
@@ -454,7 +473,134 @@ export const MISSION_WAYPOINTS: MissionWaypointsConfig = {
     radius: 15,
     district: 'Cerro Los Cristales',
   },
+  mission3Checkpoints: [
+    {
+      id: 'm3_cp1_bulevar',
+      landmarkId: 'bulevar_del_rio',
+      x: -4,
+      z: -24,
+      radius: 15,
+      district: 'Bulevar del Río',
+    },
+    {
+      id: 'm3_cp2_ermita',
+      landmarkId: 'la_ermita',
+      x: 58,
+      z: -24,
+      radius: 15,
+      district: 'Iglesia La Ermita',
+    },
+    {
+      id: 'm3_cp3_granada',
+      landmarkId: 'la_ermita',
+      x: 96,
+      z: -68,
+      radius: 15,
+      district: 'Barrio Granada',
+    },
+    {
+      id: 'm3_cp4_oriente',
+      landmarkId: 'estadio_pascual',
+      x: 174,
+      z: 77,
+      radius: 16,
+      district: 'Estadio Pascual Guerrero',
+    },
+    {
+      id: 'm3_cp5_puente_sur',
+      landmarkId: 'bulevar_del_rio',
+      x: 35,
+      z: 77,
+      radius: 16,
+      district: 'Bulevar del Río',
+    },
+    {
+      id: 'm3_cp6_meta_bulevar',
+      landmarkId: 'bulevar_del_rio',
+      x: -4,
+      z: 16,
+      radius: 16,
+      district: 'Bulevar del Río',
+    },
+  ],
 };
+
+export const STUNT_JUMPS: readonly StuntJumpDef[] = [
+  {
+    id: 'stunt_bulevar_launch',
+    name: 'Salto del Bulevar',
+    x: -4,
+    z: 48,
+    heading: Math.PI,
+    length: 9,
+    width: 6,
+    minSpeedMps: 22,
+    launchVy: 11.5,
+    rewardCop: 35_000,
+  },
+  {
+    id: 'stunt_ermita_bridge',
+    name: 'Vuelo de La Ermita',
+    x: 54,
+    z: -24,
+    heading: -Math.PI / 2,
+    length: 9,
+    width: 6,
+    minSpeedMps: 24,
+    launchVy: 12.0,
+    rewardCop: 45_000,
+  },
+  {
+    id: 'stunt_cristo_vista',
+    name: 'Salto Mirador Cristo Rey',
+    x: -120,
+    z: -24,
+    heading: Math.PI / 2,
+    length: 10,
+    width: 6.5,
+    minSpeedMps: 25,
+    launchVy: 13.0,
+    rewardCop: 55_000,
+  },
+];
+
+export const PAY_N_SPRAY_ZONES: readonly PayNSprayZone[] = [
+  {
+    id: 'pay_n_spray_san_antonio',
+    name: 'Taller San Antonio',
+    x: -78,
+    z: 18,
+    radius: 7.5,
+    heading: 0,
+  },
+  {
+    id: 'pay_n_spray_granada',
+    name: 'Taller Barrio Granada',
+    x: 96,
+    z: -12,
+    radius: 7.5,
+    heading: Math.PI / 2,
+  },
+];
+
+export const ROADBLOCK_ZONES: readonly RoadblockZone[] = [
+  {
+    id: 'roadblock_puente_ermita',
+    name: 'Retén Puente La Ermita',
+    x: 38,
+    z: -24,
+    heading: Math.PI / 2,
+    halfWidth: 7.5,
+  },
+  {
+    id: 'roadblock_calle_quinta',
+    name: 'Retén Calle Quinta',
+    x: 38,
+    z: 77,
+    heading: Math.PI / 2,
+    halfWidth: 7.5,
+  },
+];
 
 export const POLICE_SPAWNS: readonly SpawnPose[] = [
   { x: -4, z: -60, heading: 0 },
@@ -501,6 +647,45 @@ export const TRAFFIC_ROUTES: readonly TrafficRoute[] = [
       { x: 174, z: -68 },
       { x: 174, z: 166 },
       { x: 96, z: 166 },
+    ],
+  },
+  {
+    id: 'route_r4_centro',
+    vehicleKind: 'renault4_turbo',
+    speedMps: 15.5,
+    colorHex: 0xe63946,
+    accentHex: 0xf8fafc,
+    waypoints: [
+      { x: -68, z: -24 },
+      { x: -4, z: -24 },
+      { x: -4, z: 36 },
+      { x: -68, z: 36 },
+    ],
+  },
+  {
+    id: 'route_spark_granada',
+    vehicleKind: 'spark_gt_turbo',
+    speedMps: 16.0,
+    colorHex: 0x00f0ff,
+    accentHex: 0x111827,
+    waypoints: [
+      { x: 96, z: -68 },
+      { x: 174, z: -68 },
+      { x: 174, z: 20 },
+      { x: 96, z: 20 },
+    ],
+  },
+  {
+    id: 'route_willys_sur',
+    vehicleKind: 'willys_v8',
+    speedMps: 14.5,
+    colorHex: 0xf59e0b,
+    accentHex: 0x1e293b,
+    waypoints: [
+      { x: -68, z: 77 },
+      { x: -4, z: 77 },
+      { x: -4, z: 166 },
+      { x: -68, z: 166 },
     ],
   },
 ];
@@ -599,4 +784,7 @@ export const CALI_MAP: CaliMapConfig = {
   missionWaypoints: MISSION_WAYPOINTS,
   policeSpawns: POLICE_SPAWNS,
   trafficRoutes: TRAFFIC_ROUTES,
+  stuntJumps: STUNT_JUMPS,
+  payNSprayZones: PAY_N_SPRAY_ZONES,
+  roadblockZones: ROADBLOCK_ZONES,
 };

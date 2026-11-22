@@ -4,10 +4,13 @@
  */
 
 import type {
+  CaliOutfitId,
   CameraMode,
+  CharacterAvatarId,
   DialogueSpeaker,
   LandmarkId,
   MissionId,
+  PlayerCarKind,
   RadioStationId,
   TimeOfDay,
   VehicleKind,
@@ -24,6 +27,13 @@ export interface MissionCopy {
   readonly description: string;
   readonly rewardCop: number;
   readonly badge: string;
+}
+
+export interface GaragePaintPreset {
+  readonly id: string;
+  readonly label: string;
+  readonly paintHex: number;
+  readonly neonHex: number;
 }
 
 export const LOCALE_CALI = {
@@ -49,6 +59,8 @@ export const LOCALE_CALI = {
     { keys: 'Espacio', action: 'Derrape / Freno de mano' },
     { keys: 'Shift', action: 'Nitro / Correr' },
     { keys: 'F', action: 'Subir o bajar del carro' },
+    { keys: 'H', action: 'Pito / Bocina Caleña' },
+    { keys: 'G', action: 'Garaje Caleño' },
     { keys: 'R', action: 'Cambiar emisora FM' },
     { keys: 'V', action: 'Activar / silenciar voces' },
     { keys: 'C', action: 'Cambiar cámara' },
@@ -72,6 +84,14 @@ export const LOCALE_CALI = {
         'Carrera nocturna contrarreloj (95s) desde el Estadio Pascual Guerrero con anillos de turbo y persecución hasta Cristo Rey iluminado.',
       rewardCop: 500_000,
       badge: 'Misión 2',
+    },
+    mission_3_pique_bulevar: {
+      title: 'Pique Callejero en el Bulevar',
+      subtitle: 'Misión 03 · Circuito Urbano de Cali',
+      description:
+        'Compite rueda a rueda en 6 puntos de control desde el Bulevar del Río por La Ermita, Granada y Calle Quinta con emboscada policial.',
+      rewardCop: 400_000,
+      badge: 'Misión 3',
     },
     free_roam: {
       title: 'Modo Libre en Cali',
@@ -122,6 +142,16 @@ export const LOCALE_CALI = {
         'Gira al oeste en Av. Circunvalar (Calle 13) para subir al Cerro Los Cristales.',
       summitLabel: 'Sube al Mirador de Cristo Rey',
       summitDetail: 'Toma la rampa oeste hacia el Cerro Los Cristales hasta la cima.',
+    },
+    mission3: {
+      raceLabel: 'Pique callejero por el Bulevar',
+      raceDetail: 'Supera a los rivales callejeros por los 6 puntos de control hasta la meta.',
+      checkpointLabel: (index: number, total: number) => `Punto de control ${index}/${total}`,
+      checkpointDetail: (district: string) =>
+        `Acelera hacia ${district} y mantén la punta del pique.`,
+      ambushDetail: '¡La tomba armó operativo en Granada! No sueltes el acelerador hasta la meta.',
+      finishLabel: 'Cruza la meta en el Bulevar del Río',
+      finishDetail: '¡Última recta por Avenida Colombia! Mete nitro y corona el pique.',
     },
     freeRoam: {
       exploreLabel: 'Explora La Sucursal del Cielo',
@@ -191,6 +221,26 @@ export const LOCALE_CALI = {
       speaker: 'valeria' as const,
       text: '¡Mirá esa vista desde Cristo Rey! Salsa brava a todo taco y toda Santiago de Cali a nuestros pies.',
     },
+    m3Intro: {
+      speaker: 'valeria' as const,
+      text: '¡A calentar llanta, parce! Arranca el pique callejero por el Bulevar, La Ermita y Granada. ¡A dejarlos comiendo humo!',
+    },
+    m3Ambush: {
+      speaker: 'mateo' as const,
+      text: '¡Pilas, ve! La tomba se metió al pique en Barrio Granada y montó retén en los puentes. ¡Písalo sin miedo!',
+    },
+    m3Passed: {
+      speaker: 'valeria' as const,
+      text: '¡Coronamos el pique del Bulevar, oís! En Cali no hay quien le gane a esta máquina.',
+    },
+    payNSpray: {
+      speaker: 'mateo' as const,
+      text: '¡Qué pinta nueva tan brava, parce! Cero estrellas y carro recién brillado: la tomba ya ni nos reconoce.',
+    },
+    stuntJump: {
+      speaker: 'valeria' as const,
+      text: '¡Qué vuelazo tan épico, ve! Toda La Sucursal del Cielo quedó mirando pa’ arriba.',
+    },
     freeRoamIntro: {
       speaker: 'valeria' as const,
       text: '¡Relájate, oís! Tienes toda Cali pa’ vos: San Antonio, el Bulevar, La Ermita, el Pascual y Cristo Rey.',
@@ -258,6 +308,30 @@ export const LOCALE_CALI = {
       title: '¡RUMBO A CRISTO REY!',
       subtitle: 'Sube a toda mecha por el Cerro Los Cristales.',
     },
+    m3Start: {
+      title: 'PIQUE EN EL BULEVAR',
+      subtitle: '6 puntos de control contra los más rápidos de Cali.',
+    },
+    m3Ambush: {
+      title: '¡OPERATIVO EN EL PIQUE!',
+      subtitle: 'La tomba cayó en Granada — ¡no sueltes el acelerador!',
+    },
+    stuntJump: {
+      title: '¡SALTO ACROBÁTICO!',
+      subtitle: 'Vuelo épico en La Sucursal del Cielo.',
+    },
+    payNSpray: {
+      title: '¡PINTURA NUEVA!',
+      subtitle: 'Estrellas borradas en el taller caleño — camino limpio.',
+    },
+    roadblock: {
+      title: '¡RETÉN EN EL PUENTE!',
+      subtitle: 'La Policía Nacional cerró el paso sobre el Río Cali.',
+    },
+    driftCashout: {
+      title: '¡DERRAPE COBRADO!',
+      subtitle: 'Combo callejero convertido en pesos colombianos.',
+    },
     timeChanged: {
       day: {
         title: 'ATARDECER EN CALI',
@@ -315,12 +389,47 @@ export const LOCALE_CALI = {
   } as Readonly<Record<LandmarkId, string>>,
 
   vehicleNames: {
-    banshee: 'Ferrari Caleño',
-    taxi: 'Taxi Amarillito',
+    renault4_turbo: 'Renault 4 GT Turbo',
+    spark_gt_turbo: 'Spark GT Turbo',
+    willys_v8: 'Jeep Willys Yipao V8',
+    banshee: 'Ferrari 458 Caleño',
+    taxi: 'Taxi Zapatico Turbo',
     mio_bus: 'Bus MIO',
     chiva: 'Chiva Rumbera',
-    police: 'Patrulla Policía',
+    police: 'Patrulla Policía Nacional',
   } as Readonly<Record<VehicleKind, string>>,
+
+  garage: {
+    title: 'Garaje Caleño',
+    subtitle: 'Personaliza tu nave, pintura, neón y pinta en Cali',
+    cars: {
+      renault4_turbo: 'Renault 4 GT Turbo',
+      spark_gt_turbo: 'Spark GT Turbo',
+      willys_v8: 'Jeep Willys Yipao V8',
+      banshee: 'Ferrari 458 Caleño',
+    } as Readonly<Record<PlayerCarKind, string>>,
+    paints: [
+      { id: 'escarlata', label: 'Rojo Escarlata', paintHex: 0xe63946, neonHex: 0x00f0ff },
+      { id: 'azucarero', label: 'Verde Azucarero', paintHex: 0x10b981, neonHex: 0xffb800 },
+      { id: 'vice_rosa', label: 'Fucsia Vice', paintHex: 0xff2e93, neonHex: 0x00f0ff },
+      { id: 'amarillo_cali', label: 'Amarillo Caleño', paintHex: 0xffc400, neonHex: 0xff2e93 },
+      { id: 'azul_cielo', label: 'Azul Sucursal', paintHex: 0x0284c7, neonHex: 0xffb800 },
+      { id: 'blanco_perla', label: 'Blanco Perla', paintHex: 0xf8fafc, neonHex: 0x00e699 },
+    ] as readonly GaragePaintPreset[],
+    avatars: {
+      valeria: 'Valeria (Morena Caleña)',
+      mateo: 'Mateo (Parcero Caleño)',
+    } as Readonly<Record<CharacterAvatarId, string>>,
+    outfits: {
+      urbano_cali: 'Urbano Bulevar',
+      escarlata: 'Camiseta Escarlata',
+      azucarero: 'Camiseta Azucarera',
+      tricolor: 'Tricolor Colombia',
+      guayabera: 'Guayabera Caleña',
+    } as Readonly<Record<CaliOutfitId, string>>,
+    applyCta: 'Aplicar y Rodar',
+    closeCta: 'Cerrar [G]',
+  },
 
   hud: {
     objectiveTag: 'OBJETIVO',
@@ -342,12 +451,16 @@ export const LOCALE_CALI = {
     directionRight: 'Gira a la derecha',
     directionBack: 'Da la vuelta',
     driftLabel: 'DERRAPE',
+    driftComboLabel: (mult: number) => `DERRAPE x${mult}`,
+    racePosLabel: (pos: number, total: number) => `POS ${pos}/${total}`,
     landmarksLabel: 'Íconos',
     audioMutedBadge: 'Silencio',
     voicesOnLabel: '[V] Voces: ON',
     voicesOffLabel: '[V] Voces: OFF',
     voicesHint: '[V] Voces',
     radioHint: '[R] Radio',
+    garageHint: '[G] Garaje',
+    hornHint: '[H] Pito',
     pauseHint: '[Esc] Pausa',
     cameraHint: '[C] Cámara',
     timeToggleHint: '[T] Día/Noche',
@@ -366,6 +479,17 @@ export const LOCALE_CALI = {
       '¡Písalo pues, parcera!',
       '¡Mirá ese Ferrari en Cali!',
       '¡Qué nave tan brava, oís!',
+    ] as readonly string[],
+    pedestrianHorn: [
+      '¡Hágale pues, qué afán, ve!',
+      '¡Ya voy, ya voy, no pite tanto, parce!',
+      '¡Epa, tranquilo que no es ambulancia, oís!',
+      '¡Pite suave que estamos en el Bulevar!',
+    ] as readonly string[],
+    payNSpray: [
+      '¡Quedó como recién salido de vitrina, parce!',
+      '¡Pintura lista y cero estrellas, hágale tranquilo!',
+      '¡Nadie te reconoce en toda Santiago de Cali, ve!',
     ] as readonly string[],
     policeMegaphone: [
       '¡Alto ahí, Policía Nacional! ¡Orille el vehículo!',

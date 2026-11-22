@@ -9,6 +9,7 @@ All assets stored in `public/` are loaded strictly from local files at runtime (
 | `public/models/ferrari.glb` | Ferrari 458 Italia (`ferrari.glb`) | MIT | Three.js Official Examples (`https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/ferrari.glb`) |
 | `public/models/character.glb` | Rigged Human Character (`Soldier.glb`) | MIT | Three.js Official Examples (`https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/Soldier.glb`) |
 | `public/models/valeria.glb` | Rigged Female Character (`Michelle.glb`, Mixamo) | MIT | Three.js / Mixamo Official Examples (`https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/Michelle.glb`) |
+| `public/models/caleno.glb` | Rigged Stylized Human Character (`readyplayer.me.glb`) | MIT | Three.js Official Examples (`https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/readyplayer.me.glb`) |
 
 ## HDRI Environment Skybox
 

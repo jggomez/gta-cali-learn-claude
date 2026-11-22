@@ -14,15 +14,81 @@ export type GameMode =
 export type MissionId =
   | 'mission_1_bulevar'
   | 'mission_2_cristo_rey'
+  | 'mission_3_pique_bulevar'
   | 'free_roam';
 
 export type RadioStationId = 'salsa_brava' | 'sucursal_synth' | 'off';
 
 export type CameraMode = 'chase' | 'cinematic' | 'hood' | 'victory_orbit';
 
-export type VehicleKind = 'banshee' | 'taxi' | 'mio_bus' | 'chiva' | 'police';
+export type PlayerCarKind =
+  | 'renault4_turbo'
+  | 'spark_gt_turbo'
+  | 'willys_v8'
+  | 'banshee';
 
-export type VehicleRole = 'player' | 'traffic' | 'police';
+export type VehicleKind =
+  | PlayerCarKind
+  | 'taxi'
+  | 'mio_bus'
+  | 'chiva'
+  | 'police';
+
+export type VehicleRole = 'player' | 'traffic' | 'police' | 'racer';
+
+export type CharacterAvatarId = 'valeria' | 'mateo';
+
+export type CaliOutfitId =
+  | 'urbano_cali'
+  | 'escarlata'
+  | 'azucarero'
+  | 'tricolor'
+  | 'guayabera';
+
+export type TrafficLightPhase =
+  | 'ns_green'
+  | 'ns_yellow'
+  | 'ew_green'
+  | 'ew_yellow';
+
+export interface GarageConfig {
+  readonly carKind: PlayerCarKind;
+  readonly paintHex: number;
+  readonly neonHex: number;
+  readonly avatar: CharacterAvatarId;
+  readonly outfit: CaliOutfitId;
+}
+
+export interface StuntJumpDef {
+  readonly id: string;
+  readonly name: string;
+  readonly x: number;
+  readonly z: number;
+  readonly heading: number;
+  readonly length: number;
+  readonly width: number;
+  readonly minSpeedMps: number;
+  readonly launchVy: number;
+  readonly rewardCop: number;
+}
+
+export interface PayNSprayZone {
+  readonly id: string;
+  readonly name: string;
+  readonly x: number;
+  readonly z: number;
+  readonly radius: number;
+  readonly heading: number;
+}
+
+export interface RoadblockZone {
+  readonly id: string;
+  readonly name: string;
+  readonly x: number;
+  readonly z: number;
+  readonly heading: number;
+  readonly halfWidth: number;
+}
 
 export type PlayerMode = 'on_foot' | 'driving';
 
@@ -148,7 +214,7 @@ export interface LandmarkDef {
 
 export interface TrafficRoute {
   readonly id: string;
-  readonly vehicleKind: Exclude<VehicleKind, 'banshee' | 'police'>;
+  readonly vehicleKind: Exclude<VehicleKind, 'police'>;
   readonly speedMps: number;
   readonly colorHex: number;
   readonly accentHex?: number;
@@ -182,6 +248,7 @@ export interface MissionWaypointsConfig {
   readonly mission2RingBulevar: MissionWaypoint;
   readonly mission2RampEntry: MissionWaypoint;
   readonly mission2Summit: MissionWaypoint;
+  readonly mission3Checkpoints?: readonly MissionWaypoint[];
 }
 
 export interface CaliMapConfig {
@@ -196,6 +263,9 @@ export interface CaliMapConfig {
   readonly missionWaypoints: MissionWaypointsConfig;
   readonly policeSpawns: readonly SpawnPose[];
   readonly trafficRoutes: readonly TrafficRoute[];
+  readonly stuntJumps?: readonly StuntJumpDef[];
+  readonly payNSprayZones?: readonly PayNSprayZone[];
+  readonly roadblockZones?: readonly RoadblockZone[];
 }
 
 export interface InputState {
@@ -233,6 +303,8 @@ export interface VehicleSnapshot {
   readonly sirenActive: boolean;
   readonly colorHex: number;
   readonly accentHex?: number;
+  readonly neonHex?: number;
+  readonly airborneHeight?: number;
   readonly halfWidth: number;
   readonly halfLength: number;
 }
@@ -270,6 +342,20 @@ export interface WorldSnapshot {
   readonly topSpeedKmh: number;
   readonly currentDistrict: string;
   readonly collisionImpact: number;
+  readonly driftComboMultiplier?: number;
+  readonly driftBankPendingCop?: number;
+  readonly lastDriftCashoutCop?: number;
+  readonly airborneSeconds?: number;
+  readonly lastStuntJumpName?: string | null;
+  readonly lastStuntJumpCop?: number;
+  readonly lastStuntJumpAt?: number;
+  readonly lastPayNSprayAt?: number;
+  readonly lastPayNSprayName?: string | null;
+  readonly roadblockActive?: boolean;
+  readonly racePosition?: number | null;
+  readonly raceTotalRacers?: number;
+  readonly hornActive?: boolean;
+  readonly trafficLightPhase?: TrafficLightPhase;
 }
 
 export interface ObjectiveSnapshot {
@@ -340,6 +426,7 @@ export interface StorageRecords {
   readonly preferredStation: RadioStationId;
   readonly muted: boolean;
   readonly voicesEnabled?: boolean;
+  readonly garage?: GarageConfig;
 }
 
 export interface GameDebugSnapshot {
@@ -350,4 +437,5 @@ export interface GameDebugSnapshot {
   readonly audio: AudioState;
   readonly fps: number;
   readonly assetsLoaded?: boolean;
+  readonly garage?: GarageConfig;
 }

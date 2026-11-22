@@ -66,12 +66,14 @@ function collectAllDeclaredPaths(): string[] {
     ASSET_PATHS.models.ferrari,
     ASSET_PATHS.models.character,
     ASSET_PATHS.models.valeria,
+    ASSET_PATHS.models.caleno,
     ...texturePaths,
   ];
 }
 
 interface GlbJsonChunk {
   readonly nodes?: ReadonlyArray<{ readonly name?: string }>;
+  readonly materials?: ReadonlyArray<{ readonly name?: string }>;
   readonly animations?: ReadonlyArray<{ readonly name?: string }>;
 }
 
@@ -121,6 +123,7 @@ describe('ASSET_PATHS local offline asset pack', () => {
       ASSET_PATHS.models.ferrari,
       ASSET_PATHS.models.character,
       ASSET_PATHS.models.valeria,
+      ASSET_PATHS.models.caleno,
     ]) {
       const url = resolvePublicUrl(glbPath);
       expect(fs.existsSync(url), `missing ${glbPath}`).toBe(true);
@@ -134,6 +137,31 @@ describe('ASSET_PATHS local offline asset pack', () => {
         bytes.byteLength,
       );
     }
+  });
+
+  it('includes Caleño glTF model with Wolf3D outfit/skin materials, Hips bone, and < 10 MB size', async () => {
+    const fs = await loadNodeFs();
+    const calenoUrl = resolvePublicUrl('/models/caleno.glb');
+    expect(fs.existsSync(calenoUrl), 'missing public/models/caleno.glb').toBe(true);
+
+    const bytes = fs.readFileSync(calenoUrl);
+    expect(bytes.byteLength).toBeGreaterThan(1024);
+    expect(bytes.byteLength).toBeLessThan(MAX_ASSET_BYTES);
+    expect(UTF8_DECODER.decode(bytes.slice(0, 4))).toBe('glTF');
+    const headerView = new DataView(bytes.buffer, bytes.byteOffset, 12);
+    expect(headerView.getUint32(4, true)).toBe(2);
+
+    const glbJson = parseGlbJsonChunk(bytes);
+    const materialNames = (glbJson.materials ?? [])
+      .map((mat) => mat.name)
+      .filter((name): name is string => typeof name === 'string');
+    expect(materialNames).toContain('Wolf3D_Outfit_Top');
+    expect(materialNames).toContain('Wolf3D_Skin');
+
+    const nodeNames = (glbJson.nodes ?? [])
+      .map((node) => node.name)
+      .filter((name): name is string => typeof name === 'string');
+    expect(nodeNames).toContain('Hips');
   });
 
   it('includes Valeria glTF model with Mixamo rig bones, SambaDance clip, and < 10 MB size', async () => {
@@ -181,7 +209,7 @@ describe('ASSET_PATHS local offline asset pack', () => {
   it('keeps every file in public/ non-empty and strictly under 10 MB', async () => {
     const fs = await loadNodeFs();
     const allFiles = walkFiles(fs, PUBLIC_ROOT);
-    expect(allFiles.length).toBeGreaterThanOrEqual(35);
+    expect(allFiles.length).toBeGreaterThanOrEqual(36);
 
     for (const fileUrl of allFiles) {
       const stat = fs.statSync(fileUrl);
@@ -201,6 +229,7 @@ describe('ASSET_PATHS local offline asset pack', () => {
     expect(bytes.byteLength).toBeGreaterThan(100);
     const licenseText = UTF8_DECODER.decode(bytes);
     expect(licenseText).toContain('models/valeria.glb');
+    expect(licenseText).toContain('models/caleno.glb');
   });
 });
 
@@ -212,6 +241,7 @@ describe('loadWorldAssets', () => {
     expect(assets.ferrari).toBeNull();
     expect(assets.character).toBeNull();
     expect(assets.valeria).toBeNull();
+    expect(assets.caleno).toBeNull();
     expect(assets.textures.asphalt).toBeNull();
     expect(assets.textures.sidewalk).toBeNull();
     expect(assets.textures.terrain).toBeNull();
@@ -281,6 +311,9 @@ describe('loadWorldAssets', () => {
         if (url === ASSET_PATHS.models.valeria) {
           return { scene: createModelGroup('valeria'), animations: [sambaClip] };
         }
+        if (url === ASSET_PATHS.models.caleno) {
+          return { scene: createModelGroup('caleno'), animations: [] };
+        }
         return { scene: createModelGroup(url), animations: [] };
       },
       loadTexture: async () => trackTexture(new THREE.Texture()),
@@ -296,6 +329,8 @@ describe('loadWorldAssets', () => {
     expect(assets.ferrari).not.toBeNull();
     expect(assets.character?.animations).toEqual([walkClip]);
     expect(assets.valeria?.animations).toEqual([sambaClip]);
+    expect(assets.caleno).not.toBeNull();
+    expect(assets.caleno?.scene.name).toBe('caleno');
 
     for (const set of [assets.textures.asphalt, assets.textures.palmBark, assets.textures.jacarandaLeaves]) {
       expect(set).not.toBeNull();
@@ -316,10 +351,10 @@ describe('loadWorldAssets', () => {
     const firstDisposeGeomCount = disposedGeometries.length;
     const firstDisposeMatCount = disposedMaterials.length;
 
-    // 1 HDRI + 30 PBR maps (10 sets * 3) + 3 model mesh textures = 34 textures
-    expect(firstDisposeTextureCount).toBe(34);
-    expect(firstDisposeGeomCount).toBe(3);
-    expect(firstDisposeMatCount).toBe(3);
+    // 1 HDRI + 30 PBR maps (10 sets * 3) + 4 model mesh textures = 35 textures
+    expect(firstDisposeTextureCount).toBe(35);
+    expect(firstDisposeGeomCount).toBe(4);
+    expect(firstDisposeMatCount).toBe(4);
 
     // Idempotent second dispose does not re-dispose resources
     assets.dispose();
@@ -366,6 +401,7 @@ describe('loadWorldAssets', () => {
     expect(assets.ferrari).toBeNull();
     expect(assets.character).not.toBeNull();
     expect(assets.valeria).not.toBeNull();
+    expect(assets.caleno).not.toBeNull();
     expect(assets.textures.asphalt).toBeNull();
     expect(orphanedDisposes).toHaveBeenCalledTimes(2);
     expect(assets.textures.sidewalk).not.toBeNull();

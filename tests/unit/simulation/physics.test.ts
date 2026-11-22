@@ -310,18 +310,27 @@ describe('simulation/physics on-foot movement', () => {
 
 describe('simulation/physics per-vehicle handling profiles', () => {
   it('defines distinct speed and agility tiers across all Cali VehicleKinds', () => {
+    const renault4 = getVehicleHandlingProfile('renault4_turbo');
+    const sparkGt = getVehicleHandlingProfile('spark_gt_turbo');
+    const willys = getVehicleHandlingProfile('willys_v8');
     const banshee = getVehicleHandlingProfile('banshee');
     const police = getVehicleHandlingProfile('police');
     const taxi = getVehicleHandlingProfile('taxi');
     const chiva = getVehicleHandlingProfile('chiva');
     const mioBus = getVehicleHandlingProfile('mio_bus');
 
+    expect(renault4.baseMaxSpeedMps).toBe(41);
+    expect(renault4.boostMaxSpeedMps).toBe(56);
+    expect(sparkGt.baseMaxSpeedMps).toBe(40);
+    expect(sparkGt.boostMaxSpeedMps).toBe(54.5);
+    expect(willys.baseMaxSpeedMps).toBe(38.5);
+    expect(willys.boostMaxSpeedMps).toBe(53);
     expect(banshee.baseMaxSpeedMps).toBe(40);
     expect(banshee.boostMaxSpeedMps).toBe(54);
-    expect(police.baseMaxSpeedMps).toBe(36);
-    expect(police.boostMaxSpeedMps).toBe(47);
-    expect(taxi.baseMaxSpeedMps).toBe(30);
-    expect(taxi.boostMaxSpeedMps).toBe(38);
+    expect(police.baseMaxSpeedMps).toBe(37);
+    expect(police.boostMaxSpeedMps).toBe(49);
+    expect(taxi.baseMaxSpeedMps).toBe(33);
+    expect(taxi.boostMaxSpeedMps).toBe(46);
     expect(chiva.baseMaxSpeedMps).toBe(22);
     expect(chiva.boostMaxSpeedMps).toBe(28);
     expect(mioBus.baseMaxSpeedMps).toBe(21);
@@ -351,9 +360,9 @@ describe('simulation/physics per-vehicle handling profiles', () => {
     const taxiSpeed = runThrottle('taxi');
     const busSpeed = runThrottle('mio_bus');
 
-    expect(bansheeSpeed).toBeGreaterThan(taxiSpeed + 8);
-    expect(taxiSpeed).toBeGreaterThan(busSpeed + 7);
-    expect(taxiSpeed).toBeLessThanOrEqual(30.5);
+    expect(bansheeSpeed).toBeGreaterThan(taxiSpeed + 6);
+    expect(taxiSpeed).toBeGreaterThan(busSpeed + 10);
+    expect(taxiSpeed).toBeLessThanOrEqual(33.5);
     expect(busSpeed).toBeLessThanOrEqual(21.5);
   });
 

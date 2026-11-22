@@ -132,6 +132,21 @@ const CROWD_MURMUR_FILTER_HZ = 420;
 const CROWD_MURMUR_SATURATION_PEDS = 8;
 
 const VEHICLE_ENGINE_CURVES: Readonly<Record<VehicleKind, VehicleEngineCurve>> = {
+  renault4_turbo: {
+    thresholdsKmh: [0, 42, 84, 128, 174, 224],
+    minHz: 74,
+    maxHz: 285,
+  },
+  spark_gt_turbo: {
+    thresholdsKmh: [0, 40, 80, 122, 166, 214],
+    minHz: 78,
+    maxHz: 295,
+  },
+  willys_v8: {
+    thresholdsKmh: [0, 38, 76, 118, 160, 206],
+    minHz: 52,
+    maxHz: 215,
+  },
   banshee: {
     thresholdsKmh: [0, 44, 86, 130, 174, 230],
     minHz: 64,

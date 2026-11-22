@@ -1999,6 +1999,9 @@ export function createVehicleMesh(
   accentHex?: number,
 ): THREE.Group {
   switch (kind) {
+    case 'renault4_turbo':
+    case 'spark_gt_turbo':
+    case 'willys_v8':
     case 'banshee':
       return buildBansheeMesh(colorHex, accentHex ?? 0x00f0ff);
     case 'taxi':

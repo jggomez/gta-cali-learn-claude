@@ -281,11 +281,15 @@ function getHeadlightMountHeight(kind: VehicleKind): number {
     case 'mio_bus':
     case 'chiva':
       return 1.25;
-    case 'banshee':
-      return 0.88;
+    case 'willys_v8':
+      return 1.06;
+    case 'renault4_turbo':
+    case 'spark_gt_turbo':
     case 'taxi':
     case 'police':
       return 1.02;
+    case 'banshee':
+      return 0.88;
   }
 }
 

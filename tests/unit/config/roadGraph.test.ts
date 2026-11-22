@@ -79,9 +79,12 @@ describe('roadGraph GPS routing and bearing math', () => {
   });
 
   it('connects all 6 Cali landmarks and all mission waypoints without crossing river water', () => {
+    const flattenedWaypoints = Object.values(MISSION_WAYPOINTS).flatMap((entry) =>
+      Array.isArray(entry) ? entry : entry ? [entry] : [],
+    );
     const points: { readonly name: string; readonly pos: Vec2 }[] = [
       ...LANDMARKS.map((landmark) => ({ name: landmark.id, pos: landmark.position })),
-      ...Object.values(MISSION_WAYPOINTS).map((wp) => ({
+      ...flattenedWaypoints.map((wp) => ({
         name: wp.id,
         pos: { x: wp.x, z: wp.z },
       })),
@@ -100,6 +103,9 @@ describe('roadGraph GPS routing and bearing math', () => {
       const origin = points[i]!;
       for (let j = i + 1; j < points.length; j += 1) {
         const dest = points[j]!;
+        if (origin.pos.x === dest.pos.x && origin.pos.z === dest.pos.z) {
+          continue;
+        }
         const route = computeGpsRoute(origin.pos, dest.pos, CALI_MAP);
         expect(route.length, `Route ${origin.name} -> ${dest.name}`).toBeGreaterThanOrEqual(2);
         expect(route[0]).toEqual(origin.pos);
@@ -238,14 +244,17 @@ describe('roadGraph GPS routing and bearing math', () => {
   });
 
   it('exposes C-04 Español Caleño vehicle names, banners, HUD strings, and dialogues', () => {
-    expect(LOCALE_CALI.vehicleNames.banshee).toBe('Ferrari Caleño');
-    expect(LOCALE_CALI.vehicleNames.taxi).toBe('Taxi Amarillito');
+    expect(LOCALE_CALI.vehicleNames.renault4_turbo).toBe('Renault 4 GT Turbo');
+    expect(LOCALE_CALI.vehicleNames.spark_gt_turbo).toBe('Spark GT Turbo');
+    expect(LOCALE_CALI.vehicleNames.willys_v8).toBe('Jeep Willys Yipao V8');
+    expect(LOCALE_CALI.vehicleNames.banshee).toBe('Ferrari 458 Caleño');
+    expect(LOCALE_CALI.vehicleNames.taxi).toBe('Taxi Zapatico Turbo');
     expect(LOCALE_CALI.vehicleNames.mio_bus).toBe('Bus MIO');
     expect(LOCALE_CALI.vehicleNames.chiva).toBe('Chiva Rumbera');
-    expect(LOCALE_CALI.vehicleNames.police).toBe('Patrulla Policía');
+    expect(LOCALE_CALI.vehicleNames.police).toBe('Patrulla Policía Nacional');
     expect(LOCALE_CALI.hud.stepProgress(2, 4)).toBe('PASO 2 DE 4');
-    expect(LOCALE_CALI.hud.enterNamedVehicle('Taxi Amarillito')).toBe(
-      '[F] Subir a Taxi Amarillito',
+    expect(LOCALE_CALI.hud.enterNamedVehicle('Taxi Zapatico Turbo')).toBe(
+      '[F] Subir a Taxi Zapatico Turbo',
     );
     expect(LOCALE_CALI.hud.hijackNamedVehicle('Bus MIO')).toBe('[F] Tomar Bus MIO');
     expect(LOCALE_CALI.objectives.mission2.rampLabel.length).toBeGreaterThan(0);

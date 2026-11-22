@@ -75,6 +75,9 @@ interface VehicleDimensions {
 }
 
 const VEHICLE_DIMENSIONS: Readonly<Record<VehicleKind, VehicleDimensions>> = {
+  renault4_turbo: { halfWidth: 0.94, halfLength: 2.05 },
+  spark_gt_turbo: { halfWidth: 0.92, halfLength: 1.98 },
+  willys_v8: { halfWidth: 1.04, halfLength: 2.15 },
   banshee: { halfWidth: 1.05, halfLength: 2.35 },
   taxi: { halfWidth: 0.95, halfLength: 2.15 },
   mio_bus: { halfWidth: 1.3, halfLength: 4.4 },
