@@ -1,8 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AudioEngine } from '../../src/audio/audioEngine';
+import {
+  VoiceEngine,
+  type SpeechSynthesisLike,
+  type SpeechUtteranceLike,
+} from '../../src/audio/voiceEngine';
 import { CALI_MAP } from '../../src/config/caliMap';
+import { LOCALE_CALI } from '../../src/config/localeCali';
+import { GameApp } from '../../src/game/gameApp';
 import { InputManager, type InputTargetLike } from '../../src/game/inputManager';
-import { MissionDirector, StorageAdapter, type StorageLike } from '../../src/missions/missionDirector';
+import {
+  MissionDirector,
+  STORAGE_KEY,
+  StorageAdapter,
+  type StorageLike,
+} from '../../src/missions/missionDirector';
 import { GameWorld } from '../../src/simulation/gameWorld';
 import { normalizeAngle } from '../../src/simulation/physics';
 import type {
@@ -834,5 +846,469 @@ describe('GTA VI: Cali headless game loop integration', () => {
     const keyboardOnly = new InputManager({}, windowTarget);
     expect(keyboardOnly.consumeCameraLook()).toEqual({ yawDelta: 0, pitchDelta: 0, zoomDelta: 0 });
     keyboardOnly.dispose();
+  });
+
+  it('binds KeyV to onToggleVoices on non-repeat keydown and persists voicesEnabled via MissionDirector', () => {
+    const target = new SyntheticInputTarget();
+    const onToggleVoices = vi.fn();
+    const inputManager = new InputManager({ onToggleVoices }, target);
+
+    target.emit('keydown', { code: 'KeyV' });
+    target.emit('keydown', { code: 'KeyV', repeat: true });
+    expect(onToggleVoices).toHaveBeenCalledTimes(1);
+
+    target.emit('keyup', { code: 'KeyV' });
+    target.emit('keydown', {
+      code: 'KeyV',
+      target: { tagName: 'INPUT' } as unknown as EventTarget,
+    });
+    expect(onToggleVoices).toHaveBeenCalledTimes(1);
+
+    target.emit('keydown', { code: 'KeyV' });
+    expect(onToggleVoices).toHaveBeenCalledTimes(2);
+    inputManager.dispose();
+
+    // Persistence of voicesEnabled and legacy default true
+    const backing = createMemoryStorage();
+    backing.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        bestTimes: {},
+        completedMissions: [],
+        discoveredLandmarks: [],
+        totalCashCop: 0,
+        preferredStation: 'salsa_brava',
+        muted: false,
+      }),
+    );
+
+    const legacyDirector = new MissionDirector(CALI_MAP, new StorageAdapter(backing));
+    expect(legacyDirector.getRecords().voicesEnabled ?? true).toBe(true);
+
+    legacyDirector.saveAudioPreferences('sucursal_synth', false, false);
+    const reloadedDisabled = new StorageAdapter(backing).loadRecords();
+    expect(reloadedDisabled.voicesEnabled).toBe(false);
+    expect(reloadedDisabled.preferredStation).toBe('sucursal_synth');
+
+    // Omitting voicesEnabled preserves stored value rather than clobbering
+    legacyDirector.saveAudioPreferences('salsa_brava', true);
+    expect(new StorageAdapter(backing).loadRecords().voicesEnabled).toBe(false);
+
+    // Explicitly re-enabling persists true
+    legacyDirector.saveAudioPreferences('salsa_brava', false, true);
+    expect(new StorageAdapter(backing).loadRecords().voicesEnabled).toBe(true);
+  });
+
+  it('wires GameApp KeyV toggle, localStorage reload persistence, mission dialogues, police megaphone + squelch, collision foley, pedestrian callouts, and VoiceEngine disposal', () => {
+    class FakeNode {
+      public readonly tagName: string;
+      public className = '';
+      public textContent = '';
+      public hidden = false;
+      public type = '';
+      public width = 0;
+      public height = 0;
+      public clientWidth = 1280;
+      public clientHeight = 720;
+      public readonly dataset: Record<string, string> = {};
+      public readonly style: Record<string, string> = {};
+      public readonly children: FakeNode[] = [];
+      private readonly attributes = new Map<string, string>();
+      private readonly listeners = new Map<string, EventListener[]>();
+      private parent: FakeNode | null = null;
+
+      public constructor(tagName: string) {
+        this.tagName = tagName.toLowerCase();
+      }
+
+      public setAttribute(name: string, value: string): void {
+        this.attributes.set(name, value);
+      }
+
+      public getAttribute(name: string): string | null {
+        return this.attributes.get(name) ?? null;
+      }
+
+      public append(...nodes: FakeNode[]): void {
+        for (const node of nodes) {
+          this.appendChild(node);
+        }
+      }
+
+      public appendChild(node: FakeNode): FakeNode {
+        node.parent = this;
+        this.children.push(node);
+        return node;
+      }
+
+      public remove(): void {
+        if (!this.parent) {
+          return;
+        }
+        const idx = this.parent.children.indexOf(this);
+        if (idx >= 0) {
+          this.parent.children.splice(idx, 1);
+        }
+        this.parent = null;
+      }
+
+      public addEventListener(type: string, listener: EventListener): void {
+        const list = this.listeners.get(type) ?? [];
+        list.push(listener);
+        this.listeners.set(type, list);
+      }
+
+      public removeEventListener(type: string, listener: EventListener): void {
+        const list = this.listeners.get(type);
+        if (!list) {
+          return;
+        }
+        const idx = list.indexOf(listener);
+        if (idx >= 0) {
+          list.splice(idx, 1);
+        }
+      }
+
+      public click(): void {
+        for (const listener of this.listeners.get('click') ?? []) {
+          listener({} as Event);
+        }
+      }
+
+      public contains(): boolean {
+        return false;
+      }
+
+      public getContext(): null {
+        return null;
+      }
+
+      public findFirst(predicate: (el: FakeNode) => boolean): FakeNode | null {
+        if (predicate(this)) {
+          return this;
+        }
+        for (const child of this.children) {
+          const hit = child.findFirst(predicate);
+          if (hit) {
+            return hit;
+          }
+        }
+        return null;
+      }
+    }
+
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+    const storage = createMemoryStorage();
+    const windowTarget = new SyntheticInputTarget();
+    let rafHandle = 0;
+    const rafCallbacks = new Map<number, FrameRequestCallback>();
+
+    const fakeWindow = {
+      innerWidth: 1280,
+      innerHeight: 720,
+      devicePixelRatio: 1,
+      localStorage: storage,
+      addEventListener: windowTarget.addEventListener.bind(windowTarget),
+      removeEventListener: windowTarget.removeEventListener.bind(windowTarget),
+      requestAnimationFrame: (cb: FrameRequestCallback): number => {
+        rafHandle += 1;
+        rafCallbacks.set(rafHandle, cb);
+        return rafHandle;
+      },
+      cancelAnimationFrame: (id: number): void => {
+        rafCallbacks.delete(id);
+      },
+    };
+
+    const fakeDocument = {
+      activeElement: null,
+      pointerLockElement: null,
+      createElement: (tag: string) => new FakeNode(tag),
+    };
+
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: fakeWindow,
+    });
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      writable: true,
+      value: fakeDocument,
+    });
+
+    const playCollisionSpy = vi.spyOn(AudioEngine.prototype, 'playCollision');
+    const playRadioSquelchSpy = vi.spyOn(AudioEngine.prototype, 'playRadioSquelch');
+
+    let nowMs = 10_000;
+    const spokenUtterances: SpeechUtteranceLike[] = [];
+    const synthCancelSpy = vi.fn();
+    const synthStub: SpeechSynthesisLike = {
+      getVoices: () => [{ lang: 'es-CO', name: 'Salomé Colombia' }],
+      speak: (utterance: SpeechUtteranceLike) => {
+        spokenUtterances.push({ ...utterance });
+      },
+      cancel: synthCancelSpy,
+    };
+    const makeUtterance = (text: string): SpeechUtteranceLike => ({
+      text,
+      lang: 'es-CO',
+      rate: 1,
+      pitch: 1,
+      volume: 1,
+      voice: null,
+    });
+
+    const voiceEngine = new VoiceEngine({
+      synthFactory: () => synthStub,
+      utteranceFactory: makeUtterance,
+      nowMs: () => nowMs,
+    });
+    const speakSpy = vi.spyOn(voiceEngine, 'speak');
+    const disposeVoiceSpy = vi.spyOn(voiceEngine, 'dispose');
+
+    let currentFrameTime = 0;
+    const tickFrame = (deltaMs = 16.67): void => {
+      currentFrameTime += deltaMs;
+      const entries = [...rafCallbacks.entries()];
+      rafCallbacks.clear();
+      for (const [, cb] of entries) {
+        cb(currentFrameTime);
+      }
+    };
+
+    try {
+      const canvas = new FakeNode('canvas') as unknown as HTMLCanvasElement;
+      const hudRoot = new FakeNode('div');
+      const app = new GameApp(canvas, hudRoot as unknown as HTMLElement, CALI_MAP, {
+        voiceEngine,
+      });
+      app.start();
+
+      // Initially voicesEnabled is true and button reflects ON
+      expect(app.getDebugSnapshot().audio.voicesEnabled).toBe(true);
+      const voicesBtn = hudRoot.findFirst((el) => el.dataset.testid === 'btn-voices');
+      expect(voicesBtn).not.toBeNull();
+      expect(voicesBtn?.textContent).toBe(LOCALE_CALI.hud.voicesOnLabel);
+
+      // Press KeyV -> disables voices, updates HUD & persists to localStorage
+      windowTarget.emit('keydown', { code: 'KeyV' });
+      windowTarget.emit('keyup', { code: 'KeyV' });
+      expect(app.getDebugSnapshot().audio.voicesEnabled).toBe(false);
+      expect(voiceEngine.isEnabled()).toBe(false);
+      expect(voicesBtn?.textContent).toBe(LOCALE_CALI.hud.voicesOffLabel);
+      expect(voicesBtn?.getAttribute('aria-pressed')).toBe('false');
+      expect(new StorageAdapter(storage).loadRecords().voicesEnabled).toBe(false);
+
+      // Reload a fresh GameApp against the same localStorage -> restores voicesEnabled === false
+      const reloadedHudRoot = new FakeNode('div');
+      const reloadedApp = new GameApp(
+        new FakeNode('canvas') as unknown as HTMLCanvasElement,
+        reloadedHudRoot as unknown as HTMLElement,
+        CALI_MAP,
+      );
+      expect(reloadedApp.getDebugSnapshot().audio.voicesEnabled).toBe(false);
+      reloadedApp.dispose();
+
+      // Re-enable voices via clicking [data-testid="btn-voices"] HUD pill
+      voicesBtn?.click();
+      expect(app.getDebugSnapshot().audio.voicesEnabled).toBe(true);
+      expect(voiceEngine.isEnabled()).toBe(true);
+      expect(voicesBtn?.textContent).toBe(LOCALE_CALI.hud.voicesOnLabel);
+      expect(voicesBtn?.getAttribute('aria-pressed')).toBe('true');
+
+      // Mute via KeyM syncs voiceEngine.setMuted and preserves voicesEnabled
+      windowTarget.emit('keydown', { code: 'KeyM' });
+      windowTarget.emit('keyup', { code: 'KeyM' });
+      expect(voiceEngine.isMuted()).toBe(true);
+      expect(new StorageAdapter(storage).loadRecords().voicesEnabled).toBe(true);
+      windowTarget.emit('keydown', { code: 'KeyM' });
+      windowTarget.emit('keyup', { code: 'KeyM' });
+      expect(voiceEngine.isMuted()).toBe(false);
+
+      // Start Mission 1 -> mission intro dialogue speaks via VoiceEngine ('valeria', 'mission')
+      const m1Btn = hudRoot.findFirst((el) => el.dataset.testid === 'btn-mission-1');
+      expect(m1Btn).not.toBeNull();
+      m1Btn?.click();
+      tickFrame();
+
+      expect(speakSpy).toHaveBeenCalledWith(
+        LOCALE_CALI.dialogues.m1Intro.text,
+        'valeria',
+        'mission',
+      );
+      const m1IntroCallCount = speakSpy.mock.calls.filter(
+        ([text]) => text === LOCALE_CALI.dialogues.m1Intro.text,
+      ).length;
+      expect(m1IntroCallCount).toBe(1);
+
+      // Stepping again with the same dialogue ID must NOT duplicate speech
+      tickFrame();
+      expect(
+        speakSpy.mock.calls.filter(([text]) => text === LOCALE_CALI.dialogues.m1Intro.text).length,
+      ).toBe(1);
+
+      // Simulate collision, police pursuit within 48m, wanted escalation, and pedestrian street callouts
+      const baseWorld = app.getDebugSnapshot().world;
+      const stepSpy = vi.spyOn(GameWorld.prototype, 'step');
+
+      // Advance clock past 3500ms mission protect window so callouts are eligible
+      nowMs += 5000;
+      const nearbyPoliceSnapshot: WorldSnapshot = {
+        ...baseWorld,
+        wantedStars: 2,
+        collisionImpact: 0.62,
+        vehicles: [
+          ...baseWorld.vehicles,
+          {
+            id: 'police_unit_test',
+            kind: 'police',
+            role: 'police',
+            x: baseWorld.player.x + 12,
+            y: 0,
+            z: baseWorld.player.z + 8,
+            heading: 0,
+            speedMps: 14,
+            speedKmh: 50,
+            steerAngle: 0,
+            isDrifting: false,
+            isBoosting: false,
+            nitro: 100,
+            sirenActive: true,
+            colorHex: 0xffffff,
+            halfWidth: 1.05,
+            halfLength: 2.25,
+          },
+        ],
+        pedestrians: [
+          {
+            id: 'ped_flee_1',
+            x: baseWorld.player.x + 5,
+            y: 0,
+            z: baseWorld.player.z + 4,
+            heading: 0,
+            speedMps: 4,
+            fleeing: true,
+            shirtColorHex: 0xff2e93,
+            pantsColorHex: 0x1d0e3d,
+          },
+        ],
+      };
+
+      stepSpy.mockReturnValueOnce(nearbyPoliceSnapshot);
+      const getSnapshotSpy = vi
+        .spyOn(GameWorld.prototype, 'getSnapshot')
+        .mockReturnValue(nearbyPoliceSnapshot);
+
+      playRadioSquelchSpy.mockClear();
+      playCollisionSpy.mockClear();
+
+      tickFrame();
+
+      // Collision impact > 0.14 triggers playCollision
+      expect(playCollisionSpy).toHaveBeenCalledWith(0.62);
+      // Police megaphone callout spoken + squelch triggered (both wanted escalation and megaphone)
+      expect(speakSpy).toHaveBeenCalledWith(
+        LOCALE_CALI.voiceLines.policeMegaphone[0],
+        'police',
+        'callout',
+      );
+      expect(playRadioSquelchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+      // Newly fleeing pedestrian within 14m triggers pedestrianFlee callout
+      expect(speakSpy).toHaveBeenCalledWith(
+        LOCALE_CALI.voiceLines.pedestrianFlee[0],
+        'pedestrian',
+        'callout',
+      );
+
+      // Advance clock past pedestrian 6500ms cooldown -> fast Banshee past pedestrian within 13m triggers admire
+      nowMs += 7000;
+      const admireSnapshot: WorldSnapshot = {
+        ...baseWorld,
+        wantedStars: 0,
+        collisionImpact: 0,
+        player: {
+          ...baseWorld.player,
+          mode: 'driving',
+          vehicleId: 'player_banshee',
+          speedMps: 24,
+          speedKmh: 86,
+          isDrifting: false,
+        },
+        pedestrians: [
+          {
+            id: 'ped_admire_1',
+            x: baseWorld.player.x + 6,
+            y: 0,
+            z: baseWorld.player.z + 5,
+            heading: 0,
+            speedMps: 1.2,
+            fleeing: false,
+            shirtColorHex: 0x00f0ff,
+            pantsColorHex: 0x1d0e3d,
+          },
+        ],
+      };
+      stepSpy.mockReturnValueOnce(admireSnapshot);
+      getSnapshotSpy.mockReturnValue(admireSnapshot);
+
+      tickFrame();
+      expect(speakSpy).toHaveBeenCalledWith(
+        LOCALE_CALI.voiceLines.pedestrianAdmire[0],
+        'pedestrian',
+        'callout',
+      );
+
+      // Advance past cooldown -> drifting Banshee near pedestrian rotates to next admire line
+      nowMs += 7000;
+      const driftAdmireSnapshot: WorldSnapshot = {
+        ...admireSnapshot,
+        player: {
+          ...admireSnapshot.player,
+          speedMps: 11,
+          speedKmh: 40,
+          isDrifting: true,
+        },
+      };
+      stepSpy.mockReturnValueOnce(driftAdmireSnapshot);
+      getSnapshotSpy.mockReturnValue(driftAdmireSnapshot);
+      tickFrame();
+      expect(speakSpy).toHaveBeenCalledWith(
+        LOCALE_CALI.voiceLines.pedestrianAdmire[1],
+        'pedestrian',
+        'callout',
+      );
+
+      stepSpy.mockRestore();
+      getSnapshotSpy.mockRestore();
+
+      // Mission restart via Pause -> Restart resets lastSpokenDialogueId and re-speaks intro
+      windowTarget.emit('keydown', { code: 'Escape' });
+      windowTarget.emit('keyup', { code: 'Escape' });
+      const restartBtn = hudRoot.findFirst((el) => el.dataset.testid === 'btn-restart');
+      expect(restartBtn).not.toBeNull();
+      restartBtn?.click();
+      expect(
+        speakSpy.mock.calls.filter(([text]) => text === LOCALE_CALI.dialogues.m1Intro.text).length,
+      ).toBe(2);
+
+      // Dispose cleanly disposes VoiceEngine
+      app.dispose();
+      expect(disposeVoiceSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        writable: true,
+        value: originalWindow,
+      });
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        writable: true,
+        value: originalDocument,
+      });
+    }
   });
 });

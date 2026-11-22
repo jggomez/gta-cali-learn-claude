@@ -9,6 +9,7 @@ export interface InputActionCallbacks {
   readonly onCycleRadio?: () => void;
   readonly onCycleCamera?: () => void;
   readonly onToggleMute?: () => void;
+  readonly onToggleVoices?: () => void;
   readonly onTogglePause?: () => void;
   readonly onToggleTimeOfDay?: () => void;
   readonly onAnyUserGesture?: () => void;
@@ -319,6 +320,9 @@ export class InputManager {
         break;
       case 'KeyM':
         this.callbacks.onToggleMute?.();
+        break;
+      case 'KeyV':
+        this.callbacks.onToggleVoices?.();
         break;
       case 'KeyT':
         if (isPlaying) {

@@ -112,6 +112,9 @@ function cloneRecords(records: StorageRecords): StorageRecords {
     totalCashCop: records.totalCashCop,
     preferredStation: records.preferredStation,
     muted: records.muted,
+    ...(typeof records.voicesEnabled === 'boolean'
+      ? { voicesEnabled: records.voicesEnabled }
+      : {}),
   };
 }
 
@@ -170,6 +173,7 @@ function sanitizeRecords(raw: unknown): StorageRecords {
       : 'salsa_brava';
 
   const muted = typeof raw.muted === 'boolean' ? raw.muted : false;
+  const voicesEnabled = typeof raw.voicesEnabled === 'boolean' ? raw.voicesEnabled : undefined;
 
   return {
     version: 1,
@@ -179,6 +183,7 @@ function sanitizeRecords(raw: unknown): StorageRecords {
     totalCashCop,
     preferredStation,
     muted,
+    ...(voicesEnabled !== undefined ? { voicesEnabled } : {}),
   };
 }
 
@@ -432,11 +437,20 @@ export class MissionDirector {
     return this.getSnapshot();
   }
 
-  public saveAudioPreferences(station: RadioStationId, muted: boolean): void {
+  public saveAudioPreferences(
+    station: RadioStationId,
+    muted: boolean,
+    voicesEnabled?: boolean,
+  ): void {
+    const resolvedVoicesEnabled =
+      typeof voicesEnabled === 'boolean'
+        ? voicesEnabled
+        : (this.records.voicesEnabled ?? true);
     this.records = this.storage.saveRecords({
       ...this.records,
       preferredStation: station,
       muted,
+      voicesEnabled: resolvedVoicesEnabled,
     });
   }
 

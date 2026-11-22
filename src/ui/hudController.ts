@@ -24,6 +24,7 @@ export interface HudCallbacks {
   onReturnTitle(): void;
   onCycleRadio(): void;
   onToggleMute(): void;
+  onToggleVoices?: () => void;
   onCycleCamera(): void;
   onTogglePause(): void;
   onRetryWebgl(): void;
@@ -68,6 +69,8 @@ export function formatNitroPercent(nitro: number): number {
 const STRAIGHT_THRESHOLD_RAD = Math.PI / 6;
 const TURN_BACK_THRESHOLD_RAD = (Math.PI * 3) / 4;
 const MAX_STEP_DOTS = 6;
+const VOICES_BTN_BASE_CLASS = 'cali-btn cali-btn--ghost cali-btn--compact cali-voices-pill';
+const VOICES_BTN_OFF_CLASS = `${VOICES_BTN_BASE_CLASS} cali-voices-pill--off`;
 
 export function formatTurnCue(bearingDeltaRad: number | null | undefined): string {
   const rad =
@@ -194,6 +197,7 @@ export class HudController {
   private readonly nitroFill: HTMLElement;
   private readonly radioButton: HTMLButtonElement;
   private readonly radioLabel: HTMLElement;
+  private readonly voicesButton: HTMLButtonElement;
   private readonly muteButton: HTMLButtonElement;
 
   // Overlay dynamic nodes
@@ -270,6 +274,7 @@ export class HudController {
     this.nitroFill = hudParts.nitroFill;
     this.radioButton = hudParts.radioButton;
     this.radioLabel = hudParts.radioLabel;
+    this.voicesButton = hudParts.voicesButton;
     this.muteButton = hudParts.muteButton;
     this.minimapRenderer = new MinimapRenderer(hudParts.minimapCanvas, this.map);
 
@@ -329,6 +334,8 @@ export class HudController {
     setHidden(this.missionPassedOverlay, mode !== 'mission_passed');
     setHidden(this.bustedOverlay, mode !== 'busted');
     setHidden(this.victoryOverlay, mode !== 'victory');
+
+    this.renderVoicesButton(audio);
 
     if (mode === 'title') {
       this.renderTitleCards(mission);
@@ -477,11 +484,26 @@ export class HudController {
       : audio.stationLabel;
     setText(this.radioLabel, radioDisplay);
     this.radioButton.dataset.station = audio.station;
+
     this.muteButton.setAttribute('aria-pressed', String(audio.muted));
     setText(
       this.muteButton,
       audio.muted ? LOCALE_CALI.overlays.pause.toggleUnmute : LOCALE_CALI.overlays.pause.toggleMute,
     );
+  }
+
+  private renderVoicesButton(audio: AudioState): void {
+    const voicesEnabled = audio.voicesEnabled !== false;
+    setText(
+      this.voicesButton,
+      voicesEnabled ? LOCALE_CALI.hud.voicesOnLabel : LOCALE_CALI.hud.voicesOffLabel,
+    );
+    this.voicesButton.setAttribute('aria-pressed', String(voicesEnabled));
+    this.voicesButton.dataset.enabled = voicesEnabled ? 'true' : 'false';
+    const nextVoicesClass = voicesEnabled ? VOICES_BTN_BASE_CLASS : VOICES_BTN_OFF_CLASS;
+    if (this.voicesButton.className !== nextVoicesClass) {
+      this.voicesButton.className = nextVoicesClass;
+    }
   }
 
   private renderStepProgress(objective: MissionSnapshot['activeObjective']): void {
@@ -760,6 +782,7 @@ export class HudController {
     nitroFill: HTMLElement;
     radioButton: HTMLButtonElement;
     radioLabel: HTMLElement;
+    voicesButton: HTMLButtonElement;
     muteButton: HTMLButtonElement;
   } {
     const section = createEl('div', 'cali-hud', 'gameplay-hud');
@@ -966,11 +989,18 @@ export class HudController {
     radioButton.appendChild(radioLabel);
     this.onClick(radioButton, () => this.callbacks.onCycleRadio());
 
+    const voicesButton = createEl('button', VOICES_BTN_BASE_CLASS, 'btn-voices');
+    voicesButton.type = 'button';
+    voicesButton.textContent = LOCALE_CALI.hud.voicesOnLabel;
+    voicesButton.setAttribute('aria-pressed', 'true');
+    voicesButton.dataset.enabled = 'true';
+    this.onClick(voicesButton, () => this.callbacks.onToggleVoices?.());
+
     const muteButton = createEl('button', 'cali-btn cali-btn--ghost cali-btn--compact', 'btn-mute');
     muteButton.type = 'button';
     muteButton.textContent = LOCALE_CALI.overlays.pause.toggleMute;
     this.onClick(muteButton, () => this.callbacks.onToggleMute());
-    audioRow.append(radioButton, muteButton);
+    audioRow.append(radioButton, voicesButton, muteButton);
 
     const hints = createEl('div', 'cali-hud-hints', 'hud-hints');
     const hintTexts = [LOCALE_CALI.hud.radioHint, LOCALE_CALI.hud.cameraHint, LOCALE_CALI.hud.pauseHint];
@@ -1024,6 +1054,7 @@ export class HudController {
       nitroFill,
       radioButton,
       radioLabel,
+      voicesButton,
       muteButton,
     };
   }

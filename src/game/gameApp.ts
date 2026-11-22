@@ -5,16 +5,20 @@
  */
 
 import { AudioEngine } from '../audio/audioEngine';
+import { VoiceEngine, type VoiceProfile } from '../audio/voiceEngine';
 import { CALI_MAP } from '../config/caliMap';
+import { LOCALE_CALI } from '../config/localeCali';
 import { MissionDirector, StorageAdapter, type StorageLike } from '../missions/missionDirector';
 import { GameWorld } from '../simulation/gameWorld';
 import type {
   CaliMapConfig,
   CameraMode,
+  DialogueSpeaker,
   GameDebugSnapshot,
   InputState,
   MissionId,
   MissionSnapshot,
+  WantedLevel,
   WorldSnapshot,
 } from '../types/game';
 import { HudController } from '../ui/hudController';
@@ -28,9 +32,22 @@ declare global {
   }
 }
 
+export interface GameAppOptions {
+  readonly voiceEngine?: VoiceEngine;
+}
+
 const MAX_FRAME_DT_SECONDS = 0.05;
 const DEFAULT_FRAME_DT_SECONDS = 1 / 60;
 const PLAYABLE_CAMERA_MODES: readonly CameraMode[] = ['chase', 'cinematic', 'hood'];
+const COLLISION_FOLEY_THRESHOLD = 0.14;
+const POLICE_MEGAPHONE_RANGE_METERS = 48;
+const POLICE_MEGAPHONE_RANGE_SQ = POLICE_MEGAPHONE_RANGE_METERS * POLICE_MEGAPHONE_RANGE_METERS;
+const PEDESTRIAN_FLEE_RANGE_METERS = 14;
+const PEDESTRIAN_FLEE_RANGE_SQ = PEDESTRIAN_FLEE_RANGE_METERS * PEDESTRIAN_FLEE_RANGE_METERS;
+const PEDESTRIAN_ADMIRE_RANGE_METERS = 13;
+const PEDESTRIAN_ADMIRE_RANGE_SQ =
+  PEDESTRIAN_ADMIRE_RANGE_METERS * PEDESTRIAN_ADMIRE_RANGE_METERS;
+const PEDESTRIAN_ADMIRE_MIN_SPEED_KMH = 65;
 
 const IDLE_INPUT: InputState = {
   forward: false,
@@ -52,10 +69,31 @@ function getBrowserLocalStorage(): StorageLike | null {
 }
 
 function blurFocusedElementInside(container: HTMLElement): void {
+  if (typeof document === 'undefined' || typeof HTMLElement === 'undefined') {
+    return;
+  }
   const active = document.activeElement;
   if (active instanceof HTMLElement && container.contains(active)) {
     active.blur();
   }
+}
+
+function mapDialogueSpeakerToVoiceProfile(speaker: DialogueSpeaker): VoiceProfile {
+  switch (speaker) {
+    case 'valeria':
+      return 'valeria';
+    case 'mateo':
+      return 'mateo';
+    case 'system':
+    case 'radio':
+      return 'system';
+  }
+}
+
+function distance2DSquared(ax: number, az: number, bx: number, bz: number): number {
+  const dx = ax - bx;
+  const dz = az - bz;
+  return dx * dx + dz * dz;
 }
 
 interface WorldRendererAssetsTelemetry {
@@ -93,6 +131,7 @@ export class GameApp {
   private readonly world: GameWorld;
   private readonly missionDirector: MissionDirector;
   private readonly audioEngine: AudioEngine;
+  private readonly voiceEngine: VoiceEngine;
   private readonly hud: HudController;
   private readonly inputManager: InputManager;
   private worldRenderer: WorldRenderer | null = null;
@@ -104,6 +143,13 @@ export class GameApp {
   private running = false;
   private disposed = false;
 
+  private lastSpokenDialogueId: string | null = null;
+  private lastWantedStars: WantedLevel = 0;
+  private prevFleeingPedIds = new Set<string>();
+  private policeMegaphoneIndex = 0;
+  private pedestrianFleeIndex = 0;
+  private pedestrianAdmireIndex = 0;
+
   private readonly handleResizeListener: () => void;
   private readonly handleAnimationFrame: (timestampMs: number) => void;
 
@@ -111,6 +157,7 @@ export class GameApp {
     canvas: HTMLCanvasElement,
     hudRoot: HTMLElement,
     map: CaliMapConfig = CALI_MAP,
+    options: GameAppOptions = {},
   ) {
     this.canvas = canvas;
     this.hudRoot = hudRoot;
@@ -120,11 +167,19 @@ export class GameApp {
     const storage = new StorageAdapter(getBrowserLocalStorage());
     this.missionDirector = new MissionDirector(this.map, storage);
 
-    const savedRecords = this.missionDirector.getRecords();
+    const initialRecords = this.missionDirector.getRecords();
+    const initialVoicesEnabled = initialRecords.voicesEnabled ?? true;
     this.audioEngine = new AudioEngine({
-      station: savedRecords.preferredStation,
-      muted: savedRecords.muted,
+      station: initialRecords.preferredStation,
+      muted: initialRecords.muted,
+      initialVoicesEnabled,
     });
+    this.voiceEngine =
+      options.voiceEngine ??
+      new VoiceEngine({
+        enabled: initialVoicesEnabled,
+        muted: initialRecords.muted,
+      });
 
     this.hud = new HudController(
       this.hudRoot,
@@ -135,6 +190,7 @@ export class GameApp {
         onReturnTitle: () => this.returnToTitle(),
         onCycleRadio: () => this.cycleRadio(),
         onToggleMute: () => this.toggleMute(),
+        onToggleVoices: () => this.toggleVoices(),
         onCycleCamera: () => this.cycleCamera(),
         onTogglePause: () => this.togglePause(),
         onToggleTimeOfDay: () => this.toggleTimeOfDay(),
@@ -148,6 +204,7 @@ export class GameApp {
         onCycleRadio: () => this.cycleRadio(),
         onCycleCamera: () => this.cycleCamera(),
         onToggleMute: () => this.toggleMute(),
+        onToggleVoices: () => this.toggleVoices(),
         onTogglePause: () => this.togglePause(),
         onToggleTimeOfDay: () => this.toggleTimeOfDay(),
         onAnyUserGesture: () => {
@@ -201,7 +258,21 @@ export class GameApp {
     this.hud.dispose();
     this.worldRenderer?.dispose();
     this.worldRenderer = null;
+    this.voiceEngine.dispose();
     this.audioEngine.dispose();
+  }
+
+  public toggleVoices(): void {
+    this.audioEngine.unlock();
+    const nextEnabled = this.audioEngine.toggleVoices();
+    this.voiceEngine.setEnabled(nextEnabled);
+    const state = this.audioEngine.getState();
+    this.missionDirector.saveAudioPreferences(
+      state.station,
+      state.muted,
+      state.voicesEnabled,
+    );
+    this.renderPresentState(0);
   }
 
   public getDebugSnapshot(): GameDebugSnapshot {
@@ -261,7 +332,9 @@ export class GameApp {
       startInVehicle: start.startInVehicle,
       wantedStars: start.initialWantedStars,
     });
-    this.missionDirector.startMission(missionId);
+    const missionSnap = this.missionDirector.startMission(missionId);
+    this.resetVoiceAndPursuitTrackers(start.initialWantedStars);
+    this.syncSpokenMissionDialogue(missionSnap);
     this.inputManager.clearKeys();
     blurFocusedElementInside(this.hudRoot);
     this.renderPresentState(0);
@@ -295,6 +368,7 @@ export class GameApp {
   private returnToTitle(): void {
     this.world.reset({ startInVehicle: false, wantedStars: 0 });
     this.missionDirector.returnToTitle();
+    this.resetVoiceAndPursuitTrackers(0);
     this.inputManager.clearKeys();
     this.silenceAudioForFrozenState();
     this.renderPresentState(0);
@@ -303,14 +377,23 @@ export class GameApp {
   private cycleRadio(): void {
     this.audioEngine.unlock();
     const state = this.audioEngine.cycleStation();
-    this.missionDirector.saveAudioPreferences(state.station, state.muted);
+    this.missionDirector.saveAudioPreferences(
+      state.station,
+      state.muted,
+      state.voicesEnabled,
+    );
     this.renderPresentState(0);
   }
 
   private toggleMute(): void {
     this.audioEngine.unlock();
     const state = this.audioEngine.toggleMute();
-    this.missionDirector.saveAudioPreferences(state.station, state.muted);
+    this.voiceEngine.setMuted(state.muted);
+    this.missionDirector.saveAudioPreferences(
+      state.station,
+      state.muted,
+      state.voicesEnabled,
+    );
     this.renderPresentState(0);
   }
 
@@ -420,8 +503,135 @@ export class GameApp {
     }
 
     this.triggerSfxTransitions(prevWorld, worldSnap, prevMission, missionSnap, prevObjectiveStep, prevObjectiveId);
+    this.triggerCollisionAndVoiceEvents(worldSnap, missionSnap);
     this.audioEngine.update(worldSnap, dt);
     this.renderSnapshots(worldSnap, missionSnap, dt);
+  }
+
+  private resetVoiceAndPursuitTrackers(initialWantedStars: WantedLevel): void {
+    this.lastSpokenDialogueId = null;
+    this.lastWantedStars = initialWantedStars;
+    this.prevFleeingPedIds.clear();
+  }
+
+  private triggerCollisionAndVoiceEvents(
+    worldSnap: Readonly<WorldSnapshot>,
+    missionSnap: Readonly<MissionSnapshot>,
+  ): void {
+    if (worldSnap.collisionImpact > COLLISION_FOLEY_THRESHOLD) {
+      this.audioEngine.playCollision(worldSnap.collisionImpact);
+    }
+
+    this.syncSpokenMissionDialogue(missionSnap);
+    this.syncPoliceVoiceAndSquelch(worldSnap);
+    this.syncPedestrianVoiceCallouts(worldSnap);
+  }
+
+  private syncSpokenMissionDialogue(missionSnap: Readonly<MissionSnapshot>): void {
+    const dialogue = missionSnap.dialogue;
+    if (!dialogue) {
+      this.lastSpokenDialogueId = null;
+      return;
+    }
+    if (dialogue.id !== this.lastSpokenDialogueId) {
+      this.lastSpokenDialogueId = dialogue.id;
+      const profile = mapDialogueSpeakerToVoiceProfile(dialogue.speaker);
+      this.voiceEngine.speak(dialogue.text, profile, 'mission');
+    }
+  }
+
+  private syncPoliceVoiceAndSquelch(worldSnap: Readonly<WorldSnapshot>): void {
+    if (worldSnap.wantedStars > this.lastWantedStars) {
+      this.audioEngine.playRadioSquelch();
+    }
+    this.lastWantedStars = worldSnap.wantedStars;
+
+    if (worldSnap.wantedStars <= 0) {
+      return;
+    }
+
+    const policeInRange = worldSnap.vehicles.some(
+      (vehicle) =>
+        (vehicle.kind === 'police' || vehicle.role === 'police') &&
+        vehicle.sirenActive &&
+        distance2DSquared(
+          vehicle.x,
+          vehicle.z,
+          worldSnap.player.x,
+          worldSnap.player.z,
+        ) <= POLICE_MEGAPHONE_RANGE_SQ,
+    );
+
+    if (!policeInRange) {
+      return;
+    }
+
+    const lines = LOCALE_CALI.voiceLines.policeMegaphone;
+    const line = lines[this.policeMegaphoneIndex % lines.length];
+    if (line && this.voiceEngine.speak(line, 'police', 'callout')) {
+      this.policeMegaphoneIndex = (this.policeMegaphoneIndex + 1) % lines.length;
+      this.audioEngine.playRadioSquelch();
+    }
+  }
+
+  private syncPedestrianVoiceCallouts(worldSnap: Readonly<WorldSnapshot>): void {
+    const pedestrians = worldSnap.pedestrians ?? [];
+    const nextFleeingPedIds = new Set<string>();
+    let hasNewlyFleeingNearby = false;
+    let hasNearbyForAdmire = false;
+
+    for (const ped of pedestrians) {
+      if (ped.fleeing) {
+        nextFleeingPedIds.add(ped.id);
+      }
+      const distSq = distance2DSquared(
+        ped.x,
+        ped.z,
+        worldSnap.player.x,
+        worldSnap.player.z,
+      );
+      if (
+        ped.fleeing &&
+        !this.prevFleeingPedIds.has(ped.id) &&
+        distSq <= PEDESTRIAN_FLEE_RANGE_SQ
+      ) {
+        hasNewlyFleeingNearby = true;
+      }
+      if (distSq <= PEDESTRIAN_ADMIRE_RANGE_SQ) {
+        hasNearbyForAdmire = true;
+      }
+    }
+
+    this.prevFleeingPedIds = nextFleeingPedIds;
+
+    if (hasNewlyFleeingNearby) {
+      const fleeLines = LOCALE_CALI.voiceLines.pedestrianFlee;
+      const line = fleeLines[this.pedestrianFleeIndex % fleeLines.length];
+      if (line && this.voiceEngine.speak(line, 'pedestrian', 'callout')) {
+        this.pedestrianFleeIndex = (this.pedestrianFleeIndex + 1) % fleeLines.length;
+      }
+      return;
+    }
+
+    if (!hasNearbyForAdmire || worldSnap.player.mode !== 'driving') {
+      return;
+    }
+
+    const activeVehicle =
+      worldSnap.player.vehicleId !== null
+        ? worldSnap.vehicles.find((vehicle) => vehicle.id === worldSnap.player.vehicleId)
+        : undefined;
+    if (
+      activeVehicle?.kind === 'banshee' &&
+      (worldSnap.player.speedKmh > PEDESTRIAN_ADMIRE_MIN_SPEED_KMH ||
+        worldSnap.player.isDrifting)
+    ) {
+      const admireLines = LOCALE_CALI.voiceLines.pedestrianAdmire;
+      const line = admireLines[this.pedestrianAdmireIndex % admireLines.length];
+      if (line && this.voiceEngine.speak(line, 'pedestrian', 'callout')) {
+        this.pedestrianAdmireIndex = (this.pedestrianAdmireIndex + 1) % admireLines.length;
+      }
+    }
   }
 
   private triggerSfxTransitions(

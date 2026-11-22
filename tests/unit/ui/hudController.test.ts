@@ -585,6 +585,51 @@ describe('HudController', () => {
 
     hud.dispose();
   });
+
+  it('renders [data-testid="btn-voices"] with ON/OFF labels, aria-pressed, off modifier class, and click callback', () => {
+    const onToggleVoices = vi.fn();
+    const callbacks: HudCallbacks = {
+      ...createCallbacks(),
+      onToggleVoices,
+    };
+    const hud = new HudController(root as unknown as HTMLElement, callbacks, CALI_MAP);
+    const voicesBtn = root.findFirst((el) => el.dataset.testid === 'btn-voices');
+    expect(voicesBtn).not.toBeNull();
+
+    // Default / omitted voicesEnabled renders ON
+    hud.render(createWorldSnapshot(100), createMissionSnapshot(), DEFAULT_AUDIO, 'chase');
+    expect(voicesBtn?.textContent).toBe(LOCALE_CALI.hud.voicesOnLabel);
+    expect(voicesBtn?.getAttribute('aria-pressed')).toBe('true');
+    expect(voicesBtn?.hasClass('cali-voices-pill--off')).toBe(false);
+
+    // Explicitly enabled voicesEnabled renders ON
+    hud.render(
+      createWorldSnapshot(100),
+      createMissionSnapshot(),
+      { ...DEFAULT_AUDIO, voicesEnabled: true },
+      'chase',
+    );
+    expect(voicesBtn?.textContent).toBe(LOCALE_CALI.hud.voicesOnLabel);
+    expect(voicesBtn?.getAttribute('aria-pressed')).toBe('true');
+    expect(voicesBtn?.hasClass('cali-voices-pill--off')).toBe(false);
+
+    // Disabled voicesEnabled renders OFF with aria-pressed="false" and visual off modifier class
+    hud.render(
+      createWorldSnapshot(100),
+      createMissionSnapshot(),
+      { ...DEFAULT_AUDIO, voicesEnabled: false },
+      'chase',
+    );
+    expect(voicesBtn?.textContent).toBe(LOCALE_CALI.hud.voicesOffLabel);
+    expect(voicesBtn?.getAttribute('aria-pressed')).toBe('false');
+    expect(voicesBtn?.hasClass('cali-voices-pill--off')).toBe(true);
+
+    // Clicking invokes onToggleVoices
+    voicesBtn?.click();
+    expect(onToggleVoices).toHaveBeenCalledTimes(1);
+
+    hud.dispose();
+  });
 });
 
 describe('MinimapRenderer', () => {
