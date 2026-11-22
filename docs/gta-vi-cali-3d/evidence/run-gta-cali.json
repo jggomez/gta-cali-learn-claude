@@ -98,7 +98,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/ui/hudController.ts",
+      "url": "http://127.0.0.1:4173/src/world/assetLoader.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -119,7 +119,42 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/assetLoader.ts",
+      "url": "http://127.0.0.1:4173/src/world/caliLandmarks.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/ui/hudController.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/pbrTextures.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_EffectComposer__js.js?v=b7331e34",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_OutputPass__js.js?v=b7331e34",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_RenderPass__js.js?v=b7331e34",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -140,42 +175,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/pbrTextures.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_RenderPass__js.js?v=b7331e34",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_OutputPass__js.js?v=b7331e34",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/caliLandmarks.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
       "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_UnrealBloomPass__js.js?v=b7331e34",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_EffectComposer__js.js?v=b7331e34",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -189,14 +189,14 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/simulation/trafficAi.ts",
+      "url": "http://127.0.0.1:4173/src/simulation/physics.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/ui/minimapRenderer.ts",
+      "url": "http://127.0.0.1:4173/src/simulation/trafficAi.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -217,14 +217,14 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/simulation/physics.ts",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_loaders_GLTFLoader__js.js?v=b7331e34",
       "status": 200,
       "resourceType": "script",
       "remote": true
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_utils_SkeletonUtils__js.js?v=b7331e34",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-OLTXGRDG.js?v=b7331e34",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -238,14 +238,14 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_loaders_GLTFLoader__js.js?v=b7331e34",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_utils_SkeletonUtils__js.js?v=b7331e34",
       "status": 200,
       "resourceType": "script",
       "remote": true
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-OLTXGRDG.js?v=b7331e34",
+      "url": "http://127.0.0.1:4173/src/ui/minimapRenderer.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -266,13 +266,6 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/textures/asphalt/diff.jpg",
-      "status": 200,
-      "resourceType": "image",
-      "remote": true
-    },
-    {
-      "method": "GET",
       "url": "http://127.0.0.1:4173/textures/sidewalk/diff.jpg",
       "status": 200,
       "resourceType": "image",
@@ -280,7 +273,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/textures/sidewalk/nor_gl.jpg",
+      "url": "http://127.0.0.1:4173/textures/asphalt/diff.jpg",
       "status": 200,
       "resourceType": "image",
       "remote": true
@@ -288,6 +281,13 @@
     {
       "method": "GET",
       "url": "http://127.0.0.1:4173/textures/asphalt/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/sidewalk/nor_gl.jpg",
       "status": 200,
       "resourceType": "image",
       "remote": true
@@ -315,13 +315,6 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/textures/terrain/rough.jpg",
-      "status": 200,
-      "resourceType": "image",
-      "remote": true
-    },
-    {
-      "method": "GET",
       "url": "http://127.0.0.1:4173/textures/plaster/diff.jpg",
       "status": 200,
       "resourceType": "image",
@@ -330,6 +323,13 @@
     {
       "method": "GET",
       "url": "http://127.0.0.1:4173/textures/plaster/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/terrain/rough.jpg",
       "status": 200,
       "resourceType": "image",
       "remote": true
@@ -364,13 +364,6 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/textures/facade/nor_gl.jpg",
-      "status": 200,
-      "resourceType": "image",
-      "remote": true
-    },
-    {
-      "method": "GET",
       "url": "http://127.0.0.1:4173/textures/facade/diff.jpg",
       "status": 200,
       "resourceType": "image",
@@ -378,14 +371,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/models/ferrari.glb",
-      "status": 200,
-      "resourceType": "fetch",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/textures/facade/rough.jpg",
+      "url": "http://127.0.0.1:4173/textures/facade/nor_gl.jpg",
       "status": 200,
       "resourceType": "image",
       "remote": true
@@ -399,9 +385,23 @@
     },
     {
       "method": "GET",
+      "url": "http://127.0.0.1:4173/models/ferrari.glb",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "GET",
       "url": "http://127.0.0.1:4173/models/character.glb",
       "status": 200,
       "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/facade/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
       "remote": true
     },
     {
@@ -497,42 +497,42 @@
     },
     {
       "method": "GET",
-      "url": "blob:http://127.0.0.1:4173/b94788fa-a153-49a9-9d76-f0d29ada3bd1",
+      "url": "blob:http://127.0.0.1:4173/58b3c88d-26bd-432b-b43e-1ccd493e94ea",
       "status": 200,
       "resourceType": "fetch",
       "remote": false
     },
     {
       "method": "GET",
-      "url": "blob:http://127.0.0.1:4173/c61e5a79-3ec1-4f01-b0a5-b83996ef7aa9",
+      "url": "blob:http://127.0.0.1:4173/b417088d-922a-4df8-b03f-ebccf003d66e",
       "status": 200,
       "resourceType": "fetch",
       "remote": false
     },
     {
       "method": "GET",
-      "url": "blob:http://127.0.0.1:4173/d4049633-3e9b-4695-960b-1182e0785530",
+      "url": "blob:http://127.0.0.1:4173/d8419e11-7919-4c56-90e5-9a41fe70a357",
       "status": 200,
       "resourceType": "script",
       "remote": false
     },
     {
       "method": "GET",
-      "url": "blob:http://127.0.0.1:4173/d4049633-3e9b-4695-960b-1182e0785530",
+      "url": "blob:http://127.0.0.1:4173/d8419e11-7919-4c56-90e5-9a41fe70a357",
       "status": 200,
       "resourceType": "script",
       "remote": false
     },
     {
       "method": "GET",
-      "url": "blob:http://127.0.0.1:4173/d4049633-3e9b-4695-960b-1182e0785530",
+      "url": "blob:http://127.0.0.1:4173/d8419e11-7919-4c56-90e5-9a41fe70a357",
       "status": 200,
       "resourceType": "script",
       "remote": false
     },
     {
       "method": "GET",
-      "url": "blob:http://127.0.0.1:4173/d4049633-3e9b-4695-960b-1182e0785530",
+      "url": "blob:http://127.0.0.1:4173/d8419e11-7919-4c56-90e5-9a41fe70a357",
       "status": 200,
       "resourceType": "script",
       "remote": false
@@ -567,14 +567,14 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/game/gameApp.ts",
+      "url": "http://127.0.0.1:4173/node_modules/vite/dist/client/env.mjs",
       "status": 200,
       "resourceType": "script",
       "remote": true
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/vite/dist/client/env.mjs",
+      "url": "http://127.0.0.1:4173/src/game/gameApp.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -602,21 +602,21 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/simulation/gameWorld.ts",
+      "url": "http://127.0.0.1:4173/src/world/worldRenderer.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/ui/hudController.ts",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three.js?v=b7331e34",
       "status": 200,
       "resourceType": "script",
       "remote": true
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/sceneSetup.ts",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-U5H7DR74.js?v=b7331e34",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -630,7 +630,70 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three.js?v=b7331e34",
+      "url": "http://127.0.0.1:4173/src/simulation/gameWorld.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/config/localeCali.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/assetLoader.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/ui/hudController.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_loaders_DRACOLoader__js.js?v=b7331e34",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_loaders_GLTFLoader__js.js?v=b7331e34",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_loaders_RGBELoader__js.js?v=b7331e34",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/config/roadGraph.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/particles.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/sceneSetup.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -665,14 +728,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/worldRenderer.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-U5H7DR74.js?v=b7331e34",
+      "url": "http://127.0.0.1:4173/src/world/caliLandmarks.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -693,13 +749,6 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/config/localeCali.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
       "url": "http://127.0.0.1:4173/src/simulation/physics.ts",
       "status": 200,
       "resourceType": "script",
@@ -707,70 +756,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/src/ui/minimapRenderer.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/src/config/roadGraph.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
       "url": "http://127.0.0.1:4173/src/simulation/trafficAi.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/assetLoader.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_loaders_DRACOLoader__js.js?v=b7331e34",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_loaders_GLTFLoader__js.js?v=b7331e34",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_loaders_RGBELoader__js.js?v=b7331e34",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/particles.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/caliLandmarks.ts",
-      "status": 200,
-      "resourceType": "script",
-      "remote": true
-    },
-    {
-      "method": "GET",
-      "url": "http://127.0.0.1:4173/src/world/pbrTextures.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -785,6 +771,20 @@
     {
       "method": "GET",
       "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_utils_SkeletonUtils__js.js?v=b7331e34",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/ui/minimapRenderer.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/pbrTextures.ts",
       "status": 200,
       "resourceType": "script",
       "remote": true
@@ -868,6 +868,13 @@
     },
     {
       "method": "GET",
+      "url": "http://127.0.0.1:4173/models/character.glb",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "GET",
       "url": "http://127.0.0.1:4173/textures/plaster/rough.jpg",
       "status": 200,
       "resourceType": "image",
@@ -889,14 +896,21 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/textures/roof/rough.jpg",
+      "url": "http://127.0.0.1:4173/models/ferrari.glb",
       "status": 200,
-      "resourceType": "image",
+      "resourceType": "fetch",
       "remote": true
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/textures/facade/diff.jpg",
+      "url": "http://127.0.0.1:4173/hdri/evening_road_01_puresky_1k.hdr",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/roof/rough.jpg",
       "status": 200,
       "resourceType": "image",
       "remote": true
@@ -910,6 +924,13 @@
     },
     {
       "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/facade/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
       "url": "http://127.0.0.1:4173/textures/facade/rough.jpg",
       "status": 200,
       "resourceType": "image",
@@ -917,14 +938,14 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/textures/palm_bark/diff.jpg",
+      "url": "http://127.0.0.1:4173/textures/palm_bark/nor_gl.jpg",
       "status": 200,
       "resourceType": "image",
       "remote": true
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/textures/palm_bark/nor_gl.jpg",
+      "url": "http://127.0.0.1:4173/textures/palm_bark/diff.jpg",
       "status": 200,
       "resourceType": "image",
       "remote": true
@@ -945,7 +966,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/textures/jacaranda_bark/diff.jpg",
+      "url": "http://127.0.0.1:4173/textures/palm_leaves/nor_gl.jpg",
       "status": 200,
       "resourceType": "image",
       "remote": true
@@ -959,7 +980,7 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/textures/palm_leaves/nor_gl.jpg",
+      "url": "http://127.0.0.1:4173/textures/jacaranda_bark/diff.jpg",
       "status": 200,
       "resourceType": "image",
       "remote": true
@@ -967,6 +988,13 @@
     {
       "method": "GET",
       "url": "http://127.0.0.1:4173/textures/jacaranda_bark/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/jacaranda_leaves/nor_gl.jpg",
       "status": 200,
       "resourceType": "image",
       "remote": true
@@ -987,13 +1015,6 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/textures/jacaranda_leaves/nor_gl.jpg",
-      "status": 200,
-      "resourceType": "image",
-      "remote": true
-    },
-    {
-      "method": "GET",
       "url": "http://127.0.0.1:4173/textures/jacaranda_leaves/rough.jpg",
       "status": 200,
       "resourceType": "image",
@@ -1001,24 +1022,24 @@
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/hdri/evening_road_01_puresky_1k.hdr",
+      "url": "http://127.0.0.1:4173/draco/draco_decoder.js",
       "status": 200,
       "resourceType": "fetch",
       "remote": true
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/models/ferrari.glb",
+      "url": "blob:http://127.0.0.1:4173/aaa7986d-2d15-4985-9adb-03a400290962",
       "status": 200,
       "resourceType": "fetch",
-      "remote": true
+      "remote": false
     },
     {
       "method": "GET",
-      "url": "http://127.0.0.1:4173/models/character.glb",
+      "url": "blob:http://127.0.0.1:4173/40f8ff53-72ac-41c2-9ab2-c26a6575d57a",
       "status": 200,
       "resourceType": "fetch",
-      "remote": true
+      "remote": false
     }
   ],
   "dataChecks": [
@@ -1036,7 +1057,7 @@
     },
     {
       "kind": "source-on-screen",
-      "detail": "Mission 2 Night speedKmh=65 matches hud-speed=65; nitro width=85% aria-valuenow=85"
+      "detail": "Mission 2 Night speedKmh=61 matches hud-speed=61; nitro width=86% aria-valuenow=86"
     },
     {
       "kind": "source-on-screen",
