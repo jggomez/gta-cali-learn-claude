@@ -23,6 +23,7 @@ export interface RiggedCharacterActions {
   readonly idle?: THREE.AnimationAction;
   readonly walk?: THREE.AnimationAction;
   readonly run?: THREE.AnimationAction;
+  readonly dance?: THREE.AnimationAction;
 }
 
 export interface RiggedCharacterRig {
@@ -34,10 +35,30 @@ export interface RiggedCharacterRig {
 export interface RiggedCharacterOptions {
   readonly tintHex?: number;
   readonly heightMeters?: number;
+  readonly skinToneHex?: number;
+  readonly outfitTintHex?: number;
 }
 
 const FERRARI_TARGET_LENGTH_METERS = 4.55;
 const CHARACTER_TARGET_HEIGHT_METERS = 1.78;
+const VALERIA_TARGET_HEIGHT_METERS = 1.7;
+const VALERIA_MORENA_SKIN_HEX = 0xc8906e;
+const VALLECAUCANA_SKIN_PALETTES = [
+  0xd6a078,
+  0xc8906e,
+  0xb87b56,
+  0xa36846,
+  0xddab84,
+  0x915a3c,
+] as const;
+const CIVILIAN_MALE_WARM_PALETTES = [
+  0xd8b498,
+  0xc69878,
+  0xb8896c,
+  0xe2c0a4,
+  0xa97a5e,
+  0xd0a788,
+] as const;
 
 interface WheelSpec {
   readonly x: number;
@@ -2761,6 +2782,580 @@ export function createRiggedCharacterMesh(
       ...(run ? { run } : {}),
     },
   };
+}
+
+interface CachedRetargetClips {
+  readonly animationsRef: readonly THREE.AnimationClip[];
+  readonly clips: readonly THREE.AnimationClip[];
+}
+
+interface ExtendedRetargetClipOptions extends SkeletonUtils.RetargetClipOptions {
+  preserveBonePositions?: boolean;
+  localOffsets?: Record<string, THREE.Matrix4>;
+}
+
+const retargetClipCache = new WeakMap<
+  THREE.Object3D,
+  WeakMap<THREE.Object3D, CachedRetargetClips>
+>();
+
+const BONES_TRACK_PREFIX_REGEX = /^\.bones\[([^\]]+)\]\.(.+)$/;
+
+function normalizeMixamoBoneName(name: string): string {
+  return name.replace(/:/g, '').trim();
+}
+
+function parseKeyframeTrackName(
+  trackName: string,
+): { readonly boneName: string; readonly property: string } | null {
+  const bracketMatch = BONES_TRACK_PREFIX_REGEX.exec(trackName);
+  if (bracketMatch?.[1] && bracketMatch[2]) {
+    return { boneName: bracketMatch[1], property: bracketMatch[2] };
+  }
+  const dotIndex = trackName.lastIndexOf('.');
+  if (dotIndex <= 0 || dotIndex >= trackName.length - 1) {
+    return null;
+  }
+  return {
+    boneName: trackName.slice(0, dotIndex),
+    property: trackName.slice(dotIndex + 1),
+  };
+}
+
+function findPrimarySkinnedMesh(root: THREE.Object3D): THREE.SkinnedMesh | null {
+  let primary: THREE.SkinnedMesh | null = null;
+  root.traverse((node) => {
+    if (
+      node instanceof THREE.SkinnedMesh &&
+      node.skeleton.bones.length > (primary?.skeleton.bones.length ?? 0)
+    ) {
+      primary = node;
+    }
+  });
+  return primary;
+}
+
+function findMixamoHipBone(bones: readonly THREE.Bone[]): THREE.Bone | null {
+  const exact = bones.find(
+    (bone) => bone.name === 'mixamorigHips' || bone.name === 'mixamorig:Hips',
+  );
+  if (exact) {
+    return exact;
+  }
+  const suffixMatch = bones.find((bone) =>
+    normalizeMixamoBoneName(bone.name).toLowerCase().endsWith('hips'),
+  );
+  return suffixMatch ?? bones[0] ?? null;
+}
+
+function clampHipPositionTrackHorizontally(
+  track: THREE.KeyframeTrack,
+  parentWorldMatrix: THREE.Matrix4,
+  parentWorldInverse: THREE.Matrix4,
+): void {
+  const values = track.values;
+  const point = new THREE.Vector3();
+
+  for (let i = 0; i + 2 < values.length; i += 3) {
+    point.set(values[i] ?? 0, values[i + 1] ?? 0, values[i + 2] ?? 0);
+    point.applyMatrix4(parentWorldMatrix);
+    point.x = 0;
+    point.z = 0;
+    point.applyMatrix4(parentWorldInverse);
+    values[i] = point.x;
+    values[i + 1] = point.y;
+    values[i + 2] = point.z;
+  }
+}
+
+function retargetSyntheticBoneClips(
+  sourceClips: readonly THREE.AnimationClip[],
+  targetRoot: THREE.Object3D,
+): THREE.AnimationClip[] {
+  const exactTargets = new Map<string, string>();
+  const normalizedTargets = new Map<string, string>();
+
+  targetRoot.traverse((node) => {
+    if (node.name.length === 0) {
+      return;
+    }
+    exactTargets.set(node.name, node.name);
+    normalizedTargets.set(normalizeMixamoBoneName(node.name), node.name);
+  });
+
+  const retargeted: THREE.AnimationClip[] = [];
+  for (const clip of sourceClips) {
+    const matchedTracks: THREE.KeyframeTrack[] = [];
+    for (const track of clip.tracks) {
+      const parsed = parseKeyframeTrackName(track.name);
+      if (!parsed || parsed.property !== 'quaternion') {
+        continue;
+      }
+      const targetBoneName =
+        exactTargets.get(parsed.boneName) ??
+        normalizedTargets.get(normalizeMixamoBoneName(parsed.boneName));
+      if (!targetBoneName) {
+        continue;
+      }
+      const cloned = track.clone();
+      cloned.name = `${targetBoneName}.quaternion`;
+      matchedTracks.push(cloned);
+    }
+
+    if (matchedTracks.length > 0) {
+      retargeted.push(new THREE.AnimationClip(clip.name, clip.duration, matchedTracks));
+    }
+  }
+  return retargeted;
+}
+
+function buildFilteredSourceClip(
+  clip: THREE.AnimationClip,
+  sourceBoneExact: ReadonlyMap<string, THREE.Bone>,
+  sourceBoneNorm: ReadonlyMap<string, THREE.Bone>,
+): THREE.AnimationClip | null {
+  if (clip.duration <= 0 || clip.tracks.length === 0) {
+    return null;
+  }
+  const filteredTracks: THREE.KeyframeTrack[] = [];
+  for (const track of clip.tracks) {
+    const parsed = parseKeyframeTrackName(track.name);
+    if (!parsed || parsed.property === 'scale') {
+      continue;
+    }
+    const sourceBone =
+      sourceBoneExact.get(parsed.boneName) ??
+      sourceBoneNorm.get(normalizeMixamoBoneName(parsed.boneName));
+    if (!sourceBone) {
+      continue;
+    }
+    const cloned = track.clone();
+    cloned.name = `${sourceBone.name}.${parsed.property}`;
+    filteredTracks.push(cloned);
+  }
+  if (filteredTracks.length === 0) {
+    return null;
+  }
+  return new THREE.AnimationClip(clip.name, clip.duration, filteredTracks);
+}
+
+function buildRestPoseLocalOffsets(
+  targetBones: readonly THREE.Bone[],
+  resolveSourceBone: (targetBone: THREE.Bone) => THREE.Bone | undefined,
+): Record<string, THREE.Matrix4> {
+  const localOffsets: Record<string, THREE.Matrix4> = {};
+  const qSourceRest = new THREE.Quaternion();
+  const qTargetRest = new THREE.Quaternion();
+  const qOffset = new THREE.Quaternion();
+
+  for (const targetBone of targetBones) {
+    const sourceBone = resolveSourceBone(targetBone);
+    if (!sourceBone) {
+      continue;
+    }
+    sourceBone.getWorldQuaternion(qSourceRest);
+    targetBone.getWorldQuaternion(qTargetRest);
+    qOffset.copy(qSourceRest).invert().multiply(qTargetRest);
+    localOffsets[targetBone.name] = new THREE.Matrix4().makeRotationFromQuaternion(qOffset);
+  }
+  return localOffsets;
+}
+
+function sanitizeRetargetedClip(
+  rawRetargeted: THREE.AnimationClip,
+  sourceClip: THREE.AnimationClip,
+  targetHipName: string,
+  targetHipParentWorld: THREE.Matrix4,
+  targetHipParentWorldInv: THREE.Matrix4,
+): THREE.AnimationClip | null {
+  const sanitizedTracks: THREE.KeyframeTrack[] = [];
+
+  for (const track of rawRetargeted.tracks) {
+    const parsed = parseKeyframeTrackName(track.name);
+    if (!parsed || parsed.property === 'scale') {
+      continue;
+    }
+    const cloned = track.clone();
+    cloned.name = `${parsed.boneName}.${parsed.property}`;
+    if (parsed.boneName === targetHipName && parsed.property === 'position') {
+      clampHipPositionTrackHorizontally(cloned, targetHipParentWorld, targetHipParentWorldInv);
+    }
+    sanitizedTracks.push(cloned);
+  }
+
+  if (sanitizedTracks.length === 0) {
+    return null;
+  }
+  const duration = rawRetargeted.duration > 0 ? rawRetargeted.duration : sourceClip.duration;
+  return new THREE.AnimationClip(sourceClip.name, duration, sanitizedTracks);
+}
+
+/**
+ * Retargets Mixamo animation clips (e.g., Soldier Idle/Walk/Run) cleanly onto a differently
+ * oriented Mixamo target rig (e.g., Valeria/Michelle) via SkeletonUtils.retargetClip with
+ * world-space rest-pose localOffsets, horizontal hip clamping, .scale stripping, and WeakMap
+ * caching. Falls back cleanly to matched quaternion track cloning on bone-only hierarchies.
+ */
+export function retargetMixamoClips(
+  sourceAsset: LoadedCharacterAsset,
+  targetRoot: THREE.Object3D,
+): THREE.AnimationClip[] {
+  const cachedByTarget = retargetClipCache.get(sourceAsset.scene);
+  const existing = cachedByTarget?.get(targetRoot);
+  if (existing && existing.animationsRef === sourceAsset.animations) {
+    return [...existing.clips];
+  }
+
+  const storeCache = (clips: THREE.AnimationClip[]): THREE.AnimationClip[] => {
+    let targetMap = retargetClipCache.get(sourceAsset.scene);
+    if (!targetMap) {
+      targetMap = new WeakMap<THREE.Object3D, CachedRetargetClips>();
+      retargetClipCache.set(sourceAsset.scene, targetMap);
+    }
+    targetMap.set(targetRoot, { animationsRef: sourceAsset.animations, clips });
+    return [...clips];
+  };
+
+  if (sourceAsset.animations.length === 0) {
+    return storeCache([]);
+  }
+
+  if (
+    findPrimarySkinnedMesh(sourceAsset.scene) === null ||
+    findPrimarySkinnedMesh(targetRoot) === null
+  ) {
+    return storeCache(retargetSyntheticBoneClips(sourceAsset.animations, targetRoot));
+  }
+
+  const sourceClone = SkeletonUtils.clone(sourceAsset.scene);
+  sourceClone.position.set(0, 0, 0);
+  sourceClone.scale.set(1, 1, 1);
+  sourceClone.rotation.set(0, Math.PI, 0);
+  sourceClone.updateMatrixWorld(true);
+
+  const targetClone = SkeletonUtils.clone(targetRoot);
+  targetClone.position.set(0, 0, 0);
+  targetClone.rotation.set(0, 0, 0);
+  targetClone.scale.set(1, 1, 1);
+  targetClone.updateMatrixWorld(true);
+
+  const sourceSkinned = findPrimarySkinnedMesh(sourceClone);
+  const targetSkinned = findPrimarySkinnedMesh(targetClone);
+  if (!sourceSkinned || !targetSkinned) {
+    return storeCache(retargetSyntheticBoneClips(sourceAsset.animations, targetRoot));
+  }
+
+  const sourceBoneExact = new Map<string, THREE.Bone>();
+  const sourceBoneNorm = new Map<string, THREE.Bone>();
+  for (const bone of sourceSkinned.skeleton.bones) {
+    sourceBoneExact.set(bone.name, bone);
+    sourceBoneNorm.set(normalizeMixamoBoneName(bone.name), bone);
+  }
+
+  const resolveSourceBone = (targetBone: THREE.Bone): THREE.Bone | undefined =>
+    sourceBoneExact.get(targetBone.name) ??
+    sourceBoneNorm.get(normalizeMixamoBoneName(targetBone.name));
+
+  const resolveSourceBoneName = (targetBone: THREE.Bone): string =>
+    resolveSourceBone(targetBone)?.name ?? targetBone.name;
+
+  const localOffsets = buildRestPoseLocalOffsets(targetSkinned.skeleton.bones, resolveSourceBone);
+
+  const targetHipBone = findMixamoHipBone(targetSkinned.skeleton.bones);
+  const sourceHipBone = targetHipBone
+    ? (resolveSourceBone(targetHipBone) ?? findMixamoHipBone(sourceSkinned.skeleton.bones))
+    : findMixamoHipBone(sourceSkinned.skeleton.bones);
+
+  let hipScale = 1;
+  if (targetHipBone && sourceHipBone) {
+    const targetHipWorld = new THREE.Vector3();
+    const sourceHipWorld = new THREE.Vector3();
+    targetHipBone.getWorldPosition(targetHipWorld);
+    sourceHipBone.getWorldPosition(sourceHipWorld);
+    if (targetHipWorld.y > 0.05 && sourceHipWorld.y > 0.05) {
+      hipScale = THREE.MathUtils.clamp(targetHipWorld.y / sourceHipWorld.y, 0.5, 2.0);
+    }
+  }
+
+  const targetHipParentWorld = new THREE.Matrix4();
+  const targetHipParentWorldInv = new THREE.Matrix4();
+  if (targetHipBone?.parent) {
+    targetHipParentWorld.copy(targetHipBone.parent.matrixWorld);
+    targetHipParentWorldInv.copy(targetHipParentWorld).invert();
+  }
+
+  const targetHipName = targetHipBone?.name ?? 'mixamorigHips';
+  const sourceHipName = sourceHipBone?.name ?? targetHipName;
+  const retargetedClips: THREE.AnimationClip[] = [];
+
+  for (const sourceClip of sourceAsset.animations) {
+    const cleanInputClip = buildFilteredSourceClip(sourceClip, sourceBoneExact, sourceBoneNorm);
+    if (!cleanInputClip) {
+      continue;
+    }
+
+    targetSkinned.skeleton.pose();
+    targetClone.updateMatrixWorld(true);
+
+    const retargetOptions: ExtendedRetargetClipOptions = {
+      hip: sourceHipName,
+      hipInfluence: new THREE.Vector3(0, 1, 0),
+      scale: hipScale,
+      preserveBoneMatrix: true,
+      preserveBonePositions: true,
+      fps: 24,
+      getBoneName: resolveSourceBoneName,
+      localOffsets,
+    };
+
+    const rawRetargeted = SkeletonUtils.retargetClip(
+      targetSkinned,
+      sourceSkinned,
+      cleanInputClip,
+      retargetOptions,
+    );
+
+    const sanitized = sanitizeRetargetedClip(
+      rawRetargeted,
+      sourceClip,
+      targetHipName,
+      targetHipParentWorld,
+      targetHipParentWorldInv,
+    );
+    if (sanitized) {
+      retargetedClips.push(sanitized);
+    }
+  }
+
+  return storeCache(retargetedClips);
+}
+
+function liftTintForReadableAlbedo(hex: number, minLuminance = 0.44): THREE.Color {
+  const color = new THREE.Color(hex);
+  const luma = color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+  if (luma < minLuminance) {
+    const lift = Math.min(0.75, (minLuminance - luma) / Math.max(0.05, 1 - luma));
+    color.lerp(new THREE.Color(0xf2e6dc), lift);
+  }
+  return color;
+}
+
+/**
+ * Builds the rigged, animated Morena Calena Valeria character from valeria.glb with calibrated
+ * warm bronze-canela PBR skin & streetwear shading, grounded strictly at y = 0 facing +Z at
+ * 1.70m default height, binding retargeted Idle/Walk/Run clips plus native SambaDance.
+ */
+export function createValeriaPlayerMesh(
+  valeriaAsset: LoadedCharacterAsset,
+  locomotionSource: LoadedCharacterAsset | null,
+  options?: RiggedCharacterOptions,
+): RiggedCharacterRig {
+  const group = new THREE.Group();
+  group.name = 'player_valeria_character';
+
+  const clonedScene = SkeletonUtils.clone(valeriaAsset.scene);
+  const innerGroup = new THREE.Group();
+  innerGroup.name = 'valeria_model_root';
+  innerGroup.add(clonedScene);
+  group.add(innerGroup);
+
+  const skinToneHex =
+    options?.skinToneHex !== undefined && Number.isFinite(options.skinToneHex)
+      ? options.skinToneHex
+      : VALERIA_MORENA_SKIN_HEX;
+  const skinToneColor = new THREE.Color(skinToneHex);
+
+  const outfitHex = options?.outfitTintHex ?? options?.tintHex;
+  const outfitTintColor =
+    outfitHex !== undefined && Number.isFinite(outfitHex)
+      ? liftTintForReadableAlbedo(outfitHex, 0.48)
+      : null;
+
+  const targetHeight =
+    options?.heightMeters !== undefined &&
+    Number.isFinite(options.heightMeters) &&
+    options.heightMeters > 0.5
+      ? options.heightMeters
+      : VALERIA_TARGET_HEIGHT_METERS;
+
+  const clonedMaterials = new Map<THREE.Material, THREE.Material>();
+  const cloneValeriaMaterial = (mat: THREE.Material): THREE.Material => {
+    const existing = clonedMaterials.get(mat);
+    if (existing) {
+      return existing;
+    }
+    const copy = mat.clone();
+    if (copy instanceof THREE.MeshStandardMaterial) {
+      copy.color.lerp(skinToneColor, 0.48);
+      if (outfitTintColor) {
+        copy.color.lerp(outfitTintColor, 0.22);
+      }
+      copy.roughness = Math.max(copy.roughness, 0.76);
+      copy.metalness = Math.min(copy.metalness, 0.03);
+      copy.envMapIntensity = Math.min(Math.max(copy.envMapIntensity, 0.65), 0.95);
+      if (copy instanceof THREE.MeshPhysicalMaterial) {
+        copy.specularIntensity = Math.min(copy.specularIntensity, 0.28);
+        copy.sheen = Math.max(copy.sheen, 0.14);
+        copy.sheenRoughness = 0.78;
+        copy.sheenColor.setHex(0xe8b594);
+      }
+    }
+    clonedMaterials.set(mat, copy);
+    return copy;
+  };
+
+  innerGroup.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    node.castShadow = true;
+    node.receiveShadow = true;
+    node.frustumCulled = false;
+
+    if (Array.isArray(node.material)) {
+      node.material = node.material.map(cloneValeriaMaterial);
+    } else if (node.material instanceof THREE.Material) {
+      node.material = cloneValeriaMaterial(node.material);
+    }
+  });
+
+  innerGroup.updateMatrixWorld(true);
+  const rawBox = new THREE.Box3().setFromObject(innerGroup);
+  if (!rawBox.isEmpty()) {
+    const rawSize = rawBox.getSize(new THREE.Vector3());
+    if (rawSize.y > 0.01) {
+      innerGroup.scale.setScalar(targetHeight / rawSize.y);
+    }
+    innerGroup.updateMatrixWorld(true);
+    const scaledBox = new THREE.Box3().setFromObject(innerGroup);
+    const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+    innerGroup.position.set(
+      -scaledCenter.x,
+      -scaledBox.min.y,
+      -scaledCenter.z,
+    );
+  }
+
+  attachContactShadow(group, 0.8, 0.8, 0.42, 0.025);
+
+  const mixer = new THREE.AnimationMixer(clonedScene);
+  const locomotionClips = locomotionSource
+    ? retargetMixamoClips(locomotionSource, valeriaAsset.scene)
+    : [];
+
+  const idleClip =
+    findAnimationClip(locomotionClips, 'Idle') ??
+    findAnimationClip(valeriaAsset.animations, 'Idle');
+  const walkClip =
+    findAnimationClip(locomotionClips, 'Walk') ??
+    findAnimationClip(valeriaAsset.animations, 'Walk');
+  const runClip =
+    findAnimationClip(locomotionClips, 'Run') ??
+    findAnimationClip(valeriaAsset.animations, 'Run');
+  const danceClip =
+    findAnimationClip(valeriaAsset.animations, 'SambaDance') ??
+    findAnimationClip(valeriaAsset.animations, 'Dance');
+
+  const idle = idleClip ? mixer.clipAction(idleClip) : undefined;
+  const walk = walkClip ? mixer.clipAction(walkClip) : undefined;
+  const run = runClip ? mixer.clipAction(runClip) : undefined;
+  const dance = danceClip ? mixer.clipAction(danceClip) : undefined;
+
+  if (idle) {
+    idle.play();
+  }
+
+  return {
+    group,
+    mixer,
+    actions: {
+      ...(idle ? { idle } : {}),
+      ...(walk ? { walk } : {}),
+      ...(run ? { run } : {}),
+      ...(dance ? { dance } : {}),
+    },
+  };
+}
+
+/**
+ * Creates a diverse rigged Cali civilian pedestrian alternating across Morena/Vallecaucana
+ * Valeria variants (6 curated warm bronze/canela/triguena palettes blended gently with
+ * shirtColorHex, never pitch black) and civilian-tinted male variants, reusing cached
+ * retargeted locomotion clips. Returns null cleanly if neither template asset is loaded.
+ */
+export function createCivilianPedestrianRig(
+  valeriaAsset: LoadedCharacterAsset | null,
+  soldierAsset: LoadedCharacterAsset | null,
+  variantIndex: number,
+  shirtColorHex: number,
+  pantsColorHex: number,
+): RiggedCharacterRig | null {
+  if (!valeriaAsset && !soldierAsset) {
+    return null;
+  }
+
+  const safeIndex = Math.abs(
+    Math.floor(Number.isFinite(variantIndex) ? variantIndex : 0),
+  );
+  const useValeria =
+    valeriaAsset !== null && (soldierAsset === null || safeIndex % 2 === 0);
+
+  if (useValeria && valeriaAsset) {
+    const paletteIndex = Math.floor(safeIndex / 2) % VALLECAUCANA_SKIN_PALETTES.length;
+    const skinToneHex =
+      VALLECAUCANA_SKIN_PALETTES[paletteIndex] ?? VALERIA_MORENA_SKIN_HEX;
+    const safeShirt = Number.isFinite(shirtColorHex) ? shirtColorHex : 0xe8b594;
+    const outfitColor = liftTintForReadableAlbedo(safeShirt, 0.5);
+    const heightMeters = 1.64 + ((safeIndex * 3) % 5) * 0.03;
+
+    const rig = createValeriaPlayerMesh(valeriaAsset, soldierAsset, {
+      skinToneHex,
+      outfitTintHex: outfitColor.getHex(),
+      heightMeters,
+    });
+    rig.group.name = 'cali_civilian_valeria';
+    rig.group.userData.civilianVariant = 'valeria';
+    return rig;
+  }
+
+  if (!soldierAsset) {
+    return null;
+  }
+
+  const malePaletteIndex = Math.floor(safeIndex / 2) % CIVILIAN_MALE_WARM_PALETTES.length;
+  const warmBase = new THREE.Color(
+    CIVILIAN_MALE_WARM_PALETTES[malePaletteIndex] ?? 0xc69878,
+  );
+  const safeShirt = liftTintForReadableAlbedo(
+    Number.isFinite(shirtColorHex) ? shirtColorHex : 0xd8a888,
+    0.46,
+  );
+  const safePants = liftTintForReadableAlbedo(
+    Number.isFinite(pantsColorHex) ? pantsColorHex : 0x6b7c96,
+    0.38,
+  );
+  const blendedCivilianTint = warmBase.clone().lerp(safeShirt, 0.55).lerp(safePants, 0.15);
+  const heightMeters = 1.72 + ((safeIndex * 5) % 5) * 0.03;
+
+  const rig = createRiggedCharacterMesh(soldierAsset, {
+    tintHex: blendedCivilianTint.getHex(),
+    heightMeters,
+  });
+  rig.group.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    const mats = Array.isArray(node.material) ? node.material : [node.material];
+    for (const mat of mats) {
+      if (mat instanceof THREE.MeshStandardMaterial) {
+        mat.roughness = Math.max(mat.roughness, 0.74);
+        mat.metalness = Math.min(mat.metalness, 0.06);
+      }
+    }
+  });
+  rig.group.name = 'cali_civilian_male';
+  rig.group.userData.civilianVariant = 'soldier';
+  return rig;
 }
 
 /**

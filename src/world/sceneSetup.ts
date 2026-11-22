@@ -10,6 +10,8 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { getTerrainElevation } from '../config/caliMap';
 import type { CameraMode, TimeOfDay, WorldSnapshot } from '../types/game';
@@ -29,6 +31,14 @@ const BLOOM_THRESHOLD_NIGHT = 0.78;
 const BLOOM_RADIUS_NIGHT = 0.48;
 const BLOOM_STRENGTH_NIGHT_FULL = 0.62;
 const BLOOM_STRENGTH_NIGHT_REDUCED = 0.3;
+
+const GRADE_CONTRAST_DAY = 1.06;
+const GRADE_CONTRAST_NIGHT = 1.08;
+const GRADE_SATURATION_DAY = 1.08;
+const GRADE_SATURATION_NIGHT = 1.13;
+const GRADE_VIGNETTE_DAY = 0.22;
+const GRADE_VIGNETTE_NIGHT = 0.24;
+const GRADE_VIGNETTE_REDUCED = 0.08;
 
 const CHASE_CRUISE_FOV = 58;
 const CHASE_BOOST_FOV = 72;
@@ -277,9 +287,27 @@ export class WebGLUnavailableError extends Error {
   }
 }
 
+export interface CinematicGradeUniforms {
+  readonly tDiffuse: { value: THREE.Texture | null };
+  readonly uNightMix: { value: number };
+  readonly uBoostMix: { value: number };
+  readonly uVignetteStrength: { value: number };
+  readonly uContrast: { value: number };
+  readonly uSaturation: { value: number };
+}
+
+export interface CinematicGradeShaderConfig {
+  readonly name: string;
+  readonly uniforms: CinematicGradeUniforms;
+  readonly vertexShader: string;
+  readonly fragmentShader: string;
+}
+
 export interface PostProcessingRig {
   readonly composer: EffectComposer;
   readonly bloomPass: UnrealBloomPass;
+  readonly gradePass?: ShaderPass;
+  readonly smaaPass?: SMAAPass;
   resize(width: number, height: number): void;
   render(): void;
   dispose(): void;
@@ -532,6 +560,86 @@ export function updateShadowFocus(
   keyLightCandidate.updateMatrixWorld();
 }
 
+const CINEMATIC_GRADE_VERTEX_SHADER = /* glsl */ `
+varying vec2 vUv;
+
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const CINEMATIC_GRADE_FRAGMENT_SHADER = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uNightMix;
+uniform float uBoostMix;
+uniform float uVignetteStrength;
+uniform float uContrast;
+uniform float uSaturation;
+
+varying vec2 vUv;
+
+void main() {
+  vec4 texel = texture2D(tDiffuse, vUv);
+  vec3 col = max(texel.rgb, vec3(0.0));
+
+  float night = clamp(uNightMix, 0.0, 1.0);
+  float boost = clamp(uBoostMix, 0.0, 1.0);
+
+  // Preserve deep blacks while lifting warm golden-hour sunlight vs crisp neon-night indigo
+  float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  float highlightMask = smoothstep(0.35, 1.35, luma);
+  float shadowMask = 1.0 - smoothstep(0.0, 0.45, luma);
+
+  vec3 dayTint = mix(vec3(1.005, 0.992, 0.972), vec3(1.038, 0.995, 0.935), highlightMask);
+  vec3 nightTint = mix(vec3(0.91, 0.95, 1.06), vec3(1.03, 1.0, 1.04), highlightMask);
+  col *= mix(dayTint, nightTint, night);
+
+  // Subtle shadow tint anchoring without washing out blacks
+  col *= mix(vec3(1.0), mix(vec3(1.01, 0.995, 0.985), vec3(0.95, 0.97, 1.04), night), shadowMask * 0.35);
+
+  // Saturation with dynamic boost pop and night neon vibrancy
+  float sat = max(0.0, uSaturation + boost * 0.10 + night * highlightMask * 0.08);
+  float gradedLuma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  col = max(mix(vec3(gradedLuma), col, sat), vec3(0.0));
+
+  // HDR-safe subtle filmic S-curve contrast that anchors 0.0 blacks and preserves bright highlights
+  vec3 ldr = col / (vec3(1.0) + col);
+  vec3 sCurve = ldr * ldr * (3.0 - 2.0 * ldr);
+  float curveMix = clamp((uContrast + boost * 0.06) - 1.0, 0.0, 0.32);
+  vec3 curvedLdr = mix(ldr, sCurve, curveMix * 1.45);
+  col = curvedLdr / max(vec3(1.0) - curvedLdr, vec3(0.0005));
+
+  // Soft radial cinema vignette (tightens subtly during nitro boost)
+  vec2 centered = vUv - vec2(0.5);
+  float distSq = dot(centered, centered);
+  float vigAmount = clamp(uVignetteStrength + boost * 0.05, 0.0, 0.65);
+  float vignette = 1.0 - smoothstep(0.18, 0.78, distSq * 1.65) * vigAmount;
+  col *= vignette;
+
+  gl_FragColor = vec4(max(col, vec3(0.0)), texel.a);
+}
+`;
+
+/**
+ * Builds the Cali Vice Sunset / Neon Night filmic color-grading shader definition for ShaderPass.
+ */
+export function createCinematicGradeShader(): CinematicGradeShaderConfig {
+  return {
+    name: 'CinematicGradeShader',
+    uniforms: {
+      tDiffuse: { value: null },
+      uNightMix: { value: 0 },
+      uBoostMix: { value: 0 },
+      uVignetteStrength: { value: GRADE_VIGNETTE_DAY },
+      uContrast: { value: GRADE_CONTRAST_DAY },
+      uSaturation: { value: GRADE_SATURATION_DAY },
+    },
+    vertexShader: CINEMATIC_GRADE_VERTEX_SHADER,
+    fragmentShader: CINEMATIC_GRADE_FRAGMENT_SHADER,
+  };
+}
+
 /**
  * Tunes UnrealBloom thresholds and glow strength for crisp golden-hour restraint vs
  * dramatic night headlights, sirens, neon signs, windows, and Cristo Rey floodlights.
@@ -554,7 +662,56 @@ export function setBloomTimeOfDay(
 }
 
 /**
- * Constructs an EffectComposer pipeline with RenderPass, UnrealBloomPass, and OutputPass.
+ * Updates CinematicGradePass shader uniforms cleanly for golden-hour vs starlit night,
+ * reduced-motion vignette attenuation, and nitro boost punch.
+ */
+export function setGradeTimeOfDay(
+  rig: PostProcessingRig,
+  timeOfDay: TimeOfDay,
+  reducedMotion: boolean,
+  boostMix = 0,
+): void {
+  const uniforms = rig.gradePass?.uniforms;
+  if (!uniforms) {
+    return;
+  }
+
+  const isNight = timeOfDay === 'night';
+  const clampedBoost = Math.max(0, Math.min(1, finiteOr(boostMix, 0)));
+
+  const nightUniform = uniforms['uNightMix'];
+  if (nightUniform) {
+    nightUniform.value = isNight ? 1 : 0;
+  }
+
+  const boostUniform = uniforms['uBoostMix'];
+  if (boostUniform) {
+    boostUniform.value = clampedBoost;
+  }
+
+  const vignetteUniform = uniforms['uVignetteStrength'];
+  if (vignetteUniform) {
+    vignetteUniform.value = reducedMotion
+      ? GRADE_VIGNETTE_REDUCED
+      : isNight
+        ? GRADE_VIGNETTE_NIGHT
+        : GRADE_VIGNETTE_DAY;
+  }
+
+  const contrastUniform = uniforms['uContrast'];
+  if (contrastUniform) {
+    contrastUniform.value = isNight ? GRADE_CONTRAST_NIGHT : GRADE_CONTRAST_DAY;
+  }
+
+  const saturationUniform = uniforms['uSaturation'];
+  if (saturationUniform) {
+    saturationUniform.value = isNight ? GRADE_SATURATION_NIGHT : GRADE_SATURATION_DAY;
+  }
+}
+
+/**
+ * Constructs an EffectComposer pipeline with RenderPass, UnrealBloomPass, CinematicGradePass,
+ * optional SMAAPass (gracefully skipped if unsupported), and OutputPass.
  * Returns null cleanly if WebGL post-processing cannot be initialized.
  */
 export function createPostProcessing(
@@ -571,9 +728,10 @@ export function createPostProcessing(
     }
     const safeWidth = Math.max(1, Math.floor(finiteOr(width, 1)));
     const safeHeight = Math.max(1, Math.floor(finiteOr(height, 1)));
+    const pixelRatio = Math.min(renderer.getPixelRatio(), 2);
 
     const composer = new EffectComposer(renderer);
-    composer.setPixelRatio(Math.min(renderer.getPixelRatio(), 2));
+    composer.setPixelRatio(pixelRatio);
     composer.setSize(safeWidth, safeHeight);
 
     const renderPass = new RenderPass(scene, camera);
@@ -583,30 +741,53 @@ export function createPostProcessing(
       BLOOM_RADIUS_DAY,
       BLOOM_THRESHOLD_DAY,
     );
+    const gradePass = new ShaderPass(createCinematicGradeShader());
+
+    let smaaPass: SMAAPass | undefined;
+    try {
+      smaaPass = new SMAAPass(safeWidth * pixelRatio, safeHeight * pixelRatio);
+    } catch {
+      smaaPass = undefined;
+    }
+
     const outputPass = new OutputPass();
 
     composer.addPass(renderPass);
     composer.addPass(bloomPass);
+    composer.addPass(gradePass);
+    if (smaaPass) {
+      composer.addPass(smaaPass);
+    }
     composer.addPass(outputPass);
 
-    return {
+    const rig: PostProcessingRig = {
       composer,
       bloomPass,
+      gradePass,
+      ...(smaaPass ? { smaaPass } : {}),
       resize(nextWidth: number, nextHeight: number): void {
         const clampedW = Math.max(1, Math.floor(finiteOr(nextWidth, 1)));
         const clampedH = Math.max(1, Math.floor(finiteOr(nextHeight, 1)));
+        const currentPixelRatio = Math.min(renderer.getPixelRatio(), 2);
+        composer.setPixelRatio(currentPixelRatio);
         composer.setSize(clampedW, clampedH);
         bloomPass.setSize(clampedW, clampedH);
+        smaaPass?.setSize(clampedW * currentPixelRatio, clampedH * currentPixelRatio);
       },
       render(): void {
         composer.render();
       },
       dispose(): void {
         bloomPass.dispose();
+        gradePass.dispose();
+        smaaPass?.dispose();
         outputPass.dispose();
         composer.dispose();
       },
     };
+
+    setGradeTimeOfDay(rig, 'golden_hour', reducedMotion, 0);
+    return rig;
   } catch {
     return null;
   }

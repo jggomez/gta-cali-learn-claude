@@ -476,3 +476,250 @@ export class ParticleSystem {
     return this.rngState / 4294967296;
   }
 }
+
+const DEFAULT_SKID_CAPACITY = 160;
+const DEFAULT_SKID_WIDTH_METERS = 0.34;
+const DEFAULT_SKID_SEGMENT_LENGTH = 0.95;
+const DEFAULT_SKID_OPACITY = 0.58;
+const SKID_SURFACE_OFFSET_METERS = 0.035;
+const SKID_FADE_START_SECONDS = 6.0;
+const SKID_MAX_LIFETIME_SECONDS = 14.0;
+const SKID_RUBBER_COLOR_HEX = 0x111216;
+
+export interface SkidMarkPoolOptions {
+  readonly capacity?: number;
+  readonly widthMeters?: number;
+  readonly fadeStartSeconds?: number;
+  readonly maxLifetimeSeconds?: number;
+}
+
+function finiteSkidOr(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * Pre-allocated ring buffer of translucent asphalt tire-track ribbon quads laid flush
+ * above road elevation during drifting/hard braking with zero per-frame allocations.
+ */
+export class SkidMarkPool {
+  readonly group: THREE.Group;
+
+  private readonly capacity: number;
+  private readonly fadeStartSeconds: number;
+  private readonly maxLifetimeSeconds: number;
+  private readonly geometry: THREE.PlaneGeometry;
+  private readonly meshes: THREE.Mesh[];
+  private readonly materials: THREE.MeshBasicMaterial[];
+  private readonly active: Uint8Array;
+  private readonly age: Float32Array;
+  private readonly baseOpacity: Float32Array;
+
+  private activeCount = 0;
+  private cursor = 0;
+  private disposed = false;
+
+  constructor(options?: SkidMarkPoolOptions) {
+    this.capacity = Math.max(
+      1,
+      Math.floor(finiteSkidOr(options?.capacity, DEFAULT_SKID_CAPACITY)),
+    );
+    const widthMeters = Math.max(
+      0.08,
+      Math.min(1.5, finiteSkidOr(options?.widthMeters, DEFAULT_SKID_WIDTH_METERS)),
+    );
+    this.fadeStartSeconds = Math.max(
+      0.5,
+      finiteSkidOr(options?.fadeStartSeconds, SKID_FADE_START_SECONDS),
+    );
+    this.maxLifetimeSeconds = Math.max(
+      this.fadeStartSeconds + 0.5,
+      finiteSkidOr(options?.maxLifetimeSeconds, SKID_MAX_LIFETIME_SECONDS),
+    );
+
+    this.group = new THREE.Group();
+    this.group.name = 'cali_skid_marks';
+
+    this.geometry = new THREE.PlaneGeometry(widthMeters, 1);
+    this.meshes = [];
+    this.materials = [];
+    this.active = new Uint8Array(this.capacity);
+    this.age = new Float32Array(this.capacity);
+    this.baseOpacity = new Float32Array(this.capacity);
+
+    for (let i = 0; i < this.capacity; i += 1) {
+      const material = new THREE.MeshBasicMaterial({
+        color: SKID_RUBBER_COLOR_HEX,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      });
+      const mesh = new THREE.Mesh(this.geometry, material);
+      mesh.rotation.order = 'YXZ';
+      mesh.rotation.set(-Math.PI / 2, 0, 0);
+      mesh.visible = false;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      mesh.renderOrder = 1;
+
+      this.materials.push(material);
+      this.meshes.push(mesh);
+      this.group.add(mesh);
+    }
+  }
+
+  emitPair(
+    rearLeftX: number,
+    rearLeftY: number,
+    rearLeftZ: number,
+    rearRightX: number,
+    rearRightY: number,
+    rearRightZ: number,
+    heading: number,
+    segmentLength = DEFAULT_SKID_SEGMENT_LENGTH,
+    opacity = DEFAULT_SKID_OPACITY,
+  ): void {
+    if (this.disposed) {
+      return;
+    }
+    if (
+      !Number.isFinite(rearLeftX) ||
+      !Number.isFinite(rearLeftY) ||
+      !Number.isFinite(rearLeftZ) ||
+      !Number.isFinite(rearRightX) ||
+      !Number.isFinite(rearRightY) ||
+      !Number.isFinite(rearRightZ) ||
+      !Number.isFinite(heading)
+    ) {
+      return;
+    }
+
+    const safeLength = Math.max(
+      0.15,
+      Math.min(6.0, finiteSkidOr(segmentLength, DEFAULT_SKID_SEGMENT_LENGTH)),
+    );
+    const safeOpacity = Math.max(
+      0.05,
+      Math.min(0.92, finiteSkidOr(opacity, DEFAULT_SKID_OPACITY)),
+    );
+
+    this.stampStrip(rearLeftX, rearLeftY, rearLeftZ, heading, safeLength, safeOpacity);
+    this.stampStrip(rearRightX, rearRightY, rearRightZ, heading, safeLength, safeOpacity);
+  }
+
+  update(dt: number): void {
+    if (this.disposed || dt <= 0 || !Number.isFinite(dt) || this.activeCount === 0) {
+      return;
+    }
+
+    const fadeDuration = Math.max(0.001, this.maxLifetimeSeconds - this.fadeStartSeconds);
+
+    for (let i = 0; i < this.capacity; i += 1) {
+      if ((this.active[i] ?? 0) === 0) {
+        continue;
+      }
+
+      const nextAge = (this.age[i] ?? 0) + dt;
+      const mesh = this.meshes[i];
+      const material = this.materials[i];
+
+      if (nextAge >= this.maxLifetimeSeconds) {
+        this.active[i] = 0;
+        this.age[i] = 0;
+        this.baseOpacity[i] = 0;
+        this.activeCount = Math.max(0, this.activeCount - 1);
+        if (mesh) {
+          mesh.visible = false;
+        }
+        if (material) {
+          material.opacity = 0;
+        }
+        continue;
+      }
+
+      this.age[i] = nextAge;
+      if (!material) {
+        continue;
+      }
+
+      const initialOpacity = this.baseOpacity[i] ?? 0;
+      if (nextAge > this.fadeStartSeconds) {
+        const t = Math.min(1, (nextAge - this.fadeStartSeconds) / fadeDuration);
+        const smoothRemaining = 1 - t * t * (3 - 2 * t);
+        material.opacity = initialOpacity * smoothRemaining;
+      } else {
+        material.opacity = initialOpacity;
+      }
+    }
+  }
+
+  getActiveCount(): number {
+    return this.activeCount;
+  }
+
+  clear(): void {
+    this.active.fill(0);
+    this.age.fill(0);
+    this.baseOpacity.fill(0);
+    this.activeCount = 0;
+    this.cursor = 0;
+
+    for (let i = 0; i < this.capacity; i += 1) {
+      const mesh = this.meshes[i];
+      const material = this.materials[i];
+      if (mesh) {
+        mesh.visible = false;
+      }
+      if (material) {
+        material.opacity = 0;
+      }
+    }
+  }
+
+  dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.clear();
+    this.disposed = true;
+    this.geometry.dispose();
+    for (const material of this.materials) {
+      material.dispose();
+    }
+  }
+
+  private stampStrip(
+    x: number,
+    y: number,
+    z: number,
+    heading: number,
+    segmentLength: number,
+    opacity: number,
+  ): void {
+    const slot = this.cursor;
+    this.cursor = (this.cursor + 1) % this.capacity;
+
+    if ((this.active[slot] ?? 0) === 0) {
+      this.active[slot] = 1;
+      this.activeCount += 1;
+    }
+
+    this.age[slot] = 0;
+    this.baseOpacity[slot] = opacity;
+
+    const mesh = this.meshes[slot];
+    const material = this.materials[slot];
+    if (mesh) {
+      mesh.position.set(x, y + SKID_SURFACE_OFFSET_METERS, z);
+      mesh.rotation.order = 'YXZ';
+      mesh.rotation.set(-Math.PI / 2, heading, 0);
+      mesh.scale.set(1, segmentLength, 1);
+      mesh.visible = true;
+    }
+    if (material) {
+      material.opacity = opacity;
+    }
+  }
+}
