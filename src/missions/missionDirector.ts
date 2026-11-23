@@ -576,7 +576,9 @@ export class MissionDirector {
     this.checkRiverWarning(world, safeDt);
     this.processWorldEvents(world);
 
-    if (this.activeMission !== 'free_roam' && world.isBusted) {
+    // A bust freezes the GameWorld for good, so it ends every mode with the Busted screen,
+    // Free Roam included (casual and Reto AcaDevHack); "Reintentar" restarts the active mission.
+    if (world.isBusted) {
       this.failMission('busted');
       return this.getSnapshot();
     }

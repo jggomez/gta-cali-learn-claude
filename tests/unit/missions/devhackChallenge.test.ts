@@ -108,6 +108,16 @@ describe('DevhackChallenge run', () => {
     expect(run.recordCompletion('mission_1_bulevar', 1).kind).toBe('rejected_implausible');
     expect(run.getSnapshot().status).toBe('failed');
     expect(isPlausibleTime('free_roam', 3601)).toBe(false);
+    expect(isPlausibleTime('mission_2_cristo_rey', 7.9)).toBe(false);
+    expect(isPlausibleTime('mission_1_bulevar', 9.9)).toBe(false);
+  });
+
+  it('accepts the fastest real completions driven through the simulation (autopilot evidence)', () => {
+    // Expert headless autopilot runs (tests/integration/missionAutopilot.test.ts), no teleports.
+    expect(isPlausibleTime('mission_1_bulevar', 12.77)).toBe(true);
+    expect(isPlausibleTime('mission_2_cristo_rey', 9.6)).toBe(true);
+    expect(isPlausibleTime('mission_3_pique_bulevar', 22.18)).toBe(true);
+    expect(isPlausibleTime('free_roam', 35.78)).toBe(true);
     expect(isPlausibleTime('free_roam', Number.NaN)).toBe(false);
   });
 

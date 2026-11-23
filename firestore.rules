@@ -14,9 +14,11 @@ service cloud.firestore {
     }
 
     function minSeconds(missionId) {
+      // Mirrors MIN_PLAUSIBLE_SECONDS in src/missions/devhackChallenge.ts.
       return missionId == 'free_roam' ? 30
         : missionId == 'mission_3_pique_bulevar' ? 15
-        : 12;
+        : missionId == 'mission_1_bulevar' ? 10
+        : 8;
     }
 
     function knownMission(missionId) {

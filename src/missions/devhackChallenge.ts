@@ -14,10 +14,14 @@ export const CHALLENGE_ORDER: readonly MissionId[] = [
   'free_roam',
 ];
 
-/** Fastest believable completion per mission (seconds); anything quicker is rejected. */
+/**
+ * Fastest believable completion per mission (seconds); anything quicker is rejected.
+ * Calibrated below the fastest real (no-teleport) autopilot completions: M1 12.8 s, M2 9.6 s,
+ * M3 22.2 s, Free Roam tour 35.8 s. Keep firestore.rules `minSeconds()` in sync.
+ */
 export const MIN_PLAUSIBLE_SECONDS: Readonly<Record<MissionId, number>> = {
-  mission_1_bulevar: 12,
-  mission_2_cristo_rey: 12,
+  mission_1_bulevar: 10,
+  mission_2_cristo_rey: 8,
   mission_3_pique_bulevar: 15,
   free_roam: 30,
 };

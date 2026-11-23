@@ -519,7 +519,7 @@ describe('MissionDirector', () => {
     expect(snap.targetWantedStars).toBe(0);
   });
 
-  it('discovers all 6 landmarks in Free Roam with zero fail condition', () => {
+  it('discovers all 6 landmarks in Free Roam without any timer or objective failure', () => {
     const director = new MissionDirector(CALI_MAP, new StorageAdapter(new MemoryStorage()));
     let snap = director.startMission('free_roam');
 
@@ -527,8 +527,8 @@ describe('MissionDirector', () => {
     expect(snap.activeObjective?.kind).toBe('explore');
     expect(snap.activeObjective?.label).toBe(LOCALE_CALI.objectives.freeRoam.exploreLabel);
 
-    // Even if world.isBusted were true, Free Roam has zero fail condition
-    snap = director.update(makeWorld({ isBusted: true, x: 200, z: 200 }), 1);
+    // Roaming far away with no timer never fails Free Roam (only a police bust does)
+    snap = director.update(makeWorld({ x: 200, z: 200 }), 1);
     expect(snap.mode).toBe('playing');
 
     for (const landmark of CALI_MAP.landmarks) {
@@ -571,6 +571,29 @@ describe('MissionDirector', () => {
       );
     }
     expect(snap.mode).toBe('playing');
+  });
+
+  it('shows the Busted screen in casual Free Roam when the world reports a bust (no frozen-world softlock)', () => {
+    const director = new MissionDirector(CALI_MAP, new StorageAdapter(new MemoryStorage()));
+    director.startMission('free_roam');
+
+    const snap = director.update(makeWorld({ mode: 'driving', wantedStars: 1, isBusted: true }), 1);
+
+    expect(snap.mode).toBe('busted');
+    expect(snap.failureReason).toBe('busted');
+    expect(snap.activeMission).toBe('free_roam');
+    expect(snap.isChallengeRun).toBe(false);
+  });
+
+  it('fails the Reto Free Roam tour when the world reports a bust (frozen world must not softlock the run)', () => {
+    const director = new MissionDirector(CALI_MAP, new StorageAdapter(new MemoryStorage()));
+    director.startMission('free_roam', { challengeRun: true });
+
+    const snap = director.update(makeWorld({ mode: 'driving', wantedStars: 2, isBusted: true }), 1);
+
+    expect(snap.mode).toBe('busted');
+    expect(snap.failureReason).toBe('busted');
+    expect(snap.isChallengeRun).toBe(true);
   });
 
   it('starts Free Roam cleanly at stepIndex 0 (la_ermita) even when localStorage already has all 6 landmarks discovered', () => {
