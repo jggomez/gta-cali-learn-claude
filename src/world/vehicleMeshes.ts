@@ -4987,18 +4987,69 @@ function buildRestPoseLocalOffsets(
   const qSourceRest = new THREE.Quaternion();
   const qTargetRest = new THREE.Quaternion();
   const qOffset = new THREE.Quaternion();
+  // Per-bone world rotation that swings the target's rest bone onto the source's rest bone
+  // direction (e.g. caleno.glb A-pose arms -> Mixamo T-pose). Without it the source's
+  // "arms down from T" motion is stacked on arms that already hang down, crossing them.
+  const restAlign = new Map<THREE.Bone, THREE.Quaternion>();
 
   for (const targetBone of targetBones) {
     const sourceBone = resolveSourceBone(targetBone);
     if (!sourceBone) {
       continue;
     }
+    const align =
+      computeRestDirectionAlignment(targetBone, sourceBone, resolveSourceBone) ??
+      (targetBone.parent instanceof THREE.Bone ? restAlign.get(targetBone.parent) : undefined)?.clone() ??
+      new THREE.Quaternion();
+    restAlign.set(targetBone, align);
+
     sourceBone.getWorldQuaternion(qSourceRest);
     targetBone.getWorldQuaternion(qTargetRest);
-    qOffset.copy(qSourceRest).invert().multiply(qTargetRest);
+    qOffset.copy(qSourceRest).invert().multiply(align).multiply(qTargetRest);
     localOffsets[targetBone.name] = new THREE.Matrix4().makeRotationFromQuaternion(qOffset);
   }
   return localOffsets;
+}
+
+/** Prefers the middle finger so a hand's direction ignores the splayed thumb. */
+function pickDirectionChild(
+  bone: THREE.Bone,
+  resolveSourceBone: (targetBone: THREE.Bone) => THREE.Bone | undefined,
+): { readonly target: THREE.Bone; readonly source: THREE.Bone } | null {
+  let fallback: { target: THREE.Bone; source: THREE.Bone } | null = null;
+  for (const child of bone.children) {
+    if (!(child instanceof THREE.Bone)) continue;
+    const source = resolveSourceBone(child);
+    if (!source) continue;
+    if (/middle1$/i.test(child.name)) return { target: child, source };
+    fallback ??= { target: child, source };
+  }
+  return fallback;
+}
+
+/**
+ * World rotation taking the target bone's rest direction (bone -> mapped child) onto the source
+ * bone's rest direction, or null for leaf/degenerate bones (callers inherit the parent's).
+ */
+function computeRestDirectionAlignment(
+  targetBone: THREE.Bone,
+  sourceBone: THREE.Bone,
+  resolveSourceBone: (targetBone: THREE.Bone) => THREE.Bone | undefined,
+): THREE.Quaternion | null {
+  const child = pickDirectionChild(targetBone, resolveSourceBone);
+  if (!child || child.source.parent !== sourceBone) {
+    return null;
+  }
+  const targetDir = child.target
+    .getWorldPosition(new THREE.Vector3())
+    .sub(targetBone.getWorldPosition(new THREE.Vector3()));
+  const sourceDir = child.source
+    .getWorldPosition(new THREE.Vector3())
+    .sub(sourceBone.getWorldPosition(new THREE.Vector3()));
+  if (targetDir.lengthSq() < 1e-10 || sourceDir.lengthSq() < 1e-10) {
+    return null;
+  }
+  return new THREE.Quaternion().setFromUnitVectors(targetDir.normalize(), sourceDir.normalize());
 }
 
 function sanitizeRetargetedClip(
