@@ -620,6 +620,16 @@ export function resolveCircleWorldCollision(
       }
     }
 
+    for (const prop of map.propColliders ?? []) {
+      const push = resolveCircleVsAabb(rx, rz, radius, prop.minX, prop.maxX, prop.minZ, prop.maxZ);
+      if (push.pushed) {
+        rx = push.x;
+        rz = push.z;
+        collided = true;
+        hitColliderId ??= prop.id;
+      }
+    }
+
     for (const landmark of map.landmarks) {
       if (DRIVABLE_LANDMARK_IDS.has(landmark.id)) {
         continue;
