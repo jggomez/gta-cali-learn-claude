@@ -4,6 +4,7 @@
  * InputManager, fixed-clamp requestAnimationFrame loop, and readonly window.__GTA_CALI__.
  */
 
+import { switchLanguage } from '../config/language';
 import { AudioEngine } from '../audio/audioEngine';
 import { VoiceEngine, type VoiceProfile } from '../audio/voiceEngine';
 import { CALI_MAP } from '../config/caliMap';
@@ -275,6 +276,7 @@ export class GameApp {
         onUpdateGarage: (garage) => this.updateGarage(garage),
         onRetryWebgl: () => this.retryWebgl(),
         onOpenAlbum: () => this.learning.openAlbum(),
+        onSwitchLanguage: (language) => switchLanguage(language),
       },
       this.map,
     );
@@ -491,6 +493,7 @@ export class GameApp {
         : {}),
       ...(assetsLoaded !== undefined ? { assetsLoaded } : {}),
       learning: this.learning.getDebug(),
+      voice: this.voiceEngine.getLastVoiceName(),
     };
   }
 
@@ -914,7 +917,7 @@ export class GameApp {
         return;
       }
       const profile = mapDialogueSpeakerToVoiceProfile(dialogue.speaker);
-      this.voiceEngine.speak(dialogue.text, profile, 'mission');
+      this.voiceEngine.speak(dialogue.spokenText, profile, 'mission');
     }
   }
 

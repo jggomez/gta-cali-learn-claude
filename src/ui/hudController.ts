@@ -9,7 +9,8 @@ import {
   DEFAULT_GARAGE_CONFIG,
   PLAYER_CAR_KINDS,
 } from '../config/caliMap';
-import { LOCALE_CALI, LOCALE_DEVHACK } from '../config/localeCali';
+import { ACTIVE_LANGUAGE, LOCALE_CALI, LOCALE_DEVHACK } from '../config/localeCali';
+import type { Language } from '../config/language';
 import type {
   AudioState,
   CaliMapConfig,
@@ -39,6 +40,8 @@ export interface HudCallbacks {
   onTogglePause(): void;
   /** Opens the "Álbum Claude" collectibles album from the pause menu. */
   onOpenAlbum?(): void;
+  /** ES | EN toggle: saves the choice and reloads into the title screen. */
+  onSwitchLanguage?(language: Language): void;
   onRetryWebgl(): void;
   onToggleTimeOfDay?: () => void;
   onToggleGarage?: () => void;
@@ -860,6 +863,8 @@ export class HudController {
     controlsPanel.append(controlsHeading, controlsList);
 
     section.append(hero, titleGarageBtn, missionGrid, controlsPanel);
+    section.appendChild(this.buildLanguageToggle('title'));
+
     return { section, titleGarageSummary, mission1, mission2, mission3, mission5, freeRoam };
   }
 
@@ -1309,7 +1314,7 @@ export class HudController {
     );
 
     actions.append(resumeBtn, restartBtn, albumBtn, radioBtn, muteBtn, titleBtn);
-    modal.append(title, subtitle, actions);
+    modal.append(title, subtitle, actions, this.buildLanguageToggle('pause'));
     overlay.appendChild(modal);
 
     return { overlay, radioBtn, muteBtn };
@@ -1649,6 +1654,30 @@ export class HudController {
     card.append(title, message, retryBtn);
     overlay.appendChild(card);
     return overlay;
+  }
+
+  /** `ES | EN` segmented toggle (title corner and pause menu). City copy and voices stay Spanish. */
+  private buildLanguageToggle(placement: 'title' | 'pause'): HTMLElement {
+    const copy = LOCALE_CALI.languageToggle;
+    const group = createEl('div', `cali-lang-toggle cali-lang-toggle--${placement}`, `lang-toggle-${placement}`);
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', copy.label);
+    group.title = copy.note;
+    const options: ReadonlyArray<{ lang: Language; label: string; name: string }> = [
+      { lang: 'es', label: copy.es, name: copy.esName },
+      { lang: 'en', label: copy.en, name: copy.enName },
+    ];
+    for (const option of options) {
+      const suffix = placement === 'title' ? '' : `-${placement}`;
+      const button = this.makeButton(option.label, 'cali-lang-option', `btn-lang-${option.lang}${suffix}`, () =>
+        this.callbacks.onSwitchLanguage?.(option.lang),
+      );
+      button.lang = option.lang;
+      button.setAttribute('aria-label', option.name);
+      button.setAttribute('aria-pressed', String(option.lang === ACTIVE_LANGUAGE));
+      group.appendChild(button);
+    }
+    return group;
   }
 
   private makeButton(

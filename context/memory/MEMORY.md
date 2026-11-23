@@ -21,9 +21,10 @@
 ## Key Decisions
 - **Decoupled 3D Engine (ADR-001)**: Headless Three.js/DOM-free `src/simulation/` & `src/missions/` emit immutable readonly snapshots to `src/world/` (Three.js), `src/audio/` (Web Audio + Web Speech), and `src/ui/` (DOM HUD + 2D GPS minimap).
 - **100% Offline Local Assets**: Zero external runtime CDNs or backend APIs (`data-source: none`; 28 MB local `public/` CC0/MIT pack, max file `3.13 MB < 10 MB`; `localStorage` key `gta_cali_records_v1`).
-- **Language Boundary**: Code, types, comments, docs, and commits strictly in English; authentic Español Caleño player copy isolated in `src/config/localeCali.ts`.
+- **Language Boundary**: Code, types, comments, docs, and commits strictly in English. Player copy: `localeCali.ts` picks `localeEs.ts`/`localeEn.ts` at boot (`ACTIVE_LANGUAGE`, key `gta_cali_lang_v1`, browser auto-detect, toggle reloads); `localeCity.ts` (billboards, #CaliViral, radio, street shouts) is always Spanish; dialogues carry `spokenText` (always ES) so voices stay Caleño under English subtitles.
+- **Natural voices (C-12)**: `voiceEngine` ranks voices by quality (premium/neural > Google online > standard > Eloquence; novelty excluded), small pitch offsets only, `prepareSpokenText` + `splitIntoPhrases`; debug `__GTA_CALI__.voice`.
 
 ## Pointers
 - [AGENTS.md](../../AGENTS.md) | [DESIGN.md](../../DESIGN.md)
 - [PLAN.md](../../docs/gta-vi-cali-3d/PLAN.md) | [spec.md](../../docs/gta-vi-cali-3d/spec.md) | [adr-001](../../docs/gta-vi-cali-3d/adr-001-decoupled-3d-simulation.md) | [test-matrix.md](../../docs/gta-vi-cali-3d/test-matrix.md)
-- [architecture.md](./architecture.md) | [conventions.md](./conventions.md) | [log/2026-11-22.md](./log/2026-11-22.md) | [log/2026-11-21.md](./log/2026-11-21.md)
+- [architecture.md](./architecture.md) | [conventions.md](./conventions.md) | [log/2026-11-23.md](./log/2026-11-23.md) | [log/2026-11-22.md](./log/2026-11-22.md) | [log/2026-11-21.md](./log/2026-11-21.md)

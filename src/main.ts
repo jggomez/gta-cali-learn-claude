@@ -5,8 +5,10 @@
 
 import './styles/theme.css';
 import { GameApp } from './game/gameApp';
+import { ACTIVE_LANGUAGE } from './config/language';
 
 function bootstrap(): void {
+  document.documentElement.lang = ACTIVE_LANGUAGE === 'en' ? 'en' : 'es-CO';
   const canvas = document.getElementById('game-canvas');
   const hudRoot = document.getElementById('hud-root');
 

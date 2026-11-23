@@ -14,7 +14,7 @@ Playable 3D third-person web game inspired by GTA VI and set in Cali, Colombia, 
 
 ## 3. Architecture & Coding Conventions
 - **Directory Layout**:
-  - `src/types/`, `src/config/`: Shared immutable types, Cali map coordinates, and Español Caleño locale strings (`localeCali.ts`).
+  - `src/types/`, `src/config/`: Shared immutable types, Cali map coordinates, and player copy: active locale `localeCali.ts` → `localeEs.ts` / `localeEn.ts` (ES | EN toggle) + always-Spanish city/ad copy in `localeCity.ts`.
   - `src/simulation/`: Pure Three.js-free headless physics, AABB collisions, Cali traffic, Police pursuit AI, and `GameWorld`.
   - `src/missions/`: Pure mission state machine (`mission_1_bulevar`, `mission_2_cristo_rey`, `mission_3_pique_bulevar`, `free_roam`) + `localStorage` records & Garaje `[G]` config.
   - `src/world/`: Procedural Three.js scene, sunset sky dome, 6 Cali landmarks, vehicle/player meshes, and chase camera.
@@ -24,7 +24,7 @@ Playable 3D third-person web game inspired by GTA VI and set in Cali, Colombia, 
   - `tests/unit/`, `tests/integration/`: Headless Vitest suites mirroring `src/`.
   - `docs/<feature-name>/`: `PLAN.md`, `spec.md`, `adr-NNN-*.md`, `test-matrix.md`, and `evidence/*.png`.
 - **Key Invariants**:
-  - Code, identifiers, types, comments, docs, and commits MUST be strictly in English; player-facing Español Caleño copy lives only in `src/config/localeCali.ts`.
+  - Code, identifiers, types, comments, docs, and commits MUST be strictly in English; player-facing copy lives only in `src/config/locale*.ts` (+ `hackQuestions.ts`); billboards, #CaliViral, radio and street shouts stay Español Caleño in `localeCity.ts`, and every voice line is spoken in Caleño Spanish (English UI shows subtitles).
   - Keep `src/simulation/` and `src/missions/` strictly decoupled from `three` and DOM APIs (SOLID / KISS / TDD).
   - Data source is `local-client-simulation` (in-memory + `localStorage`) plus the optional Reto AcaDevHack leaderboard in Firestore (project `devhack-3f0c2`, database `gta-cali`, anonymous auth, lazy-loaded via `LeaderboardPort`). The game MUST stay fully playable offline; never add fake backend stubs or external network asset fetches.
   - Never commit on `main`/`master`/`develop`; use Conventional Commits on `feat/<slug>` branches.

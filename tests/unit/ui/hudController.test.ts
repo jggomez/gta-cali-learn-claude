@@ -203,6 +203,7 @@ function createMissionSnapshot(speaker: DialogueSpeaker | null = null): MissionS
           id: `dialogue_${speaker}`,
           speaker,
           text: 'Mensaje de prueba',
+          spokenText: 'Mensaje de prueba',
           remainingSeconds: 4,
         }
       : null,

@@ -421,6 +421,8 @@ export interface DialogueToast {
   readonly id: string;
   readonly speaker: DialogueSpeaker;
   readonly text: string;
+  /** Español Caleño line the character speaks (equals `text` when the UI is in Spanish). */
+  readonly spokenText: string;
   readonly remainingSeconds: number;
 }
 
@@ -501,6 +503,8 @@ export interface GameDebugSnapshot {
   readonly garage?: GarageConfig;
   readonly perf?: GamePerfSnapshot;
   readonly learning?: GameLearningDebug;
+  /** Name of the last Web Speech voice used (null before the first spoken line). */
+  readonly voice?: string | null;
 }
 
 export interface GameLearningDebug {

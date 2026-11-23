@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   VoiceEngine,
+  prepareSpokenText,
   selectBestSpanishVoice,
+  splitIntoPhrases,
+  voiceQualityTier,
   type SpeechSynthesisLike,
   type SpeechUtteranceLike,
   type SpeechVoiceLike,
@@ -124,21 +127,21 @@ describe('VoiceEngine', () => {
     expect(engine.speak('¡Arrancamos por el Bulevar!', 'valeria')).toBe(true);
     const valeriaUtterance = synth.spoken[0];
     expect(valeriaUtterance).toBeDefined();
-    expect(valeriaUtterance?.rate).toBeCloseTo(1.04, 2);
-    expect(valeriaUtterance?.pitch).toBeCloseTo(1.12, 2);
+    expect(valeriaUtterance?.rate).toBeCloseTo(1.02, 2);
+    expect(valeriaUtterance?.pitch).toBeCloseTo(1.03, 2);
     expect(valeriaUtterance?.volume).toBeCloseTo(0.92, 2);
     expect(valeriaUtterance?.voice).toEqual(coFemale);
     expect(valeriaUtterance?.lang).toBe('es-CO');
 
     expect(engine.speak('¡Pilas con la Policía, Valeria!', 'mateo')).toBe(true);
     const mateoUtterance = synth.spoken[1];
-    expect(mateoUtterance?.rate).toBeCloseTo(1.08, 2);
-    expect(mateoUtterance?.pitch).toBeCloseTo(0.88, 2);
+    expect(mateoUtterance?.rate).toBeCloseTo(1.03, 2);
+    expect(mateoUtterance?.pitch).toBeCloseTo(0.97, 2);
     expect(mateoUtterance?.volume).toBeCloseTo(0.90, 2);
 
     expect(engine.speak('Misión iniciada.', 'system')).toBe(true);
     const systemUtterance = synth.spoken[2];
-    expect(systemUtterance?.rate).toBeCloseTo(1.04, 2);
+    expect(systemUtterance?.rate).toBeCloseTo(1.0, 2);
     expect(systemUtterance?.pitch).toBeCloseTo(1.0, 2);
     expect(systemUtterance?.volume).toBeCloseTo(0.82, 2);
 
@@ -146,8 +149,8 @@ describe('VoiceEngine', () => {
     now += 4000;
     expect(engine.speak('¡Alto ahí, Policía Nacional!', 'police')).toBe(true);
     const policeUtterance = synth.spoken[3];
-    expect(policeUtterance?.rate).toBeCloseTo(1.06, 2);
-    expect(policeUtterance?.pitch).toBeCloseTo(0.82, 2);
+    expect(policeUtterance?.rate).toBeCloseTo(1.05, 2);
+    expect(policeUtterance?.pitch).toBeCloseTo(0.97, 2);
     expect(policeUtterance?.volume).toBeCloseTo(0.94, 2);
 
     // Empty voice list still populates fallback lang 'es-CO'
@@ -171,13 +174,13 @@ describe('VoiceEngine', () => {
       nowMs: () => now,
     });
 
-    const expectedPitches = [0.92, 1.08, 1.18, 0.96, 1.14, 0.92];
+    const expectedPitches = [0.97, 1.03, 1.06, 0.96, 1.01, 0.97];
     const pickedVoices: Array<SpeechVoiceLike | null> = [];
 
     for (let i = 0; i < expectedPitches.length; i++) {
       expect(engine.speak(`¡Oís, ve, cuidado ${i}!`, 'pedestrian')).toBe(true);
       const u = synth.spoken[i];
-      expect(u?.rate).toBeCloseTo(1.1, 2);
+      expect(u?.rate).toBeCloseTo(1.04, 2);
       expect(u?.volume).toBeCloseTo(0.78, 2);
       expect(u?.pitch).toBeCloseTo(expectedPitches[i] ?? 1, 2);
       pickedVoices.push(u?.voice ?? null);
@@ -315,5 +318,60 @@ describe('VoiceEngine', () => {
     expect(engine.speakRandomLine([], 'pedestrian')).toBe(false);
 
     engine.dispose();
+  });
+});
+
+describe('natural voice ranking and delivery', () => {
+  const paulina: SpeechVoiceLike = { lang: 'es-MX', name: 'Paulina' };
+  const paulinaEnhanced: SpeechVoiceLike = { lang: 'es-MX', name: 'Paulina (Mejorada)' };
+  const eddy: SpeechVoiceLike = { lang: 'es-MX', name: 'Eddy (Spanish (Mexico))' };
+  const google: SpeechVoiceLike = { lang: 'es-US', name: 'Google español de Estados Unidos', localService: false };
+  const salome: SpeechVoiceLike = {
+    lang: 'es-CO',
+    name: 'Microsoft Salome Online (Natural) - Spanish (Colombia)',
+    localService: false,
+  };
+
+  it('ranks premium > network (online) > standard > Eloquence and excludes novelty voices', () => {
+    expect(voiceQualityTier(paulinaEnhanced)).toBe(0);
+    expect(voiceQualityTier(google)).toBe(1);
+    expect(voiceQualityTier(paulina)).toBe(2);
+    expect(voiceQualityTier(eddy)).toBe(3);
+    expect(voiceQualityTier({ lang: 'es-ES', name: 'Bad News' })).toBeNull();
+    expect(selectBestSpanishVoice([eddy, paulina, paulinaEnhanced])).toEqual(paulinaEnhanced);
+    expect(selectBestSpanishVoice([eddy, paulina])).toEqual(paulina);
+    expect(selectBestSpanishVoice([eddy, paulina, google])).toEqual(google);
+    expect(selectBestSpanishVoice([paulinaEnhanced, salome])).toEqual(salome);
+    expect(selectBestSpanishVoice([{ lang: 'es-ES', name: 'Bubbles' }])).toBeNull();
+  });
+
+  it('prefers local voices over streamed ones when offline', () => {
+    expect(selectBestSpanishVoice([google, paulina], undefined, { online: false })).toEqual(paulina);
+    expect(selectBestSpanishVoice([salome, eddy], undefined, { online: false })).toEqual(eddy);
+  });
+
+  it('cleans HUD copy so the voice reads it naturally', () => {
+    expect(prepareSpokenText('[F] ¡Súbete ya! 🚗')).toBe('¡Súbete ya!');
+    expect(prepareSpokenText('Te ganaste $600.000 COP, parce')).toBe('Te ganaste 600 mil pesos, parce');
+    expect(prepareSpokenText('Usa /rewind con Claude en AcaDevHack')).toBe('Usa rewind con Clod en Aca Dev Jack');
+  });
+
+  it('splits only long lines into sentence phrases', () => {
+    expect(splitIntoPhrases('¡Dale pues!')).toEqual(['¡Dale pues!']);
+    const long = 'Primera frase bien larga del parcero caleño. '.repeat(6).trim();
+    const phrases = splitIntoPhrases(long, 100);
+    expect(phrases.length).toBeGreaterThan(1);
+    expect(phrases.every((p) => p.length <= 100)).toBe(true);
+    expect(phrases.join(' ')).toBe(long);
+  });
+
+  it('queues one utterance per phrase and reports the voice used', () => {
+    const synth = new MockSpeechSynthesis([paulina, eddy]);
+    const engine = new VoiceEngine({ synthFactory: () => synth, utteranceFactory: createMockUtterance });
+    expect(engine.getLastVoiceName()).toBeNull();
+    const long = 'Corre al deportivo de la esquina antes de que llegue la tomba, parce. '.repeat(4).trim();
+    expect(engine.speak(long, 'valeria')).toBe(true);
+    expect(synth.spoken.length).toBeGreaterThan(1);
+    expect(engine.getLastVoiceName()).toBe('Paulina');
   });
 });

@@ -12,6 +12,8 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: 'http://127.0.0.1:4173',
+    // The game auto-detects the browser language (ES | EN); suites assert the Spanish default.
+    locale: 'es-CO',
     headless: true,
     launchOptions: {
       args: [

@@ -27,7 +27,7 @@ const browser = await chromium.launch({
 });
 
 async function openGame({ width, height, seedCards = false, quality = 'high' }) {
-  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2 });
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, locale: 'es-CO' });
   const page = await context.newPage();
   await page.addInitScript(
     ({ cards, seed }) => {

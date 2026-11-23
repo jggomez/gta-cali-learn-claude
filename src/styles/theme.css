@@ -2827,3 +2827,68 @@ body {
     display: none;
   }
 }
+
+/* ---- ES | EN language toggle --------------------------------------------------------------- */
+.cali-lang-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  pointer-events: auto;
+  background: var(--color-surface-glass-strong);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-panel);
+}
+
+.cali-lang-toggle--title {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: var(--z-screen);
+}
+
+.cali-lang-toggle--pause {
+  align-self: center;
+  justify-self: center;
+  width: max-content;
+  margin: var(--space-sm) auto 0;
+}
+
+.cali-lang-option {
+  min-width: 44px;
+  min-height: 36px;
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+
+.cali-lang-option:hover,
+.cali-lang-option:focus-visible {
+  color: var(--color-text);
+  outline: 2px solid var(--color-secondary);
+  outline-offset: 1px;
+}
+
+.cali-lang-option[aria-pressed='true'] {
+  color: var(--color-text-on-accent);
+  background: var(--color-secondary);
+}
+
+@media (max-width: 639px) {
+  /* Leave a strip above the logo so the fixed ES | EN toggle never covers the title. */
+  .cali-title-screen {
+    padding-top: 60px;
+  }
+
+  .cali-lang-toggle--title {
+    top: 10px;
+    left: 10px;
+  }
+}

@@ -7,7 +7,7 @@
 **Maneja por Santiago de Cali, escápate de la tomba y aprende Claude Code y Claude sin darte cuenta.**<br/>
 Juego 3D gratis en el navegador · Creado por **[DevHack](https://devhack.co)**, la escuela de IA de Cali.
 
-[**▶ Jugar**](#-jugar-en-local) · [**🧠 Qué aprendes**](#-aprende-claude-mientras-juegas) · [**🏆 Reto AcaDevHack**](#-reto-acadevhack) · [**🎓 Cursos gratis**](https://devhack.co/academy-ai/claude-code-desde-cero/)
+[**▶ Jugar**](#-jugar-en-local) · [**🇺🇸 English**](#-english) · [**🧠 Qué aprendes**](#-aprende-claude-mientras-juegas) · [**🏆 Reto AcaDevHack**](#-reto-acadevhack) · [**🎓 Cursos gratis**](https://devhack.co/academy-ai/claude-code-desde-cero/)
 
 ![Pantalla de inicio: Aprende Claude mientras juegas](docs/readme/01-title.png)
 
@@ -89,6 +89,8 @@ npm run dev -- --port 4173   # abre http://localhost:4173
 
 El juego funciona **100 % offline**: todo el 3D, el audio y las voces son locales. Solo el ranking del Reto usa Firestore, y es opcional.
 
+**Voces más naturales:** el juego elige solo la mejor voz en español que tengas instalada (Premium/Mejorada, Siri, Microsoft Natural o Google). En Mac, instala **Paulina (Mejorada)** o **Mónica (Premium)** en *Ajustes → Accesibilidad → Contenido leído → Voz del sistema → Gestionar voces* y la diferencia se nota de inmediato.
+
 **Calidad:**
 
 ```bash
@@ -105,6 +107,14 @@ node scripts/capture-readme-shots.mjs   # con el servidor de desarrollo corriend
 ```
 
 **Stack:** TypeScript · Three.js · Vite · Web Audio + Web Speech (voces `es-CO`) · Firebase (ranking) · Vitest · Playwright.
+
+## 🇺🇸 English
+
+The game also comes in **English**: use the **`ES | EN`** toggle in the top-left of the title screen (or in the pause menu). It detects your browser language the first time.
+
+The city keeps its soul: billboards, the #CaliViral news ticker, the radio and the street shouts stay in **Caleño Spanish**, and Valeria and Mateo keep talking like *caleños*, with English subtitles.
+
+![English title screen](docs/idiomas-voces/evidence/title-en-1280.png)
 
 ## 🎓 Sigue aprendiendo (gratis)
 

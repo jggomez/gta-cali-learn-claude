@@ -1,3 +1,19 @@
+type DialogueKey = keyof typeof LOCALE_CALI_ES.dialogues;
+
+/**
+ * Characters always speak Español Caleño: maps an active-locale dialogue entry back to its Spanish
+ * line (subtitles may be English). Falls back to the displayed text when no match exists.
+ */
+function spokenDialogueText(content: { readonly text: string }): string {
+  const active = LOCALE_CALI.dialogues as Readonly<Record<string, unknown>>;
+  for (const key of Object.keys(active) as DialogueKey[]) {
+    if (active[key] !== content) continue;
+    const spanish = LOCALE_CALI_ES.dialogues[key];
+    return typeof spanish === 'function' ? content.text : spanish.text;
+  }
+  return content.text;
+}
+
 /**
  * Pure mission state machine and localStorage persistence adapter for GTA I - Cali - Colombia.
  * Strictly decoupled from Three.js, DOM globals, simulation internals, world, audio, and UI.
@@ -8,7 +24,7 @@ import {
   DEFAULT_GARAGE_CONFIG,
   PLAYER_CAR_KINDS,
 } from '../config/caliMap';
-import { LOCALE_CALI } from '../config/localeCali';
+import { LOCALE_CALI, LOCALE_CALI_ES } from '../config/localeCali';
 import {
   MISSION5_LAYOUT,
   MISSION5_PACKAGE_ORDER,
@@ -1230,6 +1246,7 @@ export class MissionDirector {
           `landmark_${lastDiscoveredId}`,
           LOCALE_CALI.dialogues.landmarkDiscovered(displayName),
           LANDMARK_DIALOGUE_SECONDS,
+          LOCALE_CALI_ES.dialogues.landmarkDiscovered(LOCALE_CALI_ES.landmarks[lastDiscoveredId]).text,
         );
       }
     }
@@ -1330,11 +1347,13 @@ export class MissionDirector {
     id: string,
     content: { readonly speaker: DialogueSpeaker; readonly text: string },
     durationSeconds: number,
+    spokenText: string = spokenDialogueText(content),
   ): void {
     this.dialogue = {
       id,
       speaker: content.speaker,
       text: content.text,
+      spokenText,
       remainingSeconds: durationSeconds,
     };
   }
