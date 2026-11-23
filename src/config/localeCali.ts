@@ -58,6 +58,12 @@ export const LOCALE_CALI = {
     },
   },
 
+  learningWorld: {
+    bankSign: 'BANCO SUCURSAL IA',
+    bankTagline: 'Bóveda de prompts · abierto 24/7',
+    cardTag: 'CARTA CLAUDE',
+  },
+
   titleScreen: {
     loading: 'Cargando calles de Cali...',
     noRecord: 'Sin récord',
