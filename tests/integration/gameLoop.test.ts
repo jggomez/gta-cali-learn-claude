@@ -94,6 +94,13 @@ class FakeDomNode {
     return node;
   }
 
+  public replaceChildren(...nodes: FakeDomNode[]): void {
+    for (const child of this.children.splice(0)) {
+      child.parent = null;
+    }
+    this.append(...nodes);
+  }
+
   public remove(): void {
     if (!this.parent) {
       return;
@@ -1133,6 +1140,12 @@ describe('GTA I - Cali - Colombia headless game loop integration', () => {
       const m1Btn = hudRoot.findFirst((el) => el.dataset.testid === 'btn-mission-1');
       expect(m1Btn).not.toBeNull();
       m1Btn?.click();
+      // Modo Plan briefing gates the first launch: the mission (and its clock) waits for approval.
+      const planModal = hudRoot.findFirst((el) => el.dataset.testid === 'learn-plan');
+      expect(planModal?.hidden).toBe(false);
+      expect(app.getDebugSnapshot().mode).toBe('title');
+      hudRoot.findFirst((el) => el.dataset.testid === 'btn-plan-turbo')?.click();
+      expect(planModal?.hidden).toBe(true);
       tickFrame();
 
       expect(speakSpy).toHaveBeenCalledWith(
@@ -1594,6 +1607,7 @@ describe('GTA I - Cali - Colombia headless game loop integration', () => {
       const m3Btn = hudRoot.findFirst((el) => el.dataset.testid === 'btn-mission-3');
       expect(m3Btn).not.toBeNull();
       m3Btn?.click();
+      hudRoot.findFirst((el) => el.dataset.testid === 'btn-plan-stealth')?.click();
 
       const m3Snap = app.getDebugSnapshot();
       expect(m3Snap.mode).toBe('playing');

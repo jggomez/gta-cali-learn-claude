@@ -224,6 +224,7 @@ export class GameWorld {
   private rivalsEnabled = false;
   private playerRaceCheckpointIndex = 0;
   private rewindHistory: RewindFrame[] = [];
+  private bustHeld = false;
   private lastRewindSampleAt = Number.NEGATIVE_INFINITY;
 
   public constructor(map: CaliMapConfig = CALI_MAP) {
@@ -235,6 +236,7 @@ export class GameWorld {
   public reset(options?: ResetWorldOptions): void {
     this.rewindHistory = [];
     this.lastRewindSampleAt = Number.NEGATIVE_INFINITY;
+    this.bustHeld = false;
     this.vehicles = createInitialVehicles(this.map, {
       playerCarKind: options?.playerCarKind,
       playerPaintHex: options?.playerPaintHex,
@@ -399,6 +401,21 @@ export class GameWorld {
     const horizon = this.timeSeconds - REWIND_HISTORY_SECONDS;
     while ((this.rewindHistory[0]?.t ?? Infinity) < horizon) {
       this.rewindHistory.shift();
+    }
+  }
+
+  /**
+   * Police-hack terminal: while a question is open the arrest meter neither fills nor decays,
+   * so answering can still save the player. The clock keeps running.
+   */
+  public setBustHold(held: boolean): void {
+    this.bustHeld = held;
+  }
+
+  /** A correct police-hack answer shakes the cops off: the arrest meter resets. */
+  public relieveBust(): void {
+    if (!this.isBusted) {
+      this.bustProgress = 0;
     }
   }
 
@@ -1312,6 +1329,9 @@ export class GameWorld {
   }
 
   private updateBustMechanic(dt: number): void {
+    if (this.bustHeld) {
+      return;
+    }
     if (this.wantedStars === 0) {
       this.bustProgress = 0;
       return;

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { CALI_MAP, DEFAULT_GARAGE_CONFIG } from '../../../src/config/caliMap';
 import { LOCALE_CALI } from '../../../src/config/localeCali';
+import { MISSION5_LAYOUT, MISSION5_PACKAGE_ORDER } from '../../../src/config/mission5Layout';
 import {
+  MISSION5_ORDER_BONUS_COP,
   MissionDirector,
   STORAGE_KEY,
   StorageAdapter,
@@ -1007,5 +1009,54 @@ describe('MissionDirector', () => {
       const reloaded = new MissionDirector(CALI_MAP, new StorageAdapter(backing));
       expect(reloaded.getGarageConfig().carKind, carKind).toBe(carKind);
     }
+  });
+});
+
+describe('MissionDirector Mission 5 "El Golpe del Prompt"', () => {
+  const at = (point: { x: number; z: number }, wantedStars: WantedLevel = 2): WorldSnapshot =>
+    makeWorld({ mode: 'driving', x: point.x, z: point.z, wantedStars });
+
+  it('collects the 4 prompt pieces, pays the in-order bonus and passes at the bank', () => {
+    const director = new MissionDirector(CALI_MAP, new StorageAdapter(new MemoryStorage()));
+    const started = director.startMission('mission_5_golpe_prompt');
+    expect(started.targetWantedStars).toBe(2);
+    expect(started.activeObjective?.id).toBe('m5_pkg_rol');
+
+    // The bank does nothing before the prompt is complete.
+    expect(director.update(at(MISSION5_LAYOUT.bank), 0.1).mode).toBe('playing');
+    const cashBefore = director.getSnapshot().cashCop;
+    for (const piece of MISSION5_PACKAGE_ORDER) {
+      director.update(at(MISSION5_LAYOUT.packages[piece]), 0.1);
+    }
+    const ready = director.getSnapshot();
+    expect(ready.activeObjective?.id).toBe('m5_bank_delivery');
+    expect(ready.activeObjective?.stepIndex).toBe(4);
+    expect(ready.cashCop - cashBefore).toBe(MISSION5_ORDER_BONUS_COP);
+
+    const passed = director.update(at(MISSION5_LAYOUT.bank), 0.1);
+    expect(passed.mode).toBe('mission_passed');
+    expect(passed.bestTimes.mission_5_golpe_prompt).toBeGreaterThan(0);
+  });
+
+  it('accepts the pieces in any order but only pays the bonus for the course order', () => {
+    const director = new MissionDirector(CALI_MAP, new StorageAdapter(new MemoryStorage()));
+    director.startMission('mission_5_golpe_prompt');
+    const cashBefore = director.getSnapshot().cashCop;
+    for (const piece of ['formato', 'tarea', 'contexto', 'rol'] as const) {
+      director.update(at(MISSION5_LAYOUT.packages[piece]), 0.1);
+    }
+    expect(director.getSnapshot().activeObjective?.id).toBe('m5_bank_delivery');
+    expect(director.getSnapshot().cashCop).toBe(cashBefore);
+  });
+
+  it('lets learning mechanics lower the wanted floor (police hack / Modo Plan)', () => {
+    const director = new MissionDirector(CALI_MAP, new StorageAdapter(new MemoryStorage()));
+    director.startMission('mission_5_golpe_prompt');
+    expect(director.applyWantedDelta(2, -1)).toBe(1);
+    // The floor followed the hack: the next update keeps 1 star instead of restoring 2.
+    expect(director.update(at(MISSION5_LAYOUT.playerSpawn, 1), 0.1).targetWantedStars).toBe(1);
+    expect(director.applyWantedDelta(1, 9)).toBe(5);
+    director.returnToTitle();
+    expect(director.applyWantedDelta(3, -1)).toBe(3);
   });
 });

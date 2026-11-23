@@ -74,7 +74,8 @@ export class LearningProgress {
 
   public resetForMission(): void {
     this.rewindCharges = REWIND_CHARGES_PER_MISSION;
-    this.hackCooldown = HACK_COOLDOWN_SECONDS / 3;
+    // Available from the first chase: a fresh mission must not leave the player without a lifeline.
+    this.hackCooldown = 0;
     this.activeHack = null;
   }
 

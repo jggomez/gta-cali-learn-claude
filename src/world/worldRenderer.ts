@@ -8,6 +8,7 @@
  * police roadblocks & officers, exhaust backfire flames, pooled skid marks, and post-FX.
  */
 
+import { buildClaudeCards, type ClaudeCardsHandle } from './claudeCards';
 import * as THREE from 'three';
 import {
   CALI_MAP,
@@ -685,6 +686,7 @@ export class WorldRenderer {
   private readonly map: CaliMapConfig;
   private readonly caliWorld: CaliWorldBuildResult;
   private readonly worldGroup: THREE.Group;
+  private readonly claudeCards: ClaudeCardsHandle;
   private readonly skyDome: THREE.Mesh;
   private readonly lightingGroup: THREE.Group;
   private environmentMap: THREE.Texture | null;
@@ -837,6 +839,8 @@ export class WorldRenderer {
       ],
     }).detailBatches;
     this.scene.add(this.worldGroup);
+    this.claudeCards = buildClaudeCards();
+    this.scene.add(this.claudeCards.group);
 
     let count = 0;
     for (const landmark of this.map.landmarks) {
@@ -1061,6 +1065,7 @@ export class WorldRenderer {
     this.syncPlayerHeadlight(world);
     this.syncCollisionSparks(world);
     this.particles.update(safeDt);
+    this.claudeCards.update(safeDt);
     this.skidMarks.update(safeDt);
     this.syncObjectiveBeacon(mission, safeDt);
     this.syncMissionProps(mission, safeDt, world.player.x, world.player.z);
@@ -1167,11 +1172,18 @@ export class WorldRenderer {
     return this.worldAssetsLoaded;
   }
 
+  /** Hides the "Cartas Claude" the player already collected. */
+  public setCollectedClaudeCards(ids: ReadonlySet<string>): void {
+    this.claudeCards.setCollected(ids);
+  }
+
   public dispose(): void {
     if (this.disposed) {
       return;
     }
     this.disposed = true;
+    this.scene.remove(this.claudeCards.group);
+    this.claudeCards.dispose();
 
     disposeAnimationMixer(this.characterMixer);
     this.characterMixer = null;

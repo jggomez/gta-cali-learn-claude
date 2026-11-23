@@ -9,7 +9,7 @@ import {
   DEFAULT_GARAGE_CONFIG,
   PLAYER_CAR_KINDS,
 } from '../config/caliMap';
-import { LOCALE_CALI } from '../config/localeCali';
+import { LOCALE_CALI, LOCALE_DEVHACK } from '../config/localeCali';
 import type {
   AudioState,
   CaliMapConfig,
@@ -37,6 +37,8 @@ export interface HudCallbacks {
   onToggleVoices?: () => void;
   onCycleCamera(): void;
   onTogglePause(): void;
+  /** Opens the "Álbum Claude" collectibles album from the pause menu. */
+  onOpenAlbum?(): void;
   onRetryWebgl(): void;
   onToggleTimeOfDay?: () => void;
   onToggleGarage?: () => void;
@@ -167,6 +169,12 @@ function setHidden(el: HTMLElement, hidden: boolean): void {
   }
 }
 
+/** "Siguiente misión" on the Mission Passed overlay (Mission 2 ends in the Victory screen). */
+const NEXT_STORY_MISSION: Partial<Record<MissionId, MissionId>> = {
+  mission_1_bulevar: 'mission_2_cristo_rey',
+  mission_3_pique_bulevar: 'mission_5_golpe_prompt',
+};
+
 export class HudController {
   private readonly root: HTMLElement;
   private readonly callbacks: HudCallbacks;
@@ -191,6 +199,7 @@ export class HudController {
   private readonly mission1Card: MissionCardRefs;
   private readonly mission2Card: MissionCardRefs;
   private readonly mission3Card: MissionCardRefs;
+  private readonly mission5Card: MissionCardRefs;
   private readonly freeRoamCard: MissionCardRefs;
 
   // Garage state & buttons
@@ -254,6 +263,9 @@ export class HudController {
   // Overlay dynamic nodes
   private readonly pauseRadioBtn: HTMLButtonElement;
   private readonly pauseMuteBtn: HTMLButtonElement;
+  private claudePaintUnlocked = false;
+  private passedNextMission: MissionId | null = null;
+  private readonly claudePaintButtons: HTMLButtonElement[] = [];
 
   private readonly passedReward: HTMLElement;
   private readonly passedTime: HTMLElement;
@@ -284,6 +296,7 @@ export class HudController {
     this.mission1Card = titleParts.mission1;
     this.mission2Card = titleParts.mission2;
     this.mission3Card = titleParts.mission3;
+    this.mission5Card = titleParts.mission5;
     this.freeRoamCard = titleParts.freeRoam;
 
     // 2. Gameplay HUD (z-10 / z-20)
@@ -389,6 +402,14 @@ export class HudController {
     return this.titleScreen;
   }
 
+  /** Reveals the Claude Naranja paint once the Álbum Claude is complete. */
+  public setClaudePaintUnlocked(unlocked: boolean): void {
+    this.claudePaintUnlocked = unlocked;
+    for (const button of this.claudePaintButtons) {
+      button.hidden = !unlocked;
+    }
+  }
+
   public setGarageOpen(open: boolean): void {
     this.garageOpen = open;
     setHidden(this.garageOverlay, !open);
@@ -483,6 +504,7 @@ export class HudController {
     this.updateMissionCard(this.mission1Card, 'mission_1_bulevar', mission);
     this.updateMissionCard(this.mission2Card, 'mission_2_cristo_rey', mission);
     this.updateMissionCard(this.mission3Card, 'mission_3_pique_bulevar', mission);
+    this.updateMissionCard(this.mission5Card, 'mission_5_golpe_prompt', mission);
 
     const discovered = mission.discoveredLandmarks.length;
     const total = this.map.landmarks.length;
@@ -744,7 +766,8 @@ export class HudController {
     setText(this.passedReward, formatCop(mission.rewardCop));
     setText(this.passedTime, formatTimer(mission.lastCompletedTimeSeconds));
     setHidden(this.passedNewRecord, !mission.isNewRecord);
-    setHidden(this.passedNextBtn, mission.activeMission !== 'mission_1_bulevar');
+    this.passedNextMission = NEXT_STORY_MISSION[mission.activeMission] ?? null;
+    setHidden(this.passedNextBtn, this.passedNextMission === null || mission.isChallengeRun === true);
   }
 
   private renderBustedOverlay(mission: MissionSnapshot): void {
@@ -779,6 +802,7 @@ export class HudController {
     mission1: MissionCardRefs;
     mission2: MissionCardRefs;
     mission3: MissionCardRefs;
+    mission5: MissionCardRefs;
     freeRoam: MissionCardRefs;
   } {
     const section = createEl('section', 'cali-screen cali-title-screen', 'title-screen');
@@ -809,8 +833,15 @@ export class HudController {
     const mission1 = this.createMissionCard('mission_1_bulevar', 'btn-mission-1', true);
     const mission2 = this.createMissionCard('mission_2_cristo_rey', 'btn-mission-2', false);
     const mission3 = this.createMissionCard('mission_3_pique_bulevar', 'btn-mission-3', false);
+    const mission5 = this.createMissionCard('mission_5_golpe_prompt', 'btn-mission-5', false);
     const freeRoam = this.createMissionCard('free_roam', 'btn-free-roam', false);
-    missionGrid.append(mission1.button, mission2.button, mission3.button, freeRoam.button);
+    missionGrid.append(
+      mission1.button,
+      mission2.button,
+      mission3.button,
+      mission5.button,
+      freeRoam.button,
+    );
 
     const controlsPanel = createEl('aside', 'cali-panel cali-controls-card');
     const controlsHeading = createEl('h2', 'cali-controls-title');
@@ -829,7 +860,7 @@ export class HudController {
     controlsPanel.append(controlsHeading, controlsList);
 
     section.append(hero, titleGarageBtn, missionGrid, controlsPanel);
-    return { section, titleGarageSummary, mission1, mission2, mission3, freeRoam };
+    return { section, titleGarageSummary, mission1, mission2, mission3, mission5, freeRoam };
   }
 
   private createMissionCard(
@@ -1270,7 +1301,14 @@ export class HudController {
       () => this.callbacks.onReturnTitle(),
     );
 
-    actions.append(resumeBtn, restartBtn, radioBtn, muteBtn, titleBtn);
+    const albumBtn = this.makeButton(
+      LOCALE_DEVHACK.learning.album.open,
+      'cali-btn cali-btn--ghost cali-btn--claude',
+      'btn-pause-album',
+      () => this.callbacks.onOpenAlbum?.(),
+    );
+
+    actions.append(resumeBtn, restartBtn, albumBtn, radioBtn, muteBtn, titleBtn);
     modal.append(title, subtitle, actions);
     overlay.appendChild(modal);
 
@@ -1314,7 +1352,10 @@ export class HudController {
       copy.nextMission,
       'cali-btn cali-btn--primary',
       'btn-next-mission',
-      () => this.callbacks.onStartMission('mission_2_cristo_rey'),
+      () => {
+        const next = this.passedNextMission;
+        if (next) this.callbacks.onStartMission(next);
+      },
     );
     const freeRoamBtn = this.makeButton(
       copy.freeRoam,
@@ -1490,6 +1531,10 @@ export class HudController {
         this.selectGaragePatch({ paintHex: preset.paintHex, neonHex: preset.neonHex }),
       );
       paintButtons.push({ button: btn, paintHex: preset.paintHex, neonHex: preset.neonHex });
+      if (preset.requiresClaudeAlbum) {
+        btn.hidden = !this.claudePaintUnlocked;
+        this.claudePaintButtons.push(btn);
+      }
       paintsGroup.appendChild(btn);
     });
 

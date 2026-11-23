@@ -39,9 +39,10 @@ const winner = (overrides: Record<string, unknown> = {}) => ({
     mission_1_bulevar: 60,
     mission_2_cristo_rey: 80,
     mission_3_pique_bulevar: 90,
+    mission_5_golpe_prompt: 70,
     free_roam: 300,
   },
-  totalSeconds: 530,
+  totalSeconds: 600,
   claimed: false,
   completedAt: serverTimestamp(),
   ...overrides,
@@ -100,6 +101,7 @@ describe('leaderboards', () => {
     const aliceDb = () => env.authenticatedContext('alice').firestore();
     await assertSucceeds(setDoc(ref(aliceDb, 'alice'), entry(12.77)));
     await assertSucceeds(setDoc(ref(aliceDb, 'alice', 'mission_2_cristo_rey'), entry(9.6)));
+    await assertSucceeds(setDoc(ref(aliceDb, 'alice', 'mission_5_golpe_prompt'), entry(27.08)));
   });
 
   it('rejects writes to someone else, implausible times, unknown missions and extra fields', async () => {
@@ -109,6 +111,7 @@ describe('leaderboards', () => {
     await assertFails(setDoc(ref(aliceDb, 'alice', 'free_roam'), entry(20)));
     await assertFails(setDoc(ref(aliceDb, 'alice'), entry(9.9)));
     await assertFails(setDoc(ref(aliceDb, 'alice', 'mission_2_cristo_rey'), entry(7.9)));
+    await assertFails(setDoc(ref(aliceDb, 'alice', 'mission_5_golpe_prompt'), entry(21.9)));
     await assertFails(setDoc(ref(aliceDb, 'alice'), entry(4000)));
     await assertFails(setDoc(ref(aliceDb, 'alice', 'mission_9'), entry(90)));
     await assertFails(setDoc(ref(aliceDb, 'alice'), { ...entry(90), admin: true }));
@@ -134,7 +137,13 @@ describe('challengeWinners', () => {
       setDoc(
         doc(alice, 'challengeWinners', 'alice'),
         winner({
-          times: { mission_1_bulevar: 1, mission_2_cristo_rey: 80, mission_3_pique_bulevar: 90, free_roam: 300 },
+          times: {
+            mission_1_bulevar: 1,
+            mission_2_cristo_rey: 80,
+            mission_3_pique_bulevar: 90,
+            mission_5_golpe_prompt: 70,
+            free_roam: 300,
+          },
         }),
       ),
     );

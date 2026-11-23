@@ -76,9 +76,7 @@ describe('LearningProgress', () => {
   it('opens a hack only when the police corner a wanted player, after the cooldown', () => {
     const progress = new LearningProgress(null, HACK_QUESTIONS.length);
     progress.resetForMission();
-    progress.tick(1, CORNERED, () => 0);
-    expect(progress.getActiveHack()).toBeNull(); // short opening cooldown
-    progress.tick(HACK_COOLDOWN_SECONDS, { wantedStars: 1, bustProgress: 0.9 }, () => 0);
+    progress.tick(1, { wantedStars: 1, bustProgress: 0.9 }, () => 0);
     expect(progress.getActiveHack()).toBeNull(); // 1 star is not enough
     progress.tick(0.1, { wantedStars: 2, bustProgress: 0.1 }, () => 0);
     expect(progress.getActiveHack()).toBeNull(); // not cornered yet

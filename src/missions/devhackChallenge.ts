@@ -1,7 +1,7 @@
 /**
  * "Reto AcaDevHack": pure, DOM/Three-free state machine for the back-to-back challenge run.
- * A run chains Mission 1 → Mission 2 → Mission 3 → Free Roam tour. Any failure ends the run
- * (the player must start over from Mission 1). Completing all four yields a winner summary
+ * A run chains Mission 1 → Mission 2 → Mission 3 → Mission 5 → Free Roam tour. Any failure ends
+ * the run (the player must start over from Mission 1). Completing all five yields a winner summary
  * with a claim code for the AcaDevHack subscription prize.
  */
 
@@ -11,18 +11,20 @@ export const CHALLENGE_ORDER: readonly MissionId[] = [
   'mission_1_bulevar',
   'mission_2_cristo_rey',
   'mission_3_pique_bulevar',
+  'mission_5_golpe_prompt',
   'free_roam',
 ];
 
 /**
  * Fastest believable completion per mission (seconds); anything quicker is rejected.
  * Calibrated below the fastest real (no-teleport) autopilot completions: M1 12.8 s, M2 9.6 s,
- * M3 22.2 s, Free Roam tour 35.8 s. Keep firestore.rules `minSeconds()` in sync.
+ * M3 22.2 s, Mission 5 27.1 s, Free Roam tour 35.8 s. Keep firestore.rules `minSeconds()` in sync.
  */
 export const MIN_PLAUSIBLE_SECONDS: Readonly<Record<MissionId, number>> = {
   mission_1_bulevar: 10,
   mission_2_cristo_rey: 8,
   mission_3_pique_bulevar: 15,
+  mission_5_golpe_prompt: 22,
   free_roam: 30,
 };
 

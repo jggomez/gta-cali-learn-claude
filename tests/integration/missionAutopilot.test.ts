@@ -75,7 +75,10 @@ function expectRealCompletions(missionId: MissionId, expectedMode: 'mission_pass
   return completed;
 }
 
-describe('Mission autopilot: every mission is beatable through the real simulation', () => {
+/** Each case replays 8 full-length missions at 60 Hz; allow for slow or busy CI machines. */
+const AUTOPILOT_TEST_TIMEOUT_MS = 120_000;
+
+describe('Mission autopilot: every mission is beatable through the real simulation', { timeout: AUTOPILOT_TEST_TIMEOUT_MS }, () => {
   it('Mission 1 "Golpe en la Torre": on-foot heist, getaway car, La Ermita, San Antonio hideout', () => {
     const completed = expectRealCompletions('mission_1_bulevar', 'mission_passed');
     for (const run of completed) {
@@ -100,6 +103,14 @@ describe('Mission autopilot: every mission is beatable through the real simulati
     }
   });
 
+  it('Mission 5 "El Golpe del Prompt": collects Rol, Contexto, Tarea, Formato and reaches the bank', () => {
+    const completed = expectRealCompletions('mission_5_golpe_prompt', 'mission_passed');
+    for (const run of completed) {
+      expect(run.lastStepIndex).toBe(4);
+      expect(run.maxWantedStars).toBeGreaterThanOrEqual(2);
+    }
+  });
+
   it('Reto Free Roam tour: reaches all 6 Cali landmarks and passes the timed stage', () => {
     const completed = expectRealCompletions('free_roam', 'mission_passed');
     for (const run of completed) {
@@ -113,6 +124,7 @@ describe('Mission autopilot: every mission is beatable through the real simulati
     const expertRuns: readonly { readonly missionId: MissionId; readonly speedScale: number }[] = [
       { missionId: 'mission_1_bulevar', speedScale: 4 },
       { missionId: 'mission_2_cristo_rey', speedScale: 6 },
+      { missionId: 'mission_5_golpe_prompt', speedScale: 4 },
     ];
     const rows: string[] = [];
     for (const { missionId, speedScale } of expertRuns) {

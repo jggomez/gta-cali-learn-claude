@@ -87,7 +87,10 @@ describe('Mission 5 "El Golpe del Prompt" layout', () => {
     const occupied: Point[] = [
       CALI_MAP.playerStart,
       CALI_MAP.playerCarSpawn,
-      ...Object.values(MISSION_STARTS).flatMap((start) => [start.playerSpawn, start.carSpawn]),
+      // Other missions' spawns (Mission 5's own start is registered in MISSION_STARTS too).
+      ...Object.entries(MISSION_STARTS)
+        .filter(([id]) => id !== 'mission_5_golpe_prompt')
+        .flatMap(([, start]) => [start.playerSpawn, start.carSpawn]),
       ...STUNT_JUMPS,
     ];
     for (const wp of [...waypoints, MISSION5_LAYOUT.carSpawn]) {

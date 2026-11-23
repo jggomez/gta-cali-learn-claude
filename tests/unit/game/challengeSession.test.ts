@@ -164,7 +164,13 @@ describe('ChallengeSession', () => {
 
   it('submits each stage time, chains the stages, and registers the winner with a claim code', async () => {
     await startWithNickname('Valeria');
-    const order: MissionId[] = ['mission_1_bulevar', 'mission_2_cristo_rey', 'mission_3_pique_bulevar', 'free_roam'];
+    const order: MissionId[] = [
+      'mission_1_bulevar',
+      'mission_2_cristo_rey',
+      'mission_3_pique_bulevar',
+      'mission_5_golpe_prompt',
+      'free_roam',
+    ];
     for (const [index, missionId] of order.entries()) {
       session.onMissionTransition(
         snap({ activeMission: missionId }),

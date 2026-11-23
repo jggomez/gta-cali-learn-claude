@@ -126,7 +126,7 @@ describe('AcaDevHack billboard placements', () => {
 
   it('registers two solid post colliders per billboard on the Cali map', () => {
     expect(DEVHACK_BILLBOARD_COLLIDERS.length).toBe(DEVHACK_BILLBOARDS.length * 2);
-    expect(CALI_MAP.propColliders).toBe(DEVHACK_BILLBOARD_COLLIDERS);
+    expect(CALI_MAP.propColliders).toEqual(expect.arrayContaining([...DEVHACK_BILLBOARD_COLLIDERS]));
     const post = DEVHACK_BILLBOARD_COLLIDERS[0]!;
     const cx = (post.minX + post.maxX) / 2;
     const cz = (post.minZ + post.maxZ) / 2;

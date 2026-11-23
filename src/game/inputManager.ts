@@ -14,6 +14,10 @@ export interface InputActionCallbacks {
   readonly onToggleTimeOfDay?: () => void;
   readonly onToggleGarage?: () => void;
   readonly onCycleQuality?: () => void;
+  /** `/rewind` power (Claude Code command name). */
+  readonly onRewind?: () => void;
+  /** Digit/Numpad 1-3, passed as a 0-based index (police-hack answers). */
+  readonly onNumberKey?: (index: number) => void;
   readonly onHorn?: () => void;
   readonly onAnyUserGesture?: () => void;
   readonly isPlaying?: () => boolean;
@@ -340,6 +344,19 @@ export class InputManager {
         break;
       case 'KeyQ':
         this.callbacks.onCycleQuality?.();
+        break;
+      case 'KeyZ':
+        if (isPlaying) {
+          this.callbacks.onRewind?.();
+        }
+        break;
+      case 'Digit1':
+      case 'Digit2':
+      case 'Digit3':
+      case 'Numpad1':
+      case 'Numpad2':
+      case 'Numpad3':
+        this.callbacks.onNumberKey?.(Number(code.slice(-1)) - 1);
         break;
       case 'Escape':
       case 'KeyP':

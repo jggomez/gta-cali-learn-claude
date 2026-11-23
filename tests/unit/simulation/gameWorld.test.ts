@@ -879,6 +879,7 @@ describe('simulation/GameWorld', () => {
     const openMap: CaliMapConfig = {
       ...CALI_MAP,
       buildingColliders: [],
+      propColliders: [],
       landmarks: [],
       trafficRoutes: [],
       policeSpawns: [],
@@ -1168,5 +1169,25 @@ describe('GameWorld /rewind', () => {
     expect(world.rewind(30)).toBe(true);
     world.reset();
     expect(world.rewind(5)).toBe(false);
+  });
+});
+
+describe('GameWorld police-hack bust hold', () => {
+  it('freezes the arrest meter while a hack is open and resets it after a correct answer', () => {
+    const world = new GameWorld(CALI_MAP);
+    world.reset({ startInVehicle: true, spawn: { x: -4, z: -56, heading: 0 }, wantedStars: 2 });
+    let snap = world.getSnapshot();
+    for (let i = 0; i < 30; i += 1) snap = world.step(0.05, createInput());
+    const cornered = snap.bustProgress;
+    expect(cornered).toBeGreaterThan(0.3);
+
+    world.setBustHold(true);
+    for (let i = 0; i < 200; i += 1) snap = world.step(0.05, createInput()); // 10 s parked next to the cops
+    expect(snap.bustProgress).toBeCloseTo(cornered, 5);
+    expect(snap.isBusted).toBe(false);
+
+    world.relieveBust();
+    world.setBustHold(false);
+    expect(world.getSnapshot().bustProgress).toBe(0);
   });
 });

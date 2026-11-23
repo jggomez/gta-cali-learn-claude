@@ -23,6 +23,7 @@ import type {
   TrafficRoute,
 } from '../types/game';
 import { DEVHACK_BILLBOARD_COLLIDERS } from './devhackAds';
+import { MISSION5_BANK_COLLIDERS, MISSION5_LAYOUT } from './mission5Layout';
 
 export const WORLD_HALF_SIZE = 240;
 
@@ -460,6 +461,13 @@ export const MISSION_STARTS: Readonly<Record<MissionId, MissionStartConfig>> = {
     startInVehicle: true,
     initialWantedStars: 0,
     defaultTimeOfDay: 'golden_hour',
+  },
+  mission_5_golpe_prompt: {
+    playerSpawn: MISSION5_LAYOUT.playerSpawn,
+    carSpawn: MISSION5_LAYOUT.carSpawn,
+    startInVehicle: MISSION5_LAYOUT.startInVehicle,
+    initialWantedStars: MISSION5_LAYOUT.initialWantedStars,
+    defaultTimeOfDay: MISSION5_LAYOUT.defaultTimeOfDay,
   },
   free_roam: {
     playerSpawn: { x: 6, z: 14, heading: Math.PI / 2 },
@@ -944,7 +952,7 @@ export const CALI_MAP: CaliMapConfig = {
   landmarks: LANDMARKS,
   roads: ROAD_SEGMENTS,
   buildingColliders: BUILDING_COLLIDERS,
-  propColliders: DEVHACK_BILLBOARD_COLLIDERS,
+  propColliders: [...DEVHACK_BILLBOARD_COLLIDERS, ...MISSION5_BANK_COLLIDERS],
   playerStart: PLAYER_START,
   playerCarSpawn: PLAYER_CAR_SPAWN,
   missionStarts: MISSION_STARTS,

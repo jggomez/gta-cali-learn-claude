@@ -15,6 +15,7 @@ export type MissionId =
   | 'mission_1_bulevar'
   | 'mission_2_cristo_rey'
   | 'mission_3_pique_bulevar'
+  | 'mission_5_golpe_prompt'
   | 'free_roam';
 
 export type RadioStationId = 'salsa_brava' | 'sucursal_synth' | 'off';
@@ -499,4 +500,12 @@ export interface GameDebugSnapshot {
   readonly assetsLoaded?: boolean;
   readonly garage?: GarageConfig;
   readonly perf?: GamePerfSnapshot;
+  readonly learning?: GameLearningDebug;
+}
+
+export interface GameLearningDebug {
+  readonly rewindCharges: number;
+  readonly cards: readonly string[];
+  readonly hackQuestionIndex: number | null;
+  readonly blocking: boolean;
 }

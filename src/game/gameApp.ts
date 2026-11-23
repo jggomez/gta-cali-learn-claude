@@ -27,7 +27,9 @@ import type { LeaderboardPort } from '../services/leaderboardPort';
 import { HudController } from '../ui/hudController';
 import { WebGLUnavailableError } from '../world/sceneSetup';
 import { WorldRenderer } from '../world/worldRenderer';
+import { CLAUDE_CARD_PICKUP_RADIUS, CLAUDE_CARD_SPOTS } from '../config/claudeCardSpots';
 import { ChallengeSession } from './challengeSession';
+import { LearningSession } from './learningSession';
 import { InputManager } from './inputManager';
 import {
   QUALITY_PRESETS,
@@ -184,6 +186,7 @@ export class GameApp {
   private readonly voiceEngine: VoiceEngine;
   private readonly hud: HudController;
   private readonly challenge: ChallengeSession;
+  private readonly learning: LearningSession;
   private readonly inputManager: InputManager;
   private worldRenderer: WorldRenderer | null = null;
 
@@ -271,6 +274,7 @@ export class GameApp {
         onCycleQuality: () => this.cycleQuality(),
         onUpdateGarage: (garage) => this.updateGarage(garage),
         onRetryWebgl: () => this.retryWebgl(),
+        onOpenAlbum: () => this.learning.openAlbum(),
       },
       this.map,
     );
@@ -287,6 +291,42 @@ export class GameApp {
     });
     this.challenge.mountTitleCard(this.hud.getTitleScreen());
 
+    this.learning = new LearningSession({
+      root: this.hudRoot,
+      storage: browserStorage,
+      cardSpots: CLAUDE_CARD_SPOTS,
+      cardPickupRadius: CLAUDE_CARD_PICKUP_RADIUS,
+      host: {
+        rewindWorld: (seconds) => {
+          this.invalidateWorldSnapshot();
+          return this.world.rewind(seconds);
+        },
+        applyWantedDelta: (delta) => this.applyWantedDelta(delta),
+        setBustHold: (held) => this.world.setBustHold(held),
+        relieveBust: () => {
+          this.invalidateWorldSnapshot();
+          this.world.relieveBust();
+        },
+        applyPlanChoice: (choice) => {
+          if (choice === 'turbo') {
+            this.invalidateWorldSnapshot();
+            this.world.refillNitro();
+          } else {
+            this.applyWantedDelta(-1);
+          }
+        },
+        onCardsChanged: (collected, complete) => {
+          this.hud.setClaudePaintUnlocked(complete);
+          this.worldRenderer?.setCollectedClaudeCards(new Set(collected));
+        },
+        speakRadioAd: (text) => {
+          this.audioEngine.playRadioSquelch();
+          this.voiceEngine.speak(text, 'narrator', 'callout');
+        },
+      },
+    });
+    this.hud.setClaudePaintUnlocked(this.learning.hasAllCards());
+
     this.inputManager = new InputManager(
       {
         onCycleRadio: () => this.cycleRadio(),
@@ -298,13 +338,19 @@ export class GameApp {
         onToggleGarage: () => this.toggleGarage(),
         onCycleQuality: () => this.cycleQuality(),
         onHorn: () => this.triggerHorn(),
+        onRewind: () =>
+          this.learning.requestRewind(this.missionDirector.getSnapshot().mode === 'playing'),
+        onNumberKey: (index) => {
+          this.learning.handleNumberKey(index);
+        },
         onAnyUserGesture: () => {
           this.audioEngine.unlock();
         },
         isPlaying: () =>
           this.missionDirector.getSnapshot().mode === 'playing' &&
           !this.garageOpen &&
-          !this.challenge.isBlockingGameplay(),
+          !this.challenge.isBlockingGameplay() &&
+          !this.learning.isBlockingGameplay(),
       },
       window,
       this.canvas,
@@ -351,6 +397,7 @@ export class GameApp {
     this.inputManager.dispose();
     this.hud.dispose();
     this.challenge.dispose();
+    this.learning.dispose();
     this.worldRenderer?.dispose();
     this.worldRenderer = null;
     this.voiceEngine.dispose();
@@ -438,6 +485,7 @@ export class GameApp {
           }
         : {}),
       ...(assetsLoaded !== undefined ? { assetsLoaded } : {}),
+      learning: this.learning.getDebug(),
     };
   }
 
@@ -498,6 +546,7 @@ export class GameApp {
     try {
       this.worldRenderer = new WorldRenderer(this.canvas, this.map);
       applyRendererGarageAppearance(this.worldRenderer, this.garageConfig);
+      this.worldRenderer.setCollectedClaudeCards(new Set(this.learning.getCollectedCards()));
       this.hud.hideWebglError();
       this.detectQualityOnce(this.worldRenderer.getGpuRendererName());
       this.applyQuality();
@@ -537,7 +586,17 @@ export class GameApp {
     this.worldRenderer.resize(width, height);
   }
 
+  /** Launches a mission, opening the Modo Plan briefing first when it has not been shown yet. */
   private startMission(
+    missionId: MissionId,
+    options: { readonly challengeRun?: boolean } = {},
+  ): void {
+    this.audioEngine.unlock();
+    this.learning.beginMission(missionId, () => this.launchMission(missionId, options));
+    this.renderPresentState(0);
+  }
+
+  private launchMission(
     missionId: MissionId,
     options: { readonly challengeRun?: boolean } = {},
   ): void {
@@ -559,6 +618,7 @@ export class GameApp {
     });
     applyRendererGarageAppearance(this.worldRenderer, this.garageConfig);
     const missionSnap = this.missionDirector.startMission(missionId, options);
+    this.learning.onMissionStarted(this.readWorldSnapshot());
     this.resetVoiceAndPursuitTrackers(start.initialWantedStars);
     this.syncSpokenMissionDialogue(missionSnap);
     this.inputManager.clearKeys();
@@ -604,6 +664,7 @@ export class GameApp {
   }
 
   private returnToTitle(): void {
+    this.learning.cancelPendingPlan();
     this.garageOpen = false;
     this.garagePausedGameplay = false;
     this.hud.setGarageOpen(false);
@@ -759,6 +820,7 @@ export class GameApp {
     let worldSnap = this.stepWorld(dt, input);
     const missionSnap = this.missionDirector.update(worldSnap, dt);
     this.challenge.onMissionTransition(prevMission, missionSnap);
+    this.learning.step(dt, worldSnap, prevMission, missionSnap, this.audioEngine.getState());
 
     const nextObjectiveStep = missionSnap.activeObjective?.stepIndex ?? -1;
     let worldMutated = false;
@@ -771,6 +833,7 @@ export class GameApp {
     ) {
       this.invalidateWorldSnapshot();
       this.world.refillNitro();
+      this.learning.notifyHookRefill();
       worldMutated = true;
     }
 
@@ -1022,6 +1085,17 @@ export class GameApp {
       this.garageConfig,
     );
     this.challenge.render(missionSnap);
+    this.learning.render(dt, missionSnap);
+  }
+
+  /** Police hack / Modo Plan: change wanted stars through the director so its floor follows. */
+  private applyWantedDelta(delta: number): void {
+    const current = this.world.getSnapshot().wantedStars;
+    const next = this.missionDirector.applyWantedDelta(current, delta);
+    if (next !== current) {
+      this.invalidateWorldSnapshot();
+      this.world.setWantedStars(next);
+    }
   }
 
   private attachDebugHook(): void {

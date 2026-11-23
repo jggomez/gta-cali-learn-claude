@@ -17,13 +17,14 @@ service cloud.firestore {
       // Mirrors MIN_PLAUSIBLE_SECONDS in src/missions/devhackChallenge.ts.
       return missionId == 'free_roam' ? 30
         : missionId == 'mission_3_pique_bulevar' ? 15
+        : missionId == 'mission_5_golpe_prompt' ? 22
         : missionId == 'mission_1_bulevar' ? 10
         : 8;
     }
 
     function knownMission(missionId) {
       return missionId in ['mission_1_bulevar', 'mission_2_cristo_rey',
-                           'mission_3_pique_bulevar', 'free_roam'];
+                           'mission_3_pique_bulevar', 'mission_5_golpe_prompt', 'free_roam'];
     }
 
     function plausibleTime(missionId, seconds) {
@@ -73,10 +74,11 @@ service cloud.firestore {
         && request.resource.data.claimed == false
         && request.resource.data.completedAt == request.time
         && request.resource.data.times.keys().hasOnly(['mission_1_bulevar', 'mission_2_cristo_rey',
-             'mission_3_pique_bulevar', 'free_roam'])
+             'mission_3_pique_bulevar', 'mission_5_golpe_prompt', 'free_roam'])
         && plausibleTime('mission_1_bulevar', request.resource.data.times.mission_1_bulevar)
         && plausibleTime('mission_2_cristo_rey', request.resource.data.times.mission_2_cristo_rey)
         && plausibleTime('mission_3_pique_bulevar', request.resource.data.times.mission_3_pique_bulevar)
+        && plausibleTime('mission_5_golpe_prompt', request.resource.data.times.mission_5_golpe_prompt)
         && plausibleTime('free_roam', request.resource.data.times.free_roam)
         && request.resource.data.totalSeconds is number;
       allow update, delete: if false;

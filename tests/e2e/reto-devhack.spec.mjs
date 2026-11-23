@@ -102,13 +102,16 @@ test.describe('Reto AcaDevHack (Firestore emulator)', () => {
     await input.fill('Valeria_E2E');
     await page.screenshot({ path: resolve(EVIDENCE_DIR, 'reto-nickname-1280.png') });
     await page.getByTestId('btn-reto-nickname-start').click();
+    // Modo Plan briefing opens before the clock starts on the first stage.
+    await expect(page.getByTestId('learn-plan')).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId('btn-plan-turbo').click();
 
     await page.waitForFunction(() => window.__GTA_CALI__?.mode === 'playing', undefined, {
       timeout: 30_000,
     });
     const chip = page.getByTestId('reto-hud-chip');
     await expect(chip).toBeVisible();
-    await expect(chip).toContainText('Reto 1/4');
+    await expect(chip).toContainText('Reto 1/5');
     await page.waitForTimeout(1500);
     await page.screenshot({ path: resolve(EVIDENCE_DIR, 'reto-run-hud-1280.png') });
 
@@ -126,8 +129,9 @@ test.describe('Reto AcaDevHack (Firestore emulator)', () => {
     const second = await page.context().browser().newContext();
     const other = await second.newPage();
     await other.goto(`/?firestoreEmulator=${FIRESTORE}`, { waitUntil: 'networkidle' });
+    // A second full game boots while the first keeps rendering under SwiftShader: allow extra time.
     await other.waitForFunction(() => window.__GTA_CALI__?.mode === 'title', undefined, {
-      timeout: 120_000,
+      timeout: 300_000,
     });
     await other.getByTestId('btn-reto-start').click();
     await other.getByTestId('reto-nickname-input').fill('VALERIA_e2e');
@@ -145,6 +149,7 @@ test.describe('Reto AcaDevHack (Firestore emulator)', () => {
     await page.waitForFunction(() => window.__GTA_CALI__?.mode === 'title');
     await expect(chip).toBeHidden();
     await page.getByTestId('btn-mission-2').click();
+    await page.getByTestId('btn-plan-turbo').click();
     await page.waitForFunction(() => window.__GTA_CALI__?.mode === 'playing');
     await page.keyboard.down('KeyS');
     await page.waitForTimeout(1000);

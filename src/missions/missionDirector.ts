@@ -10,6 +10,11 @@ import {
 } from '../config/caliMap';
 import { LOCALE_CALI } from '../config/localeCali';
 import {
+  MISSION5_LAYOUT,
+  MISSION5_PACKAGE_ORDER,
+  type Mission5PackageId,
+} from '../config/mission5Layout';
+import {
   computeGpsRoute,
   computeNextTurnBearing,
   computeRouteDistanceMeters,
@@ -48,6 +53,7 @@ const VALID_MISSIONS: ReadonlySet<string> = new Set<MissionId>([
   'mission_1_bulevar',
   'mission_2_cristo_rey',
   'mission_3_pique_bulevar',
+  'mission_5_golpe_prompt',
   'free_roam',
 ]);
 
@@ -109,6 +115,9 @@ const BEACON_CYAN = 0x00f0ff;
 const BEACON_MAGENTA = 0xff2e93;
 const BEACON_GOLD = 0xffb800;
 const BEACON_EMERALD = 0x00e699;
+const BEACON_CLAUDE = 0xd97757;
+/** Bonus for collecting the prompt pieces in the course order (Rol → Contexto → Tarea → Formato). */
+export const MISSION5_ORDER_BONUS_COP = 100_000;
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -385,6 +394,7 @@ export class MissionDirector {
   private activeObjective: ObjectiveSnapshot | null = null;
   private missionFloorStars: WantedLevel = 0;
   private targetWantedStars: WantedLevel = 0;
+  private mission5Collected: Mission5PackageId[] = [];
   private lastFreeRoamWantedStars: WantedLevel = 0;
   private records: StorageRecords;
   private dialogue: DialogueToast | null = null;
@@ -448,6 +458,7 @@ export class MissionDirector {
     this.lastProcessedStuntJumpAt = -1;
     this.lastProcessedPayNSprayAt = -1;
     this.lastProcessedDriftCashoutCop = 0;
+    this.mission5Collected = [];
     this.timeOfDay = this.map.missionStarts[missionId].defaultTimeOfDay;
 
     if (missionId === 'mission_1_bulevar') {
@@ -483,6 +494,12 @@ export class MissionDirector {
         BEACON_CYAN,
         'mateo_speakers',
       );
+    } else if (missionId === 'mission_5_golpe_prompt') {
+      this.missionFloorStars = this.map.missionStarts.mission_5_golpe_prompt.initialWantedStars;
+      this.targetWantedStars = this.missionFloorStars;
+      this.setDialogue('m5Intro', LOCALE_CALI.dialogues.m5Intro, INTRO_DIALOGUE_SECONDS);
+      this.setBanner('m5Start', LOCALE_CALI.banners.m5Start, 'police');
+      this.activeObjective = this.createMission5Objective();
     } else if (missionId === 'mission_3_pique_bulevar') {
       const checkpoints = this.map.missionWaypoints.mission3Checkpoints ?? [];
       this.missionFloorStars = this.map.missionStarts.mission_3_pique_bulevar.initialWantedStars;
@@ -496,6 +513,23 @@ export class MissionDirector {
     }
 
     return this.getSnapshot();
+  }
+
+  /**
+   * Learning mechanics (police hack, Modo Plan) nudge the wanted level. Lowering also lowers the
+   * mission's star floor so the next update does not immediately restore the removed star.
+   */
+  public applyWantedDelta(currentStars: WantedLevel, delta: number): WantedLevel {
+    const next = Math.min(5, Math.max(0, Math.round(currentStars + delta))) as WantedLevel;
+    if (this.mode !== 'playing' && this.mode !== 'paused') {
+      return currentStars;
+    }
+    if (next < this.missionFloorStars) {
+      this.missionFloorStars = next;
+    }
+    this.targetWantedStars = next;
+    this.lastFreeRoamWantedStars = next;
+    return next;
   }
 
   public setPaused(paused: boolean): Readonly<MissionSnapshot> {
@@ -598,6 +632,11 @@ export class MissionDirector {
       }
     } else if (this.activeMission === 'mission_2_cristo_rey') {
       this.updateMission2(world);
+      if (this.mode === 'playing') {
+        this.targetWantedStars = Math.max(this.missionFloorStars, world.wantedStars) as WantedLevel;
+      }
+    } else if (this.activeMission === 'mission_5_golpe_prompt') {
+      this.updateMission5(world);
       if (this.mode === 'playing') {
         this.targetWantedStars = Math.max(this.missionFloorStars, world.wantedStars) as WantedLevel;
       }
@@ -985,6 +1024,76 @@ export class MissionDirector {
         CHECKPOINT_DIALOGUE_SECONDS,
       );
     }
+  }
+
+  /**
+   * Mission 5 "El Golpe del Prompt": the four prompt pieces may be picked up in any order (the GPS
+   * points at the next one in course order); delivering all four at the bank passes the mission.
+   */
+  private updateMission5(world: WorldSnapshot): void {
+    const layout = MISSION5_LAYOUT;
+    for (const piece of MISSION5_PACKAGE_ORDER) {
+      if (this.mission5Collected.includes(piece)) continue;
+      if (!this.isInsideWaypoint(world, layout.packages[piece])) continue;
+      this.mission5Collected = [...this.mission5Collected, piece];
+      this.stepIndex = this.mission5Collected.length;
+      const allPieces = this.mission5Collected.length === MISSION5_PACKAGE_ORDER.length;
+      if (allPieces) {
+        this.setDialogue('m5Bank', LOCALE_CALI.dialogues.m5Bank, CHECKPOINT_DIALOGUE_SECONDS);
+        const inOrder = this.mission5Collected.every((id, index) => MISSION5_PACKAGE_ORDER[index] === id);
+        if (inOrder) {
+          this.creditCashCop(MISSION5_ORDER_BONUS_COP);
+          this.setBanner('m5Order', LOCALE_CALI.banners.m5Order, 'gold');
+        } else {
+          this.setBanner(`m5Piece_${piece}`, LOCALE_CALI.banners.m5Piece, 'emerald');
+        }
+      } else {
+        this.setDialogue(`m5Piece_${piece}`, LOCALE_CALI.dialogues.m5Piece, CHECKPOINT_DIALOGUE_SECONDS);
+        this.setBanner(`m5Piece_${piece}`, LOCALE_CALI.banners.m5Piece, 'emerald');
+      }
+    }
+
+    this.activeObjective = this.createMission5Objective();
+    if (
+      this.mission5Collected.length === MISSION5_PACKAGE_ORDER.length &&
+      this.isInsideWaypoint(world, layout.bank)
+    ) {
+      this.completeStoryMission(
+        'mission_5_golpe_prompt',
+        'mission_passed',
+        'm5Passed',
+        LOCALE_CALI.dialogues.m5Passed,
+      );
+    }
+  }
+
+  private createMission5Objective(): ObjectiveSnapshot {
+    const copy = LOCALE_CALI.objectives.mission5;
+    const total = MISSION5_PACKAGE_ORDER.length + 1;
+    const next = MISSION5_PACKAGE_ORDER.find((piece) => !this.mission5Collected.includes(piece));
+    if (!next) {
+      return this.createWaypointObjective(
+        MISSION5_LAYOUT.bank,
+        'escape_police',
+        copy.bankLabel,
+        copy.bankDetail,
+        MISSION5_PACKAGE_ORDER.length,
+        total,
+        BEACON_GOLD,
+        'none',
+      );
+    }
+    const waypoint = MISSION5_LAYOUT.packages[next];
+    return this.createWaypointObjective(
+      waypoint,
+      'reach_point',
+      copy.pieceLabel(copy.pieces[next], this.mission5Collected.length),
+      copy.pieceDetail(waypoint.district),
+      this.mission5Collected.length,
+      total,
+      BEACON_CLAUDE,
+      'none',
+    );
   }
 
   private completeStoryMission(

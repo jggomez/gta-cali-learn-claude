@@ -5,6 +5,14 @@ import { resolve } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { recordRun } from './e2e_recorder.mjs';
 
+/** Modo Plan (aprender jugando) gates the first launch of each story mission: approve plan Turbo. */
+async function approvePlan(page) {
+  const plan = page.getByTestId('learn-plan');
+  await expect(plan).toBeVisible();
+  await page.getByTestId('btn-plan-turbo').click();
+  await expect(plan).toBeHidden();
+}
+
 const EVIDENCE_DIR = resolve(process.cwd(), 'docs/gta-vi-cali-3d/evidence');
 
 const VIEWPORTS = [
@@ -257,6 +265,7 @@ test.describe('GTA I - Cali - Colombia — Black-Box E2E Verification', () => {
           'btn-mission-1',
           'btn-mission-2',
           'btn-mission-3',
+          'btn-mission-5',
           'btn-free-roam',
         ]) {
           const box = await page.getByTestId(id).boundingBox();
@@ -353,6 +362,9 @@ test.describe('GTA I - Cali - Colombia — Black-Box E2E Verification', () => {
 
     // Start Mission 1 — "Golpe en la Torre" (golden_hour, ON FOOT at Torre de Cali)
     await page.getByTestId('btn-mission-1').click();
+    await expect(page.getByTestId('learn-plan-steps').locator('li')).toHaveCount(3);
+    await page.screenshot({ path: resolve(EVIDENCE_DIR, 'modo-plan-1280.png') });
+    await approvePlan(page);
     await expect(page.getByTestId('gameplay-hud')).toBeVisible();
     await expect(page.getByTestId('title-screen')).toBeHidden();
 
@@ -549,6 +561,7 @@ test.describe('GTA I - Cali - Colombia — Black-Box E2E Verification', () => {
 
     // Start Mission 2 — "Noche de Salsa en Cristo Rey" (night, DRIVING at Estadio Pascual Guerrero, 95s countdown, ★★★)
     await page.getByTestId('btn-mission-2').click();
+    await approvePlan(page);
     await page.waitForFunction(
       () =>
         window.__GTA_CALI__?.mode === 'playing' &&
@@ -646,6 +659,7 @@ test.describe('GTA I - Cali - Colombia — Black-Box E2E Verification', () => {
     await expect(page.getByTestId('title-screen')).toBeVisible();
 
     await page.getByTestId('btn-mission-3').click();
+    await approvePlan(page);
     await page.waitForFunction(
       () =>
         window.__GTA_CALI__?.mode === 'playing' &&

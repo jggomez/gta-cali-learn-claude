@@ -35,6 +35,8 @@ export interface GaragePaintPreset {
   readonly label: string;
   readonly paintHex: number;
   readonly neonHex: number;
+  /** Hidden in the Garaje until every "Carta Claude" collectible has been found. */
+  readonly requiresClaudeAlbum?: boolean;
 }
 
 export const LOCALE_CALI = {
@@ -54,7 +56,7 @@ export const LOCALE_CALI = {
       claude_for_all: { headline: 'Claude para todos', tagline: 'Curso gratis · sin programar' },
       subscription: { headline: 'Suscripción AcaDevHack', tagline: '$13 USD/mes · devhack.co' },
       future: { headline: 'Arquitectando el Futuro con IA', tagline: 'DevHack' },
-      reto: { headline: 'Reto AcaDevHack', tagline: '4 misiones · gana 3 meses gratis' },
+      reto: { headline: 'Reto AcaDevHack', tagline: '5 misiones · gana 3 meses gratis' },
     },
   },
 
@@ -112,6 +114,14 @@ export const LOCALE_CALI = {
         'Compite rueda a rueda en 6 puntos de control desde el Bulevar del Río por La Ermita, Granada y Calle Quinta con emboscada policial.',
       rewardCop: 400_000,
       badge: 'Misión 3',
+    },
+    mission_5_golpe_prompt: {
+      title: 'El Golpe del Prompt',
+      subtitle: 'Misión 05 · Granada, Estadio, El Peñón & Centro',
+      description:
+        'Arma el prompt perfecto: recoge Rol, Contexto, Tarea y Formato por toda Cali con la tomba detrás y entrégaselo a la IA del Banco Sucursal IA.',
+      rewardCop: 600_000,
+      badge: 'Misión 5',
     },
     free_roam: {
       title: 'Modo Libre en Cali',
@@ -172,6 +182,14 @@ export const LOCALE_CALI = {
       ambushDetail: '¡La tomba armó operativo en Granada! No sueltes el acelerador hasta la meta.',
       finishLabel: 'Cruza la meta en el Bulevar del Río',
       finishDetail: '¡Última recta por Avenida Colombia! Mete nitro y corona el pique.',
+    },
+    mission5: {
+      pieceLabel: (piece: string, have: number) => `Recoge la pieza ${piece} (${have}/4)`,
+      pieceDetail: (district: string) =>
+        `Ve a ${district}. Un buen prompt tiene 4 piezas: rol, contexto, tarea y formato.`,
+      bankLabel: 'Entrega el prompt en el Banco Sucursal IA',
+      bankDetail: 'Ya tienes las 4 piezas. Llévalas al Centro y que la IA del banco haga su magia.',
+      pieces: { rol: 'ROL', contexto: 'CONTEXTO', tarea: 'TAREA', formato: 'FORMATO' },
     },
     freeRoam: {
       exploreLabel: 'Explora La Sucursal del Cielo',
@@ -241,6 +259,22 @@ export const LOCALE_CALI = {
       speaker: 'valeria' as const,
       text: '¡Mirá esa vista desde Cristo Rey! Salsa brava a todo taco y toda Santiago de Cali a nuestros pies.',
     },
+    m5Intro: {
+      speaker: 'valeria' as const,
+      text: 'La IA del banco solo obedece un prompt perfecto: Rol, Contexto, Tarea y Formato. ¡Recoge las 4 piezas antes de que la tomba nos caiga!',
+    },
+    m5Piece: {
+      speaker: 'mateo' as const,
+      text: '¡Pieza asegurada, parce! Sin contexto Claude adivina; con las 4 piezas te entiende a la primera.',
+    },
+    m5Bank: {
+      speaker: 'valeria' as const,
+      text: '¡Prompt completo! Rol, contexto, tarea y formato. Vamos al Centro a entregárselo al banco.',
+    },
+    m5Passed: {
+      speaker: 'valeria' as const,
+      text: '"Actúa como cajero (rol). Somos de Cali y es quincena (contexto). Ábrenos la bóveda (tarea). Responde en una línea (formato)." ¡Y abrió! Así se le pide a Claude.',
+    },
     m3Intro: {
       speaker: 'valeria' as const,
       text: '¡A calentar llanta, parce! Arranca el pique callejero por el Bulevar, La Ermita y Granada. ¡A dejarlos comiendo humo!',
@@ -288,6 +322,18 @@ export const LOCALE_CALI = {
   },
 
   banners: {
+    m5Start: {
+      title: 'EL GOLPE DEL PROMPT',
+      subtitle: 'Recoge Rol, Contexto, Tarea y Formato. La tomba ya te busca.',
+    },
+    m5Piece: {
+      title: '¡PIEZA DEL PROMPT!',
+      subtitle: 'Un prompt de 4 piezas: rol, contexto, tarea y formato.',
+    },
+    m5Order: {
+      title: '¡PROMPT EN ORDEN! +$100.000',
+      subtitle: 'Rol → Contexto → Tarea → Formato, como en el curso.',
+    },
     m1Start: {
       title: 'GOLPE EN LA TORRE',
       subtitle: 'Corre a pie por el vinilo dorado frente a la Torre de Cali.',
@@ -464,6 +510,13 @@ export const LOCALE_CALI = {
       { id: 'amarillo_cali', label: 'Amarillo Caleño', paintHex: 0xffc400, neonHex: 0xff2e93 },
       { id: 'azul_cielo', label: 'Azul Sucursal', paintHex: 0x0284c7, neonHex: 0xffb800 },
       { id: 'blanco_perla', label: 'Blanco Perla', paintHex: 0xf8fafc, neonHex: 0x00e699 },
+      {
+        id: 'claude_naranja',
+        label: 'Claude Naranja ✦',
+        paintHex: 0xd97757,
+        neonHex: 0xfff4e6,
+        requiresClaudeAlbum: true,
+      },
     ] as readonly GaragePaintPreset[],
     avatars: {
       valeria: 'Valeria (Morena Caleña)',
@@ -631,9 +684,9 @@ export const LOCALE_DEVHACK = {
   titleCard: {
     badge: 'Reto AcaDevHack',
     title: '🏆 Reto AcaDevHack',
-    subtitle: '4 misiones seguidas · ranking en vivo',
+    subtitle: '5 misiones seguidas · ranking en vivo',
     description:
-      'Juega la Misión 1, 2, 3 y el Tour de Cali sin perder ni una. Tu tiempo sube al ranking y si completas las 4 te ganas 3 meses gratis de la Suscripción AcaDevHack Virtual.',
+      'Juega la Misión 1, 2, 3, 5 y el Tour de Cali sin perder ni una. Tu tiempo sube al ranking y si completas las 5 te ganas 3 meses gratis de la Suscripción AcaDevHack Virtual.',
     cta: 'Aceptar el reto',
     rankingCta: 'Ver ranking',
   },
@@ -642,6 +695,7 @@ export const LOCALE_DEVHACK = {
     mission_1_bulevar: 'Misión 1',
     mission_2_cristo_rey: 'Misión 2',
     mission_3_pique_bulevar: 'Misión 3',
+    mission_5_golpe_prompt: 'Misión 5',
     free_roam: 'Tour de Cali',
   },
   hudChip: (stage: number, total: number, time: string): string =>
@@ -655,7 +709,7 @@ export const LOCALE_DEVHACK = {
     cancel: 'Cancelar',
     checking: 'Verificando nickname…',
     rules:
-      'Reglas: las 4 misiones van seguidas. Si te pillan o se acaba el tiempo, el reto arranca otra vez desde la Misión 1.',
+      'Reglas: las 5 misiones van seguidas. Si te pillan o se acaba el tiempo, el reto arranca otra vez desde la Misión 1.',
     errors: {
       too_short: 'Muy corto: mínimo 3 caracteres.',
       too_long: 'Muy largo: máximo 16 caracteres.',
@@ -693,7 +747,7 @@ export const LOCALE_DEVHACK = {
   winner: {
     title: '¡Ganaste el Reto AcaDevHack!',
     subtitle:
-      'Completaste las 4 misiones seguidas. Te ganaste 3 meses gratis de la Suscripción AcaDevHack Virtual.',
+      'Completaste las 5 misiones seguidas. Te ganaste 3 meses gratis de la Suscripción AcaDevHack Virtual.',
     codeLabel: 'Tu código de premio',
     totalLabel: 'Tiempo total',
     registering: 'Registrando tu premio…',
@@ -717,5 +771,140 @@ export const LOCALE_DEVHACK = {
     player: 'Jugador',
     time: 'Tiempo',
     close: 'Cerrar',
+  },
+  learning: {
+    lessonCta: 'Ver lección gratis',
+    courseCta: 'Curso gratis',
+    dismiss: 'Cerrar',
+    courseNames: {
+      'claude-code-desde-cero': 'Claude Code desde cero',
+      'claude-para-todos': 'Claude para todos',
+    },
+    lessonLabel: (course: string, lesson: number): string => `${course} · Lección ${lesson}`,
+    rewindPill: (charges: number): string => `[Z] /rewind ×${charges}`,
+    rewindUsed: '⏪ /rewind: volviste 5 segundos atrás',
+    rewindEmpty: '/rewind ya se usó en esta misión',
+    tips: {
+      tip_rewind: {
+        title: '/rewind existe de verdad',
+        body: 'En Claude Code, /rewind deshace las ediciones de Claude y te devuelve a un punto anterior.',
+      },
+      tip_clear_spray: {
+        title: 'Como /clear en Claude Code',
+        body: 'El taller te dejó limpio. En Claude Code, /clear arranca una conversación nueva sin arrastrar lo viejo.',
+      },
+      tip_hook_nitro: {
+        title: 'Esto es un hook',
+        body: 'Cada checkpoint recarga el nitro solo. Un hook de Claude Code corre algo siempre, por ejemplo tus pruebas tras cada edición.',
+      },
+      tip_plan_mode: {
+        title: 'Modo Plan',
+        body: 'En Claude Code, el modo Plan propone qué hará sin tocar archivos. Tú lo corriges y lo apruebas.',
+      },
+      tip_first_card: {
+        title: '¡Carta Claude 1 de 10!',
+        body: 'Hay 10 cartas escondidas por Cali, una por lección. Míralas en el Álbum Claude (pausa).',
+      },
+      tip_all_cards: {
+        title: '¡Álbum Claude completo!',
+        body: 'Desbloqueaste la pintura Claude Naranja en el Garaje [G]. Ya conoces todo el curso: ¡a practicarlo!',
+      },
+      tip_hack: {
+        title: 'Hackeo de la tomba',
+        body: 'Cuando la tomba te acorrale, responde rápido [1] [2] [3]: si aciertas pierdes una estrella.',
+      },
+    },
+    cards: {
+      card_agentic_loop: {
+        title: 'El loop agéntico',
+        body: 'Claude Code recoge contexto, actúa y verifica. Si una prueba falla, lee el error y lo vuelve a intentar.',
+      },
+      card_claude_md: {
+        title: 'CLAUDE.md',
+        body: 'Lo que Claude debe saber siempre de tu proyecto va en CLAUDE.md. /init te crea uno.',
+      },
+      card_plan_mode: {
+        title: 'Modo Plan',
+        body: 'Claude analiza y propone un plan sin editar nada. Lo corriges en una línea y lo apruebas.',
+      },
+      card_context: {
+        title: '/compact · /clear · /rewind',
+        body: '/compact resume una charla larga, /clear empieza limpio y /rewind deshace ediciones.',
+      },
+      card_hooks: {
+        title: 'Permisos y hooks',
+        body: 'Un deny bloquea archivos como .env. Un hook corre tus pruebas siempre después de cada edición.',
+      },
+      card_mcp: {
+        title: 'MCP',
+        body: 'Con el MCP de Playwright, Claude usa un navegador real para probar tu app. Revisa cada servidor antes de aprobarlo.',
+      },
+      card_subagents: {
+        title: 'Subagentes',
+        body: 'Un equipo de agentes trabaja en paralelo y un agente juez decide con evidencia cuándo está listo.',
+      },
+      card_skills: {
+        title: 'Skills',
+        body: 'Lo que repites cada semana va en una skill, que Claude carga solo cuando hace falta.',
+      },
+      card_prompt_4: {
+        title: 'Pedir bien: 4 piezas',
+        body: 'Rol, contexto, tarea y formato. Con esas 4 piezas Claude te entiende a la primera.',
+      },
+      card_artifacts: {
+        title: 'Artifacts',
+        body: 'Un artifact es un documento o herramienta que ves y ajustas conversando con Claude.',
+      },
+    },
+    album: {
+      open: 'Álbum Claude',
+      title: 'Álbum Claude',
+      subtitle: (have: number, total: number): string =>
+        `${have} de ${total} cartas · están escondidas por toda Cali`,
+      locked: '???',
+      lockedHint: 'Sigue explorando Cali…',
+      reward: 'Completa las 10 y desbloquea la pintura Claude Naranja en el Garaje.',
+      close: 'Volver',
+    },
+    cardToast: (have: number, total: number): string => `Carta Claude ${have}/${total}`,
+    hack: {
+      title: '> HACKEO DE LA TOMBA',
+      subtitle: 'Responde rápido con [1] [2] [3]. Si aciertas, pierdes una estrella.',
+      correct: '✔ ¡Hackeo exitoso! −1 estrella',
+      wrong: '✖ Fallaste el hackeo: +1 estrella',
+      timeout: '⌛ Se acabó el tiempo',
+    },
+    plan: {
+      title: '> MODO PLAN',
+      subtitle: 'Como en Claude Code: revisa el plan, corrígelo y apruébalo.',
+      approve: 'Aprobar plan',
+      steps: {
+        mission_1_bulevar: ['Llegar a pie al maletín', 'Robar el carro', 'Escapar por el Bulevar del Río'],
+        mission_2_cristo_rey: ['Cruzar el puente', 'Subir hasta Cristo Rey', 'Llegar antes del tiempo'],
+        mission_3_pique_bulevar: ['Arrancar en la parrilla', 'Pasar todos los checkpoints', 'Ganar el pique'],
+        mission_5_golpe_prompt: ['Recoger Rol, Contexto, Tarea y Formato', 'Esquivar a la tomba', 'Entregar el prompt al banco'],
+        free_roam: ['Recorrer Cali', 'Descubrir los lugares', 'Buscar las cartas Claude'],
+      },
+      options: {
+        turbo: { label: 'Plan Turbo', detail: 'Arrancas con el nitro lleno.' },
+        stealth: { label: 'Plan Discreto', detail: 'Arrancas con una estrella menos.' },
+      },
+    },
+    phone: {
+      from: 'Profe JG · AcaDevHack',
+      messages: [
+        '¿Sabías que Claude Code puede correr tus pruebas solo después de cada edición? Se llama hook.',
+        'Tip: dile a Claude el rol, el contexto, la tarea y el formato. Responde mucho mejor.',
+        'Antes de que Claude toque tu código, pídele un plan con el modo Plan y corrígelo.',
+        'Si Claude te da un dato sin fuente, pídesela y verifícala. Siempre.',
+        'Lo que tu proyecto necesita que Claude sepa, ponlo en CLAUDE.md.',
+      ],
+    },
+    radioAds: [
+      'Radio IA, noventa y nueve punto uno. ¿Sabías que con CLAUDE.md, Claude se acuerda de tu proyecto? Curso gratis en devhack punto co.',
+      'Oiga, ve: antes de programar, el modo Plan de Claude Code te muestra qué va a hacer. Aprende gratis en AcaDevHack.',
+      'Pedile bien a Claude: rol, contexto, tarea y formato. Curso Claude para todos, gratis en devhack punto co.',
+      '¿La conversación ya está muy larga? Barra compact y seguís sin perder el hilo. AcaDevHack, la escuela de IA de Cali.',
+    ],
   },
 } as const;

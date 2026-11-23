@@ -53,7 +53,7 @@ describe('devhackChallenge claim codes', () => {
 describe('DevhackChallenge run', () => {
   const okTime = (id: (typeof CHALLENGE_ORDER)[number]) => MIN_PLAUSIBLE_SECONDS[id] + 40;
 
-  it('chains the 4 missions in order and produces a winner summary', () => {
+  it('chains the 5 missions in order and produces a winner summary', () => {
     const run = new DevhackChallenge();
     run.startRun('Valeria');
     expect(run.currentMission()).toBe('mission_1_bulevar');
@@ -68,13 +68,20 @@ describe('DevhackChallenge run', () => {
     expect(run.recordCompletion('mission_3_pique_bulevar', okTime('mission_3_pique_bulevar')).kind).toBe(
       'advanced',
     );
+    expect(run.recordCompletion('mission_5_golpe_prompt', okTime('mission_5_golpe_prompt')).kind).toBe(
+      'advanced',
+    );
     const outcome = run.recordCompletion('free_roam', 200);
     expect(outcome.kind).toBe('completed');
     if (outcome.kind !== 'completed') return;
     expect(outcome.summary.nickname).toBe('Valeria');
     expect(outcome.summary.times.mission_1_bulevar).toBe(61.235);
     expect(outcome.summary.totalSeconds).toBeCloseTo(
-      61.235 + okTime('mission_2_cristo_rey') + okTime('mission_3_pique_bulevar') + 200,
+      61.235 +
+        okTime('mission_2_cristo_rey') +
+        okTime('mission_3_pique_bulevar') +
+        okTime('mission_5_golpe_prompt') +
+        200,
       3,
     );
     expect(run.getSnapshot().status).toBe('completed');
