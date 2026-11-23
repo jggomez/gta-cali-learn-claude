@@ -37,7 +37,6 @@ Made in Cali 🇨🇴 by **[DevHack](https://devhack.co)**, the applied-AI schoo
 - [Controls](#%EF%B8%8F-controls)
 - [Architecture](#-architecture)
 - [Quality](#-quality)
-- [Roadmap](#-roadmap)
 - [Contributing](#-contributing)
 - [Credits & license](#-credits--license)
 
@@ -181,16 +180,6 @@ npm run build
 Screenshots and the demo GIF are generated from the real game:
 - `node scripts/capture-readme-shots.mjs` for the screenshots;
 - `node scripts/capture-readme-gif.mjs` for the GIF.
-
-## 🗺 Roadmap
-
-- [ ] Public live demo on devhack.co
-- [ ] Gamepad support
-- [ ] More missions: one per Claude Code lesson (MCP, subagents, skills)
-- [ ] Optional high-quality pre-rendered voice pack
-- [ ] More cities 🇨🇴
-
-Have an idea? [Open an issue](https://github.com/jggomez/gta-cali-learn-claude/issues).
 
 ## 🤝 Contributing
 
