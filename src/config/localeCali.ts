@@ -246,6 +246,10 @@ export const LOCALE_CALI = {
       speaker: 'valeria' as const,
       text: '¡Relájate, oís! Tienes toda Cali pa’ vos: San Antonio, el Bulevar, La Ermita, el Pascual y Cristo Rey.',
     },
+    freeRoamTourPassed: {
+      speaker: 'valeria' as const,
+      text: '¡Le diste la vuelta a toda Cali, oís! Los 6 íconos coronados — ¡Reto AcaDevHack superado!',
+    },
     freeRoamWanted: {
       speaker: 'mateo' as const,
       text: '¡Ojo, ve! Se prendió la tomba por toda Cali. ¡Acelera y piérdelos entre las cuadras!',
@@ -584,3 +588,115 @@ export const LOCALE_CALI = {
 } as const;
 
 export type LocaleCali = typeof LOCALE_CALI;
+
+/** Reto AcaDevHack: challenge run, leaderboard, prize, and free-course promo copy. */
+export const LOCALE_DEVHACK = {
+  school: 'AcaDevHack de IA',
+  whatsappPhone: '573174498336',
+  links: {
+    home: 'https://devhack.co/',
+    subscription: 'https://devhack.co/academy-ai/suscripcion',
+  },
+  freeCourses: [
+    {
+      title: 'Claude Code desde cero',
+      detail: 'Curso gratis · 10 lecciones + certificado',
+      url: 'https://devhack.co/academy-ai/claude-code-desde-cero/',
+    },
+    {
+      title: 'Claude para todos',
+      detail: 'Curso gratis · sin programar',
+      url: 'https://devhack.co/academy-ai/claude-para-todos/',
+    },
+  ],
+  titleCard: {
+    badge: 'Reto AcaDevHack',
+    title: '🏆 Reto AcaDevHack',
+    subtitle: '4 misiones seguidas · ranking en vivo',
+    description:
+      'Juega la Misión 1, 2, 3 y el Tour de Cali sin perder ni una. Tu tiempo sube al ranking y si completas las 4 te ganas 3 meses gratis de la Suscripción AcaDevHack Virtual.',
+    cta: 'Aceptar el reto',
+    rankingCta: 'Ver ranking',
+  },
+  coursesTitle: 'Aprende IA gratis con AcaDevHack',
+  stageLabels: {
+    mission_1_bulevar: 'Misión 1',
+    mission_2_cristo_rey: 'Misión 2',
+    mission_3_pique_bulevar: 'Misión 3',
+    free_roam: 'Tour de Cali',
+  },
+  hudChip: (stage: number, total: number, time: string): string =>
+    `Reto ${stage}/${total} · ${time}`,
+  nickname: {
+    title: 'Elige tu nickname',
+    help: 'De 3 a 16 letras, números o _. Así apareces en el ranking.',
+    label: 'Nickname',
+    placeholder: 'ej. Parce_23',
+    start: 'Arrancar el reto',
+    cancel: 'Cancelar',
+    checking: 'Verificando nickname…',
+    rules:
+      'Reglas: las 4 misiones van seguidas. Si te pillan o se acaba el tiempo, el reto arranca otra vez desde la Misión 1.',
+    errors: {
+      too_short: 'Muy corto: mínimo 3 caracteres.',
+      too_long: 'Muy largo: máximo 16 caracteres.',
+      invalid_chars: 'Solo letras, números y _ (sin espacios).',
+      nickname_taken: 'Ese nickname ya lo tiene otro parce. Prueba otro.',
+      offline:
+        'Sin conexión con el ranking. Puedes jugar el reto, pero tus tiempos no se guardarán.',
+      auth_unavailable:
+        'El ranking no está disponible ahora mismo. Puedes jugar, pero tus tiempos no se guardarán.',
+      permission_denied: 'El ranking rechazó ese nickname. Prueba otro.',
+      unknown: 'Algo falló con el ranking. Intenta de nuevo.',
+    },
+    playOffline: 'Jugar sin ranking',
+  },
+  stagePassed: {
+    title: '¡Etapa superada!',
+    timeLabel: 'Tu tiempo',
+    bestLabel: 'Tu mejor marca',
+    personalBest: '¡Nuevo récord personal en el ranking!',
+    saving: 'Guardando en el ranking…',
+    saved: 'Tiempo guardado en el ranking.',
+    offline: 'Ranking sin conexión: este tiempo no se guardó.',
+    next: 'Siguiente misión',
+    ranking: 'Ver ranking',
+    quit: 'Salir del reto',
+    progress: (done: number, total: number): string => `Llevas ${done} de ${total} misiones`,
+  },
+  failed: {
+    title: 'Reto perdido',
+    subtitle: 'En el Reto AcaDevHack no hay segundas: arranca otra vez desde la Misión 1.',
+    implausible: 'Ese tiempo no cuadra con la misión. El reto se reinicia desde la Misión 1.',
+    retry: 'Reintentar desde la Misión 1',
+    quit: 'Volver al inicio',
+  },
+  winner: {
+    title: '¡Ganaste el Reto AcaDevHack!',
+    subtitle:
+      'Completaste las 4 misiones seguidas. Te ganaste 3 meses gratis de la Suscripción AcaDevHack Virtual.',
+    codeLabel: 'Tu código de premio',
+    totalLabel: 'Tiempo total',
+    registering: 'Registrando tu premio…',
+    offline:
+      'Sin conexión: tu código no se pudo registrar todavía. Toma captura de esta pantalla y escríbenos por WhatsApp.',
+    note: 'Guarda tu código. DevHack verifica cada código antes de activar el premio.',
+    claim: 'Reclamar por WhatsApp',
+    subscription: 'Ver la suscripción',
+    backToTitle: 'Volver al inicio',
+    whatsappMessage: (nickname: string, code: string, total: string): string =>
+      `Hola DevHack 👋 Gané el Reto AcaDevHack en GTA I - Cali - Colombia. Nickname: ${nickname}. Código: ${code}. Tiempo total: ${total}. Quiero reclamar mis 3 meses gratis de la Suscripción AcaDevHack Virtual.`,
+  },
+  ranking: {
+    title: 'Ranking del Reto AcaDevHack',
+    subtitle: 'Top 10 por misión · gana el más rápido',
+    loading: 'Cargando ranking…',
+    empty: 'Nadie ha marcado tiempo todavía. ¡Sé el primero!',
+    offline: 'No pudimos cargar el ranking (sin conexión).',
+    you: '(vos)',
+    position: '#',
+    player: 'Jugador',
+    time: 'Tiempo',
+    close: 'Cerrar',
+  },
+} as const;

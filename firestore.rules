@@ -1,0 +1,87 @@
+rules_version = '2';
+
+// Reto AcaDevHack leaderboard — dedicated `gta-cali` database (project devhack-3f0c2).
+// Players sign in anonymously; each can only write their own documents.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function validNickname(name) {
+      return name is string && name.matches('^[A-Za-z0-9_ñÑ]{3,16}$');
+    }
+
+    function minSeconds(missionId) {
+      return missionId == 'free_roam' ? 30
+        : missionId == 'mission_3_pique_bulevar' ? 15
+        : 12;
+    }
+
+    function knownMission(missionId) {
+      return missionId in ['mission_1_bulevar', 'mission_2_cristo_rey',
+                           'mission_3_pique_bulevar', 'free_roam'];
+    }
+
+    function plausibleTime(missionId, seconds) {
+      return seconds is number && seconds >= minSeconds(missionId) && seconds <= 3600;
+    }
+
+    // Unique, case-insensitive nickname reservations (doc id = lowercase nickname).
+    match /nicknames/{key} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'nickname', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && validNickname(request.resource.data.nickname)
+        && request.resource.data.nickname.lower() == key
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // One best-time entry per player per mission; a write must improve the stored time.
+    match /leaderboards/{missionId}/entries/{uid} {
+      allow read: if knownMission(missionId);
+
+      function validEntry() {
+        return request.resource.data.keys().hasOnly(['nickname', 'bestTimeSeconds', 'updatedAt'])
+          && validNickname(request.resource.data.nickname)
+          && plausibleTime(missionId, request.resource.data.bestTimeSeconds)
+          && request.resource.data.updatedAt == request.time;
+      }
+
+      allow create: if signedIn() && request.auth.uid == uid
+        && knownMission(missionId) && validEntry();
+      allow update: if signedIn() && request.auth.uid == uid
+        && knownMission(missionId) && validEntry()
+        && request.resource.data.bestTimeSeconds < resource.data.bestTimeSeconds;
+      allow delete: if false;
+    }
+
+    // Full-run winners. Owner-only read; created once; `claimed` is set by staff in the console.
+    match /challengeWinners/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(
+             ['nickname', 'code', 'times', 'totalSeconds', 'claimed', 'completedAt'])
+        && validNickname(request.resource.data.nickname)
+        && request.resource.data.code is string
+        && request.resource.data.code.matches('^CALI-[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{4}$')
+        && request.resource.data.claimed == false
+        && request.resource.data.completedAt == request.time
+        && request.resource.data.times.keys().hasOnly(['mission_1_bulevar', 'mission_2_cristo_rey',
+             'mission_3_pique_bulevar', 'free_roam'])
+        && plausibleTime('mission_1_bulevar', request.resource.data.times.mission_1_bulevar)
+        && plausibleTime('mission_2_cristo_rey', request.resource.data.times.mission_2_cristo_rey)
+        && plausibleTime('mission_3_pique_bulevar', request.resource.data.times.mission_3_pique_bulevar)
+        && plausibleTime('free_roam', request.resource.data.times.free_roam)
+        && request.resource.data.totalSeconds is number;
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

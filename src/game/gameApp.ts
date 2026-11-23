@@ -22,9 +22,12 @@ import type {
   WantedLevel,
   WorldSnapshot,
 } from '../types/game';
+import { FirestoreLeaderboard } from '../services/firestoreLeaderboard';
+import type { LeaderboardPort } from '../services/leaderboardPort';
 import { HudController } from '../ui/hudController';
 import { WebGLUnavailableError } from '../world/sceneSetup';
 import { WorldRenderer } from '../world/worldRenderer';
+import { ChallengeSession } from './challengeSession';
 import { InputManager } from './inputManager';
 import {
   QUALITY_PRESETS,
@@ -46,6 +49,8 @@ declare global {
 
 export interface GameAppOptions {
   readonly voiceEngine?: VoiceEngine;
+  /** Reto AcaDevHack leaderboard; defaults to the Firestore `gta-cali` adapter. */
+  readonly leaderboard?: LeaderboardPort;
 }
 
 const MAX_FRAME_DT_SECONDS = 0.05;
@@ -178,6 +183,7 @@ export class GameApp {
   private readonly audioEngine: AudioEngine;
   private readonly voiceEngine: VoiceEngine;
   private readonly hud: HudController;
+  private readonly challenge: ChallengeSession;
   private readonly inputManager: InputManager;
   private worldRenderer: WorldRenderer | null = null;
 
@@ -218,7 +224,8 @@ export class GameApp {
     this.map = map;
 
     this.world = new GameWorld(this.map);
-    const storage = new StorageAdapter(getBrowserLocalStorage());
+    const browserStorage = getBrowserLocalStorage();
+    const storage = new StorageAdapter(browserStorage);
     this.missionDirector = new MissionDirector(this.map, storage);
     this.garageConfig = this.missionDirector.getGarageConfig();
     this.world.applyGarageCar(
@@ -244,10 +251,16 @@ export class GameApp {
     this.hud = new HudController(
       this.hudRoot,
       {
-        onStartMission: (id) => this.startMission(id),
+        onStartMission: (id) => {
+          this.challenge.abandon();
+          this.startMission(id);
+        },
         onResume: () => this.resumeGame(),
         onRestart: () => this.restartMission(),
-        onReturnTitle: () => this.returnToTitle(),
+        onReturnTitle: () => {
+          this.challenge.abandon();
+          this.returnToTitle();
+        },
         onCycleRadio: () => this.cycleRadio(),
         onToggleMute: () => this.toggleMute(),
         onToggleVoices: () => this.toggleVoices(),
@@ -263,6 +276,17 @@ export class GameApp {
     );
     this.hud.setGarageConfig(this.garageConfig);
 
+    this.challenge = new ChallengeSession({
+      root: this.hudRoot,
+      port: options.leaderboard ?? new FirestoreLeaderboard(),
+      storage: browserStorage,
+      host: {
+        startChallengeStage: (missionId) => this.startMission(missionId, { challengeRun: true }),
+        returnToTitle: () => this.returnToTitle(),
+      },
+    });
+    this.challenge.mountTitleCard(this.hud.getTitleScreen());
+
     this.inputManager = new InputManager(
       {
         onCycleRadio: () => this.cycleRadio(),
@@ -277,7 +301,10 @@ export class GameApp {
         onAnyUserGesture: () => {
           this.audioEngine.unlock();
         },
-        isPlaying: () => this.missionDirector.getSnapshot().mode === 'playing' && !this.garageOpen,
+        isPlaying: () =>
+          this.missionDirector.getSnapshot().mode === 'playing' &&
+          !this.garageOpen &&
+          !this.challenge.isBlockingGameplay(),
       },
       window,
       this.canvas,
@@ -323,6 +350,7 @@ export class GameApp {
 
     this.inputManager.dispose();
     this.hud.dispose();
+    this.challenge.dispose();
     this.worldRenderer?.dispose();
     this.worldRenderer = null;
     this.voiceEngine.dispose();
@@ -509,7 +537,10 @@ export class GameApp {
     this.worldRenderer.resize(width, height);
   }
 
-  private startMission(missionId: MissionId): void {
+  private startMission(
+    missionId: MissionId,
+    options: { readonly challengeRun?: boolean } = {},
+  ): void {
     this.audioEngine.unlock();
     this.garageOpen = false;
     this.garagePausedGameplay = false;
@@ -527,7 +558,7 @@ export class GameApp {
       enableRivals: missionId === 'mission_3_pique_bulevar',
     });
     applyRendererGarageAppearance(this.worldRenderer, this.garageConfig);
-    const missionSnap = this.missionDirector.startMission(missionId);
+    const missionSnap = this.missionDirector.startMission(missionId, options);
     this.resetVoiceAndPursuitTrackers(start.initialWantedStars);
     this.syncSpokenMissionDialogue(missionSnap);
     this.inputManager.clearKeys();
@@ -536,6 +567,11 @@ export class GameApp {
   }
 
   private restartMission(): void {
+    if (this.challenge.isRunning() || this.missionDirector.getSnapshot().isChallengeRun) {
+      // Reto AcaDevHack runs are back to back: a restart begins again at Mission 1.
+      this.challenge.retry();
+      return;
+    }
     const activeMission = this.missionDirector.getSnapshot().activeMission;
     this.startMission(activeMission);
   }
@@ -722,6 +758,7 @@ export class GameApp {
     );
     let worldSnap = this.stepWorld(dt, input);
     const missionSnap = this.missionDirector.update(worldSnap, dt);
+    this.challenge.onMissionTransition(prevMission, missionSnap);
 
     const nextObjectiveStep = missionSnap.activeObjective?.stepIndex ?? -1;
     let worldMutated = false;
@@ -984,6 +1021,7 @@ export class GameApp {
       activeCamera,
       this.garageConfig,
     );
+    this.challenge.render(missionSnap);
   }
 
   private attachDebugHook(): void {

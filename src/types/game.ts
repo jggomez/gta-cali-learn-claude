@@ -444,6 +444,8 @@ export interface MissionSnapshot {
   readonly timeOfDay?: TimeOfDay;
   readonly isCountdown?: boolean;
   readonly failureReason?: FailureReason | null;
+  /** True while this mission is a stage of the back-to-back Reto AcaDevHack run. */
+  readonly isChallengeRun?: boolean;
 }
 
 export interface AudioState {

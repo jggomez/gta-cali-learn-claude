@@ -3,3 +3,6 @@ dist/
 coverage/
 .vite/
 .DS_Store
+
+# Firebase emulator logs
+*-debug.log

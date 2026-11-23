@@ -401,6 +401,7 @@ export class MissionDirector {
   private countdownRemaining = 0;
   private failureReason: FailureReason | null = null;
   private freeRoamVisited: LandmarkId[] = [];
+  private challengeRun = false;
   private freeRoamLeftSpawnZone = false;
   private lastProcessedStuntJumpAt = -1;
   private lastProcessedPayNSprayAt = -1;
@@ -422,8 +423,12 @@ export class MissionDirector {
     return this.getSnapshot();
   }
 
-  public startMission(missionId: MissionId): Readonly<MissionSnapshot> {
+  public startMission(
+    missionId: MissionId,
+    options: { readonly challengeRun?: boolean } = {},
+  ): Readonly<MissionSnapshot> {
     this.activeMission = missionId;
+    this.challengeRun = options.challengeRun === true;
     this.mode = 'playing';
     this.stepIndex = 0;
     this.missionFloorStars = 0;
@@ -504,6 +509,7 @@ export class MissionDirector {
 
   public returnToTitle(): Readonly<MissionSnapshot> {
     this.mode = 'title';
+    this.challengeRun = false;
     this.activeObjective = null;
     this.missionFloorStars = 0;
     this.targetWantedStars = 0;
@@ -601,6 +607,15 @@ export class MissionDirector {
     } else {
       this.updateFreeRoamPolice(world);
       this.activeObjective = this.createFreeRoamObjective();
+      if (this.challengeRun && this.freeRoamVisited.length >= this.map.landmarks.length) {
+        // Reto AcaDevHack: the full landmark tour is the timed 4th stage.
+        this.completeStoryMission(
+          'free_roam',
+          'mission_passed',
+          'freeRoamTourPassed',
+          LOCALE_CALI.dialogues.freeRoamTourPassed,
+        );
+      }
     }
 
     if (this.mode === 'playing') {
@@ -643,6 +658,7 @@ export class MissionDirector {
       timeOfDay: this.timeOfDay,
       isCountdown: this.isCountdown,
       failureReason: this.failureReason,
+      isChallengeRun: this.challengeRun,
     };
   }
 

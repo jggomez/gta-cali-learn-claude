@@ -384,6 +384,11 @@ export class HudController {
     this.syncGarageSelectionUi();
   }
 
+  /** Title screen root, so feature panels (e.g. Reto AcaDevHack) can mount into it. */
+  public getTitleScreen(): HTMLElement {
+    return this.titleScreen;
+  }
+
   public setGarageOpen(open: boolean): void {
     this.garageOpen = open;
     setHidden(this.garageOverlay, !open);

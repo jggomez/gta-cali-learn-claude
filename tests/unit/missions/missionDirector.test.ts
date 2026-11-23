@@ -544,6 +544,35 @@ describe('MissionDirector', () => {
     expect(snap.activeObjective?.target).toBeNull();
   });
 
+  it('completes the Free Roam tour as a timed mission only during a Reto AcaDevHack run', () => {
+    const director = new MissionDirector(CALI_MAP, new StorageAdapter(new MemoryStorage()));
+    let snap = director.startMission('free_roam', { challengeRun: true });
+    expect(snap.isChallengeRun).toBe(true);
+
+    for (const landmark of CALI_MAP.landmarks) {
+      snap = director.update(
+        makeWorld({ mode: 'driving', x: landmark.position.x, z: landmark.position.z }),
+        10,
+      );
+    }
+
+    expect(snap.mode).toBe('mission_passed');
+    expect(snap.lastCompletedTimeSeconds).toBeCloseTo(10 * CALI_MAP.landmarks.length, 3);
+    expect(snap.bestTimes.free_roam).toBeCloseTo(10 * CALI_MAP.landmarks.length, 3);
+    expect(snap.dialogue?.text).toBe(LOCALE_CALI.dialogues.freeRoamTourPassed.text);
+
+    // A regular Free Roam session never ends on its own
+    snap = director.startMission('free_roam');
+    expect(snap.isChallengeRun).toBe(false);
+    for (const landmark of CALI_MAP.landmarks) {
+      snap = director.update(
+        makeWorld({ mode: 'driving', x: landmark.position.x, z: landmark.position.z }),
+        10,
+      );
+    }
+    expect(snap.mode).toBe('playing');
+  });
+
   it('starts Free Roam cleanly at stepIndex 0 (la_ermita) even when localStorage already has all 6 landmarks discovered', () => {
     const backing = new MemoryStorage();
     const storage = new StorageAdapter(backing);

@@ -2039,3 +2039,272 @@ body {
     transition: none;
   }
 }
+
+/* ==========================================================================
+   Reto AcaDevHack (challenge card, modals, ranking, HUD chip)
+   ========================================================================== */
+
+.cali-overlay--reto {
+  z-index: 47;
+}
+
+.cali-overlay--reto-top {
+  z-index: 49;
+}
+
+.cali-modal--reto {
+  width: min(520px, 100%);
+}
+
+.cali-modal--reto-ranking {
+  width: min(560px, 100%);
+}
+
+.cali-reto-card {
+  width: min(960px, 100%);
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  text-align: left;
+  border: 1px solid var(--color-warning);
+  box-shadow: var(--shadow-panel), 0 0 26px rgba(255, 184, 0, 0.28);
+  background:
+    linear-gradient(120deg, rgba(255, 46, 147, 0.16), rgba(0, 240, 255, 0.1)),
+    var(--color-surface-glass-strong);
+}
+
+.cali-reto-badge {
+  justify-self: start;
+  color: var(--color-text-on-accent);
+  background: var(--color-warning);
+}
+
+.cali-reto-card-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 3.2vw, 2.1rem);
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-headline-peak);
+}
+
+.cali-reto-card-subtitle {
+  margin: 0;
+  font-weight: 700;
+  color: var(--color-secondary);
+}
+
+.cali-reto-card-desc {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.cali-reto-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.cali-reto-courses {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.cali-reto-courses-title {
+  flex-basis: 100%;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.cali-reto-course {
+  flex: 1 1 220px;
+  display: grid;
+  gap: 2px;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  text-decoration: none;
+  background: rgba(0, 240, 255, 0.06);
+}
+
+.cali-reto-course span {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.cali-reto-course:hover,
+.cali-reto-course:focus-visible {
+  border-color: var(--color-secondary);
+  box-shadow: var(--glow-cyan);
+}
+
+.cali-reto-form {
+  display: grid;
+  gap: var(--space-sm);
+  text-align: left;
+}
+
+.cali-reto-label {
+  font-weight: 700;
+}
+
+.cali-reto-input {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-sm) var(--space-md);
+  font: inherit;
+  font-size: 1.125rem;
+  color: var(--color-text);
+  background: var(--color-surface-deep);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.cali-reto-input:focus-visible {
+  outline: 2px solid var(--color-secondary);
+  outline-offset: 2px;
+}
+
+.cali-reto-error {
+  min-height: 1.25em;
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-warning);
+}
+
+.cali-reto-rules {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.cali-reto-sync {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.cali-reto-sync[data-state='saved'],
+.cali-reto-sync[data-state='registered'] {
+  color: var(--color-success);
+}
+
+.cali-reto-sync[data-state='offline'] {
+  color: var(--color-warning);
+}
+
+.cali-reto-code-label {
+  font-size: 0.8125rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.cali-reto-code {
+  display: block;
+  padding: var(--space-sm) var(--space-md);
+  font-size: clamp(1.4rem, 5vw, 2rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--color-warning);
+  border: 2px dashed var(--color-warning);
+  border-radius: var(--radius-md);
+  user-select: all;
+}
+
+.cali-reto-times {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+  font-size: 0.875rem;
+}
+
+.cali-reto-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  justify-content: center;
+}
+
+.cali-reto-tab {
+  min-height: 36px;
+  padding: var(--space-xs) var(--space-md);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+
+.cali-reto-tab.is-active {
+  color: var(--color-text-on-accent);
+  background: var(--color-secondary);
+  border-color: var(--color-secondary);
+}
+
+.cali-reto-ranking-body {
+  min-height: 140px;
+}
+
+.cali-reto-ranking-note {
+  margin: var(--space-lg) 0;
+  color: var(--color-text-muted);
+}
+
+.cali-reto-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.cali-reto-table th,
+.cali-reto-table td {
+  padding: 6px var(--space-sm);
+  text-align: left;
+  border-bottom: 1px solid rgba(0, 240, 255, 0.15);
+}
+
+.cali-reto-table th:last-child,
+.cali-reto-table td:last-child {
+  text-align: right;
+}
+
+.cali-reto-table tr.is-you td {
+  color: var(--color-warning);
+  font-weight: 800;
+}
+
+.cali-reto-chip {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-dialogue);
+  padding: 4px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-text-on-accent);
+  background: var(--color-warning);
+  border-radius: var(--radius-full);
+  box-shadow: 0 0 16px rgba(255, 184, 0, 0.45);
+  pointer-events: none;
+  white-space: nowrap;
+}
