@@ -96,11 +96,19 @@ describe('leaderboards', () => {
     await assertSucceeds(getDoc(ref(anonDb, 'alice')));
   });
 
+  it('accepts the fastest real (autopilot-verified) M1 and M2 completions', async () => {
+    const aliceDb = () => env.authenticatedContext('alice').firestore();
+    await assertSucceeds(setDoc(ref(aliceDb, 'alice'), entry(12.77)));
+    await assertSucceeds(setDoc(ref(aliceDb, 'alice', 'mission_2_cristo_rey'), entry(9.6)));
+  });
+
   it('rejects writes to someone else, implausible times, unknown missions and extra fields', async () => {
     const aliceDb = () => env.authenticatedContext('alice').firestore();
     await assertFails(setDoc(ref(aliceDb, 'bob'), entry(90)));
     await assertFails(setDoc(ref(aliceDb, 'alice'), entry(3)));
     await assertFails(setDoc(ref(aliceDb, 'alice', 'free_roam'), entry(20)));
+    await assertFails(setDoc(ref(aliceDb, 'alice'), entry(9.9)));
+    await assertFails(setDoc(ref(aliceDb, 'alice', 'mission_2_cristo_rey'), entry(7.9)));
     await assertFails(setDoc(ref(aliceDb, 'alice'), entry(4000)));
     await assertFails(setDoc(ref(aliceDb, 'alice', 'mission_9'), entry(90)));
     await assertFails(setDoc(ref(aliceDb, 'alice'), { ...entry(90), admin: true }));
