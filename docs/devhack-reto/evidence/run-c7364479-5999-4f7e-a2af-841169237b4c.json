@@ -1,0 +1,1038 @@
+{
+  "version": 1,
+  "pages": [
+    "http://127.0.0.1:4173/?firestoreEmulator=127.0.0.1:8080"
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/?firestoreEmulator=127.0.0.1:8080",
+      "status": 200,
+      "resourceType": "document",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/main.ts?t=1795399812336",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/@vite/client",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/styles/theme.css?t=1795399812336",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/vite/dist/client/env.mjs",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/game/gameApp.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/audio/voiceEngine.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/audio/audioEngine.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/config/caliMap.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/config/localeCali.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/services/firestoreLeaderboard.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/ui/hudController.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/sceneSetup.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/missions/missionDirector.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/game/challengeSession.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/game/inputManager.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/game/qualityGovernor.ts?t=1795392203426",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/worldRenderer.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/config/firebaseConfig.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/simulation/gameWorld.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/missions/devhackChallenge.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/services/leaderboardPort.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/ui/minimapRenderer.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/config/devhackAds.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_EffectComposer__js.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_GTAOPass__js.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_OutputPass__js.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_RenderPass__js.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_ShaderPass__js.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/simulation/physics.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_SMAAPass__js.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_postprocessing_UnrealBloomPass__js.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/config/roadGraph.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/ui/challengeController.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/calenoPeople.ts?t=1795392167672",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/calenoRoles.ts?t=1795392167672",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/calenoWardrobe.ts?t=1795392167672",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/assetLoader.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/renderStats.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/staticBatcher.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/caliLandmarks.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/particles.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/pbrTextures.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/riderPose.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/motorcycleMeshes.ts?t=1795392167672",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/simulation/trafficAi.ts?t=1795399490871",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-OLTXGRDG.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-57WXMBHB.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/classicFleetMeshes.ts?t=1795392167672",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-ATNEROMZ.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/vehicleMeshes.ts?t=1795392167672",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_loaders_RGBELoader__js.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_loaders_DRACOLoader__js.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/src/world/devhackBillboards.ts",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_utils_BufferGeometryUtils__js.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_loaders_GLTFLoader__js.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/three_examples_jsm_utils_SkeletonUtils__js.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-FYXXWPTK.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-U5H7DR74.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/asphalt/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/asphalt/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/sidewalk/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/asphalt/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/sidewalk/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/sidewalk/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/terrain/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/terrain/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/plaster/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/terrain/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/plaster/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/plaster/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/roof/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/roof/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/roof/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/facade/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/facade/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/facade/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/palm_bark/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/palm_bark/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/palm_leaves/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/palm_bark/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/palm_leaves/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/palm_leaves/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/jacaranda_bark/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/jacaranda_bark/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/models/ferrari.glb",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/jacaranda_bark/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/models/character.glb",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/hdri/evening_road_01_puresky_1k.hdr",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/models/valeria.glb",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/models/caleno.glb",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/jacaranda_leaves/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/jacaranda_leaves/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/jacaranda_leaves/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/stucco/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/stucco/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/concrete/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/stucco/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/concrete/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/concrete/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/terracotta_plaster/diff.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/terracotta_plaster/nor_gl.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/textures/terracotta_plaster/rough.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/hdri/evening_road_01_puresky_2k_tonemapped.jpg",
+      "status": 200,
+      "resourceType": "image",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/draco/draco_decoder.js",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/cbdcff73-92c8-46ff-a50f-55a670d9222c",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/6e2cabf9-7a15-4063-b589-67e240e11c33",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/e67dec0d-f127-4064-b64f-70f46fe41005",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/af047113-4c6f-4565-be35-1f8dc7c4607e",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/d41246ef-6c25-4ba6-a395-231c9a297479",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/00145926-34a4-4c0b-8fd6-dc7a755f62fa",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/b5b7cda3-b7aa-4ee6-9dca-5e612ca786e4",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/4b251d9a-36ea-416e-a5ac-fdd7d447c26d",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/eb95c767-cbad-41f6-bb56-25520391d63d",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/9700a993-e98a-4f2d-9591-3982bbb73741",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/d79edd12-0d09-4a7f-aa2b-9c404d230308",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/fe48c653-9889-489f-bf9b-7123eba6b14b",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/9a91d65e-3186-4570-bce2-ec03c0e24f21",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/815dca91-1e82-4710-91e7-9e4a39a7afdc",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/5f49ee6f-e033-4564-b21d-78371cba7634",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/b8ffc2fa-42e5-4751-b93a-2ff158fb4673",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/bc5201dc-f304-4739-b493-6dafd31c680c",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/c5414117-785b-4414-8b6e-4dbb928d7242",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/0a26613f-4039-4422-9f76-1b2e77359d4a",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/07e6e673-b627-4e58-8e2d-efebc69a102e",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/d5a8c78d-5e0d-41ae-8727-9628c2b78596",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/2abead50-efc8-41f2-a93f-c8f391780496",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/aa1f53d5-38ef-4e9e-a13d-27e072e71f33",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/2fa6a7f8-68ac-4a63-a6bb-e87087745b39",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/55c1f8f6-30cd-40d4-a885-c2ff789942a0",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/01a904e5-5725-4de8-bb63-9063384b3c2a",
+      "status": 200,
+      "resourceType": "script",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/01a904e5-5725-4de8-bb63-9063384b3c2a",
+      "status": 200,
+      "resourceType": "script",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/01a904e5-5725-4de8-bb63-9063384b3c2a",
+      "status": 200,
+      "resourceType": "script",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://127.0.0.1:4173/01a904e5-5725-4de8-bb63-9063384b3c2a",
+      "status": 200,
+      "resourceType": "script",
+      "remote": false
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/firebase_app.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/firebase_firestore_lite.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/firebase_auth.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:4173/node_modules/.vite/deps/chunk-IT2CVQXZ.js?v=44877cb2",
+      "status": 200,
+      "resourceType": "script",
+      "remote": true
+    },
+    {
+      "method": "POST",
+      "url": "http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signUp?key=AIzaSyDokZ35_PamPogr1hdIcmcOELOFZDIjATA",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "POST",
+      "url": "http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:lookup?key=AIzaSyDokZ35_PamPogr1hdIcmcOELOFZDIjATA",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "POST",
+      "url": "http://127.0.0.1:8080/v1/projects/devhack-3f0c2/databases/gta-cali/documents/leaderboards/mission_1_bulevar:runQuery?key=AIzaSyDokZ35_PamPogr1hdIcmcOELOFZDIjATA",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "POST",
+      "url": "http://127.0.0.1:8080/v1/projects/devhack-3f0c2/databases/gta-cali/documents/leaderboards/free_roam:runQuery?key=AIzaSyDokZ35_PamPogr1hdIcmcOELOFZDIjATA",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "POST",
+      "url": "http://127.0.0.1:8080/v1/projects/devhack-3f0c2/databases/gta-cali/documents:batchGet?key=AIzaSyDokZ35_PamPogr1hdIcmcOELOFZDIjATA",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    },
+    {
+      "method": "POST",
+      "url": "http://127.0.0.1:8080/v1/projects/devhack-3f0c2/databases/gta-cali/documents:commit?key=AIzaSyDokZ35_PamPogr1hdIcmcOELOFZDIjATA",
+      "status": 200,
+      "resourceType": "fetch",
+      "remote": true
+    }
+  ],
+  "dataChecks": [
+    {
+      "kind": "source-on-screen",
+      "detail": "leaderboards/mission_1_bulevar entries seeded in Firestore (Mateo_Pro 75.5 s, LaCaleña 92.25 s) render fastest-first in the ranking modal"
+    },
+    {
+      "kind": "persisted-to-backend",
+      "detail": "nickname Valeria_E2E claimed in the UI is stored in Firestore nicknames/valeria_e2e with the anonymous uid"
+    },
+    {
+      "kind": "backend-rule-enforced",
+      "detail": "a second anonymous player is refused VALERIA_e2e (case-insensitive) by firestore.rules and the UI shows the taken error"
+    }
+  ],
+  "dataSource": "Firestore emulator 127.0.0.1:8080 (project devhack-3f0c2, database gta-cali)"
+}

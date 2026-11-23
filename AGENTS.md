@@ -7,7 +7,8 @@ Playable 3D third-person web game inspired by GTA VI and set in Cali, Colombia, 
 - **Install**: `npm install`
 - **Dev**: `npm run dev -- --port 4173` (serves `http://localhost:4173`)
 - **Test**: `npm test` (Vitest unit + integration suites)
-- **E2E**: `npx playwright test --config=tests/e2e/playwright.config.mjs` (live Chromium WebGL suite)
+- **E2E**: `npx playwright test --config=tests/e2e/playwright.config.mjs` (live Chromium WebGL suite; dev server on 4173 must be running)
+- **Reto (Firebase emulators, JDK 21+)**: `npm run test:rules` (Firestore rules) and `npm run test:e2e:reto` (leaderboard E2E)
 - **Lint / Typecheck**: `npm run typecheck && npm run lint`
 - **Build**: `npm run build` (production Vite bundle in `dist/`)
 
@@ -25,7 +26,7 @@ Playable 3D third-person web game inspired by GTA VI and set in Cali, Colombia, 
 - **Key Invariants**:
   - Code, identifiers, types, comments, docs, and commits MUST be strictly in English; player-facing Español Caleño copy lives only in `src/config/localeCali.ts`.
   - Keep `src/simulation/` and `src/missions/` strictly decoupled from `three` and DOM APIs (SOLID / KISS / TDD).
-  - Data source is `local-client-simulation` (in-memory + `localStorage`); never add fake backend stubs or external network asset fetches.
+  - Data source is `local-client-simulation` (in-memory + `localStorage`) plus the optional Reto AcaDevHack leaderboard in Firestore (project `devhack-3f0c2`, database `gta-cali`, anonymous auth, lazy-loaded via `LeaderboardPort`). The game MUST stay fully playable offline; never add fake backend stubs or external network asset fetches.
   - Never commit on `main`/`master`/`develop`; use Conventional Commits on `feat/<slug>` branches.
   - Require empirical `exit code 0` tests plus real browser Playwright E2E evidence before completion.
 

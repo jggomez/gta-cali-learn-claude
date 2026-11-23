@@ -2293,9 +2293,9 @@ body {
 
 .cali-reto-chip {
   position: fixed;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* Below the objective card + #CaliViral ticker, clear of the top-centre compass. */
+  top: 226px;
+  left: 16px;
   z-index: var(--z-dialogue);
   padding: 4px 14px;
   font-family: var(--font-mono);

@@ -11,7 +11,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src tests",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-gta-cali 'vitest run --config vitest.rules.config.ts'"
+    "test:rules": "firebase emulators:exec --only firestore --project demo-gta-cali 'vitest run --config vitest.rules.config.ts'",
+    "test:e2e:reto": "firebase emulators:exec --only firestore,auth --project devhack-3f0c2 'npx playwright test --config=tests/e2e/playwright.config.mjs reto-devhack'"
   },
   "dependencies": {
     "firebase": "^12.19.0",
