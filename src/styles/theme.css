@@ -2601,3 +2601,229 @@ body {
 .cali-mission-grid > :last-child:nth-child(odd) {
   grid-column: 1 / -1;
 }
+
+/* ---- Title: "Aprende Claude mientras juegas" showcase -------------------------------------- */
+.cali-learn-showcase {
+  position: relative;
+  /* The title screen is a flex column: never let the showcase collapse behind overflow:hidden. */
+  flex-shrink: 0;
+  width: min(960px, 100%);
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  overflow: hidden;
+  text-align: left;
+  pointer-events: auto;
+  border: 1px solid var(--color-claude);
+  box-shadow: var(--shadow-panel), 0 0 32px rgba(217, 119, 87, 0.35);
+  background:
+    radial-gradient(circle at 92% 8%, rgba(217, 119, 87, 0.32), transparent 42%),
+    linear-gradient(120deg, rgba(217, 119, 87, 0.14), rgba(0, 240, 255, 0.08)),
+    var(--color-surface-glass-strong);
+}
+
+.cali-learn-showcase::after {
+  content: '✦';
+  position: absolute;
+  top: -18px;
+  right: 18px;
+  font-size: 6rem;
+  line-height: 1;
+  color: rgba(217, 119, 87, 0.22);
+  pointer-events: none;
+}
+
+.cali-learn-showcase-badge {
+  justify-self: start;
+  color: #fff4e6;
+  background: var(--color-claude);
+  border-color: var(--color-claude);
+}
+
+.cali-learn-showcase-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 3.6vw, 2.4rem);
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #ffd2bf, #d97757 55%, #ffb800);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.cali-learn-showcase-subtitle {
+  max-width: 68ch;
+  margin: 0;
+  font-size: 0.975rem;
+  line-height: 1.45;
+  color: var(--color-text);
+}
+
+.cali-learn-showcase-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-sm);
+  margin: var(--space-xs) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cali-learn-feature {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 10px 12px;
+  background: rgba(11, 15, 12, 0.55);
+  border: 1px solid rgba(217, 119, 87, 0.45);
+  border-radius: var(--radius-md);
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.cali-learn-feature:hover {
+  border-color: var(--color-claude);
+  transform: translateY(-2px);
+}
+
+.cali-learn-feature-cmd {
+  justify-self: start;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #3cff8f;
+  background: rgba(60, 255, 143, 0.1);
+  border-radius: var(--radius-sm);
+}
+
+.cali-learn-feature-title {
+  font-size: 0.95rem;
+  color: #fff4e6;
+}
+
+.cali-learn-feature-detail {
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+}
+
+.cali-learn-feature-lesson {
+  justify-self: start;
+  margin-top: 2px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffd2bf;
+}
+
+.cali-learn-showcase-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+}
+
+.cali-learn-showcase-play {
+  background: var(--color-claude) !important;
+  color: #fff4e6 !important;
+  box-shadow: 0 0 18px rgba(217, 119, 87, 0.55);
+}
+
+.cali-learn-showcase-progress {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-full);
+}
+
+.cali-learn-showcase-footnote {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+/* ---- "Creado por DevHack" corner badge ------------------------------------------------------ */
+.cali-made-by {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: var(--z-screen);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 14px 8px 10px;
+  color: var(--color-text);
+  text-decoration: none;
+  pointer-events: auto;
+  background: var(--color-surface-glass-strong);
+  border: 1px solid var(--color-primary, #ff2e93);
+  border-radius: var(--radius-full);
+  box-shadow: 0 0 18px rgba(255, 46, 147, 0.35);
+  backdrop-filter: blur(8px);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.cali-made-by:hover,
+.cali-made-by:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 0 26px rgba(0, 240, 255, 0.55);
+  border-color: var(--color-secondary);
+}
+
+.cali-made-by-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--color-text-on-accent);
+  background: linear-gradient(135deg, #ff2e93, #ffb800);
+  border-radius: 50%;
+}
+
+.cali-made-by-text {
+  display: grid;
+  line-height: 1.1;
+}
+
+.cali-made-by-prefix,
+.cali-made-by-detail {
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+}
+
+.cali-made-by-brand {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-style: italic;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 639px) {
+  .cali-learn-showcase {
+    padding: var(--space-md);
+  }
+
+  .cali-learn-showcase::after {
+    font-size: 4rem;
+  }
+
+  .cali-made-by {
+    right: 12px;
+    bottom: 12px;
+    padding: 6px 12px 6px 8px;
+  }
+
+  .cali-made-by-detail {
+    display: none;
+  }
+}

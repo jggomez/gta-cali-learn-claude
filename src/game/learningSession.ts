@@ -46,6 +46,8 @@ export interface LearningHost {
   relieveBust(): void;
   onCardsChanged(collected: readonly ClaudeCardKey[], complete: boolean): void;
   speakRadioAd(text: string): void;
+  /** Starts a mission from the title-screen showcase (casual run, not the Reto). */
+  startMission(missionId: MissionId): void;
 }
 
 export interface LearningSessionOptions {
@@ -79,10 +81,16 @@ export class LearningSession {
     this.rng = options.rng ?? Math.random;
     this.progress = new LearningProgress(options.storage, HACK_QUESTIONS.length);
     this.ui = new LearningController(options.root, {
+      onPlayPromptMission: () => this.host.startMission('mission_5_golpe_prompt'),
+      onOpenAlbum: () => this.openAlbum(),
       onHackAnswer: (index) => this.answerHack(index),
       onPlanChosen: (choice) => this.choosePlan(choice),
       onAlbumClosed: () => this.ui.closeAlbum(),
     });
+  }
+
+  public mountTitleShowcase(titleScreen: HTMLElement): void {
+    this.ui.mountTitleShowcase(titleScreen, this.progress.getCards().length);
   }
 
   public getCollectedCards(): readonly ClaudeCardKey[] {
@@ -236,6 +244,7 @@ export class LearningSession {
       const collected = this.progress.getCards();
       const complete = this.progress.hasAllCards();
       this.host.onCardsChanged(collected, complete);
+      this.ui.setTitleAlbumCount(collected.length);
       this.ui.flash(COPY.cardToast(collected.length, CLAUDE_CARD_KEYS.length), 'correct');
       if (complete && this.showTipOnce('tip_all_cards')) continue;
       if (collected.length === 1 && this.showTipOnce('tip_first_card')) continue;

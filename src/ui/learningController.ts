@@ -49,6 +49,8 @@ function lessonCaption(lesson: LessonKey): string {
 }
 
 export interface LearningUiCallbacks {
+  onPlayPromptMission(): void;
+  onOpenAlbum(): void;
   onHackAnswer(index: number): void;
   onPlanChosen(choice: PlanChoice): void;
   onAlbumClosed(): void;
@@ -83,6 +85,9 @@ export class LearningController {
   private readonly albumSubtitle: HTMLElement;
   private readonly albumGrid: HTMLElement;
   private albumOpen = false;
+
+  private titleAlbumProgress: HTMLElement | null = null;
+  private readonly titleNodes: HTMLElement[] = [];
 
   public constructor(root: HTMLElement, callbacks: LearningUiCallbacks) {
     this.root = root;
@@ -167,6 +172,88 @@ export class LearningController {
     this.albumOverlay.appendChild(albumPanel);
 
     this.root.append(this.pill, this.toast, this.hack, this.hackFeedback, this.planOverlay, this.albumOverlay);
+  }
+
+  // ---- Title screen ----------------------------------------------------------------------------
+
+  /**
+   * "Aprende Claude mientras juegas" showcase (above the Reto card) plus the "Creado por DevHack"
+   * corner badge on the title screen.
+   */
+  public mountTitleShowcase(titleScreen: HTMLElement, cardsCollected: number): void {
+    const copy = COPY.showcase;
+    const card = el('section', 'cali-panel cali-learn-showcase', 'learn-showcase');
+    card.setAttribute('aria-label', copy.title);
+    const badge = el('span', 'cali-badge cali-learn-showcase-badge', undefined, copy.badge);
+    const title = el('h2', 'cali-learn-showcase-title', undefined, copy.title);
+    const subtitle = el('p', 'cali-learn-showcase-subtitle', undefined, copy.subtitle);
+
+    const grid = el('ul', 'cali-learn-showcase-grid', 'learn-showcase-features');
+    for (const feature of copy.features) {
+      const item = el('li', 'cali-learn-feature', `learn-feature-${feature.id}`);
+      item.append(
+        el('code', 'cali-learn-feature-cmd', undefined, feature.command),
+        el('strong', 'cali-learn-feature-title', undefined, feature.title),
+        el('span', 'cali-learn-feature-detail', undefined, feature.detail),
+        el('span', 'cali-learn-feature-lesson', undefined, feature.lesson),
+      );
+      grid.appendChild(item);
+    }
+
+    const actions = el('div', 'cali-learn-showcase-actions');
+    const play = el('button', 'cali-btn cali-btn--primary cali-learn-showcase-play', 'btn-learn-play-m5', copy.playCta);
+    play.type = 'button';
+    this.listen(play, 'click', () => this.callbacks.onPlayPromptMission());
+    const album = el('button', 'cali-btn cali-btn--secondary', 'btn-learn-title-album');
+    album.type = 'button';
+    album.append(el('span', undefined, undefined, `✦ ${copy.albumCta}`));
+    this.titleAlbumProgress = el('span', 'cali-learn-showcase-progress', 'learn-title-album-progress');
+    album.append(this.titleAlbumProgress);
+    this.listen(album, 'click', () => this.callbacks.onOpenAlbum());
+    actions.append(play, album);
+
+    const footnote = el('p', 'cali-learn-showcase-footnote');
+    footnote.append(
+      el('span', undefined, undefined, `${copy.footnote} `),
+      lessonAnchor('cc_agentic_loop', COPY.courseNames['claude-code-desde-cero']),
+      el('span', undefined, undefined, ' · '),
+      lessonAnchor('cpt_prompt_4', COPY.courseNames['claude-para-todos']),
+    );
+
+    card.append(badge, title, subtitle, grid, actions, footnote);
+    this.setTitleAlbumCount(cardsCollected);
+
+    const retoCard =
+      typeof titleScreen.querySelector === 'function' ? titleScreen.querySelector('.cali-reto-card') : null;
+    if (retoCard && typeof retoCard.before === 'function') {
+      retoCard.before(card);
+    } else {
+      titleScreen.appendChild(card);
+    }
+
+    const made = COPY.madeBy;
+    const madeBy = el('a', 'cali-made-by', 'made-by-devhack');
+    madeBy.href = made.url;
+    madeBy.target = '_blank';
+    madeBy.rel = 'noopener';
+    madeBy.setAttribute('aria-label', made.ariaLabel);
+    const mark = el('span', 'cali-made-by-mark', undefined, '</>');
+    mark.setAttribute('aria-hidden', 'true');
+    const text = el('span', 'cali-made-by-text');
+    text.append(
+      el('span', 'cali-made-by-prefix', undefined, made.prefix),
+      el('strong', 'cali-made-by-brand', undefined, made.brand),
+      el('span', 'cali-made-by-detail', undefined, made.detail),
+    );
+    madeBy.append(mark, text);
+    titleScreen.appendChild(madeBy);
+    this.titleNodes.push(card, madeBy);
+  }
+
+  public setTitleAlbumCount(have: number): void {
+    if (this.titleAlbumProgress) {
+      this.titleAlbumProgress.textContent = COPY.showcase.albumProgress(have, CLAUDE_CARD_KEYS.length);
+    }
   }
 
   // ---- Per-frame -----------------------------------------------------------------------------
@@ -303,7 +390,15 @@ export class LearningController {
 
   public dispose(): void {
     for (const cleanup of this.cleanups.splice(0)) cleanup();
-    for (const node of [this.pill, this.toast, this.hack, this.hackFeedback, this.planOverlay, this.albumOverlay]) {
+    for (const node of [
+      this.pill,
+      this.toast,
+      this.hack,
+      this.hackFeedback,
+      this.planOverlay,
+      this.albumOverlay,
+      ...this.titleNodes,
+    ]) {
       node.remove();
     }
   }

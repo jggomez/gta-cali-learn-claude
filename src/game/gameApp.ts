@@ -319,6 +319,10 @@ export class GameApp {
           this.hud.setClaudePaintUnlocked(complete);
           this.worldRenderer?.setCollectedClaudeCards(new Set(collected));
         },
+        startMission: (missionId) => {
+          this.challenge.abandon();
+          this.startMission(missionId);
+        },
         speakRadioAd: (text) => {
           this.audioEngine.playRadioSquelch();
           this.voiceEngine.speak(text, 'narrator', 'callout');
@@ -326,6 +330,7 @@ export class GameApp {
       },
     });
     this.hud.setClaudePaintUnlocked(this.learning.hasAllCards());
+    this.learning.mountTitleShowcase(this.hud.getTitleScreen());
 
     this.inputManager = new InputManager(
       {
