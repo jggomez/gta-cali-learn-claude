@@ -286,6 +286,8 @@ export interface CaliMapConfig {
   readonly landmarks: readonly LandmarkDef[];
   readonly roads: readonly RoadSegment[];
   readonly buildingColliders: readonly AabbCollider[];
+  /** Small solid street props (billboard posts) that block movement but are not rendered as buildings. */
+  readonly propColliders?: readonly AabbCollider[];
   readonly playerStart: SpawnPose;
   readonly playerCarSpawn: SpawnPose;
   readonly missionStarts: Readonly<Record<MissionId, MissionStartConfig>>;

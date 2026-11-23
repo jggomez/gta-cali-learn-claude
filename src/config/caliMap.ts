@@ -22,6 +22,7 @@ import type {
   StuntJumpDef,
   TrafficRoute,
 } from '../types/game';
+import { DEVHACK_BILLBOARD_COLLIDERS } from './devhackAds';
 
 export const WORLD_HALF_SIZE = 240;
 
@@ -943,6 +944,7 @@ export const CALI_MAP: CaliMapConfig = {
   landmarks: LANDMARKS,
   roads: ROAD_SEGMENTS,
   buildingColliders: BUILDING_COLLIDERS,
+  propColliders: DEVHACK_BILLBOARD_COLLIDERS,
   playerStart: PLAYER_START,
   playerCarSpawn: PLAYER_CAR_SPAWN,
   missionStarts: MISSION_STARTS,

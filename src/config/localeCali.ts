@@ -45,6 +45,19 @@ export const LOCALE_CALI = {
     cityName: 'Santiago de Cali',
   },
 
+  devhackAds: {
+    footer: 'devhack.co',
+    brandTag: 'AcaDevHack de IA',
+    messages: {
+      school: { headline: 'AcaDevHack de IA', tagline: 'Escuela de IA aplicada' },
+      claude_code_course: { headline: 'Curso GRATIS', tagline: 'Claude Code desde cero' },
+      claude_for_all: { headline: 'Claude para todos', tagline: 'Curso gratis · sin programar' },
+      subscription: { headline: 'Suscripción AcaDevHack', tagline: '$13 USD/mes · devhack.co' },
+      future: { headline: 'Arquitectando el Futuro con IA', tagline: 'DevHack' },
+      reto: { headline: 'Reto AcaDevHack', tagline: '4 misiones · gana 3 meses gratis' },
+    },
+  },
+
   titleScreen: {
     loading: 'Cargando calles de Cali...',
     noRecord: 'Sin récord',
