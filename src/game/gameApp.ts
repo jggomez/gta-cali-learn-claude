@@ -4,6 +4,7 @@
  * InputManager, fixed-clamp requestAnimationFrame loop, and readonly window.__GTA_CALI__.
  */
 
+import { installUtmLinkTagging, type LinkTrackingHandle } from '../ui/linkTracking';
 import { switchLanguage } from '../config/language';
 import { AudioEngine } from '../audio/audioEngine';
 import { VoiceEngine, type VoiceProfile } from '../audio/voiceEngine';
@@ -179,6 +180,7 @@ function readAssetsLoaded(renderer: WorldRendererAssetsTelemetry | null): boolea
 export class GameApp {
   private readonly canvas: HTMLCanvasElement;
   private readonly hudRoot: HTMLElement;
+  private readonly linkTracking: LinkTrackingHandle;
   private readonly map: CaliMapConfig;
 
   private readonly world: GameWorld;
@@ -226,6 +228,7 @@ export class GameApp {
     this.canvas = canvas;
     this.hudRoot = hudRoot;
     this.map = map;
+    this.linkTracking = installUtmLinkTagging(hudRoot);
 
     this.world = new GameWorld(this.map);
     const browserStorage = getBrowserLocalStorage();
@@ -392,6 +395,7 @@ export class GameApp {
     }
     this.disposed = true;
     this.running = false;
+    this.linkTracking.dispose();
 
     if (this.rafId !== null) {
       window.cancelAnimationFrame(this.rafId);

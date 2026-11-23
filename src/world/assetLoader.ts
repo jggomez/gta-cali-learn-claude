@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
+import { publicAssetUrl } from '../config/publicPaths';
 
 export interface PbrTextureSetPaths {
   readonly diff: string;
@@ -336,23 +337,23 @@ function createDefaultDeps(): AssetLoaderDeps {
   return {
     configureDraco(decoderPath: string): { dispose(): void } {
       const dracoLoader = new DRACOLoader();
-      dracoLoader.setDecoderPath(decoderPath);
+      dracoLoader.setDecoderPath(publicAssetUrl(decoderPath));
       dracoLoader.setDecoderConfig({ type: 'js' });
       gltfLoader.setDRACOLoader(dracoLoader);
       return dracoLoader;
     },
     loadHdri(url: string): Promise<THREE.DataTexture> {
-      return rgbeLoader.loadAsync(url);
+      return rgbeLoader.loadAsync(publicAssetUrl(url));
     },
     async loadGltf(url: string): Promise<GltfLoadResult> {
-      const gltf: GLTF = await gltfLoader.loadAsync(url);
+      const gltf: GLTF = await gltfLoader.loadAsync(publicAssetUrl(url));
       return {
         scene: gltf.scene,
         animations: gltf.animations,
       };
     },
     loadTexture(url: string): Promise<THREE.Texture> {
-      return textureLoader.loadAsync(url);
+      return textureLoader.loadAsync(publicAssetUrl(url));
     },
   };
 }
