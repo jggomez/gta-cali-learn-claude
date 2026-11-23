@@ -154,6 +154,26 @@ function distanceToVehicleExterior(
   return Math.hypot(localFwd - clampedFwd, localRight - clampedRight);
 }
 
+/** Sampling period and depth of the `/rewind` history ring buffer. */
+const REWIND_SAMPLE_SECONDS = 0.25;
+const REWIND_HISTORY_SECONDS = 8;
+const REWIND_MIN_SECONDS = 1;
+
+interface RewindFrame {
+  readonly t: number;
+  readonly playerMode: PlayerMode;
+  readonly playerX: number;
+  readonly playerY: number;
+  readonly playerZ: number;
+  readonly playerHeading: number;
+  readonly playerSpeedMps: number;
+  readonly activeVehicleId: string | null;
+  readonly vehicles: SimVehicle[];
+  readonly pedestrians: SimPedestrian[];
+  readonly bustProgress: number;
+  readonly policeEvadeProgress: number;
+}
+
 export class GameWorld {
   private readonly map: CaliMapConfig;
   private readonly routeMap: ReadonlyMap<string, TrafficRoute>;
@@ -203,6 +223,8 @@ export class GameWorld {
   private hornActive = false;
   private rivalsEnabled = false;
   private playerRaceCheckpointIndex = 0;
+  private rewindHistory: RewindFrame[] = [];
+  private lastRewindSampleAt = Number.NEGATIVE_INFINITY;
 
   public constructor(map: CaliMapConfig = CALI_MAP) {
     this.map = map;
@@ -211,6 +233,8 @@ export class GameWorld {
   }
 
   public reset(options?: ResetWorldOptions): void {
+    this.rewindHistory = [];
+    this.lastRewindSampleAt = Number.NEGATIVE_INFINITY;
     this.vehicles = createInitialVehicles(this.map, {
       playerCarKind: options?.playerCarKind,
       playerPaintHex: options?.playerPaintHex,
@@ -311,6 +335,73 @@ export class GameWorld {
     this.payNSprayRequested = true;
   }
 
+  /**
+   * `/rewind` (named after the Claude Code command): restores the player, vehicles, pedestrians and
+   * bust progress from about `seconds` ago. The clock and wanted level are kept, so it never buys
+   * mission time. Returns false when there is not enough history yet.
+   */
+  public rewind(seconds: number): boolean {
+    const target = this.timeSeconds - Math.max(0, seconds);
+    let index = -1;
+    for (let i = this.rewindHistory.length - 1; i >= 0; i -= 1) {
+      if ((this.rewindHistory[i]?.t ?? Infinity) <= target) {
+        index = i;
+        break;
+      }
+    }
+    if (index < 0) {
+      const oldest = this.rewindHistory[0];
+      if (!oldest || this.timeSeconds - oldest.t < REWIND_MIN_SECONDS) {
+        return false;
+      }
+      index = 0;
+    }
+    const frame = this.rewindHistory[index];
+    if (!frame) return false;
+    this.playerMode = frame.playerMode;
+    this.playerX = frame.playerX;
+    this.playerY = frame.playerY;
+    this.playerZ = frame.playerZ;
+    this.playerHeading = frame.playerHeading;
+    this.playerSpeedMps = frame.playerSpeedMps;
+    this.activeVehicleId = frame.activeVehicleId;
+    this.vehicles = structuredClone(frame.vehicles);
+    this.pedestrians = structuredClone(frame.pedestrians);
+    this.bustProgress = frame.bustProgress;
+    this.policeEvadeProgress = frame.policeEvadeProgress;
+    this.isBusted = false;
+    this.collisionImpact = 0;
+    this.cancelDriftCombo();
+    this.rewindHistory = this.rewindHistory.slice(0, index + 1);
+    this.lastRewindSampleAt = this.timeSeconds;
+    return true;
+  }
+
+  private sampleRewindHistory(): void {
+    if (this.timeSeconds - this.lastRewindSampleAt < REWIND_SAMPLE_SECONDS) {
+      return;
+    }
+    this.lastRewindSampleAt = this.timeSeconds;
+    this.rewindHistory.push({
+      t: this.timeSeconds,
+      playerMode: this.playerMode,
+      playerX: this.playerX,
+      playerY: this.playerY,
+      playerZ: this.playerZ,
+      playerHeading: this.playerHeading,
+      playerSpeedMps: this.playerSpeedMps,
+      activeVehicleId: this.activeVehicleId,
+      vehicles: structuredClone(this.vehicles),
+      pedestrians: structuredClone(this.pedestrians),
+      bustProgress: this.bustProgress,
+      policeEvadeProgress: this.policeEvadeProgress,
+    });
+    const horizon = this.timeSeconds - REWIND_HISTORY_SECONDS;
+    while ((this.rewindHistory[0]?.t ?? Infinity) < horizon) {
+      this.rewindHistory.shift();
+    }
+  }
+
   public refillNitro(): void {
     const activeVehicle = this.getActiveVehicle();
     if (activeVehicle) {
@@ -377,6 +468,9 @@ export class GameWorld {
 
     this.payNSprayRequested = false;
     this.currentDistrict = getDistrictAt(this.playerX, this.playerZ);
+    if (!this.isBusted) {
+      this.sampleRewindHistory();
+    }
     return this.getSnapshot();
   }
 

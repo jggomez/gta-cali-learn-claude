@@ -1138,3 +1138,35 @@ describe('simulation/GameWorld', () => {
     expect(world.getSnapshot().raceTotalRacers).toBe(3);
   });
 });
+
+describe('GameWorld /rewind', () => {
+  it('restores the player and car pose from ~5 s ago while keeping wanted stars and the clock', () => {
+    const world = new GameWorld(CALI_MAP);
+    world.step(0.05, createInput({ interactPressed: true }));
+    world.step(0.05, createInput());
+    expect(world.rewind(5)).toBe(false); // not enough history yet
+
+    for (let i = 0; i < 40; i += 1) world.step(0.05, createInput()); // 2 s parked
+    const parked = world.getSnapshot().player;
+    for (let i = 0; i < 120; i += 1) world.step(0.05, createInput({ forward: true })); // 6 s driving
+    world.setWantedStars(2);
+    const moved = world.getSnapshot();
+    expect(Math.hypot(moved.player.x - parked.x, moved.player.z - parked.z)).toBeGreaterThan(5);
+
+    expect(world.rewind(5)).toBe(true);
+    const rewound = world.getSnapshot();
+    expect(rewound.player.mode).toBe('driving');
+    expect(rewound.wantedStars).toBe(2);
+    expect(rewound.timeSeconds).toBeCloseTo(moved.timeSeconds, 5);
+    // Lands ~5 s back: between the parked spot and the current spot, much closer to where we were.
+    const backDist = Math.hypot(rewound.player.x - moved.player.x, rewound.player.z - moved.player.z);
+    expect(backDist).toBeGreaterThan(5);
+    const car = rewound.vehicles.find((v) => v.id === rewound.player.vehicleId);
+    expect(car?.x).toBeCloseTo(rewound.player.x, 3);
+
+    // History before the restore point is kept, so a second rewind can go further back only if available
+    expect(world.rewind(30)).toBe(true);
+    world.reset();
+    expect(world.rewind(5)).toBe(false);
+  });
+});
