@@ -13,12 +13,12 @@ Outrun the cops, hack your way out of a pursuit and pull off *The Prompt Heist*.
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)](tsconfig.json)
 [![Three.js](https://img.shields.io/badge/Three.js-WebGL-000000?logo=threedotjs&logoColor=white)](https://threejs.org)
 [![Vite](https://img.shields.io/badge/Vite-6-646cff?logo=vite&logoColor=white)](https://vite.dev)
-[![Tests](https://img.shields.io/badge/tests-437%20passing-00e699)](#-quality)
+[![Tests](https://img.shields.io/badge/tests-442%20passing-00e699)](#-quality)
 [![Offline](https://img.shields.io/badge/runs-100%25%20offline-00f0ff)](#-quick-start)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-ffb800.svg)](CONTRIBUTING.md)
 [![GitHub stars](https://img.shields.io/github/stars/jggomez/gta-cali-learn-claude?style=social)](https://github.com/jggomez/gta-cali-learn-claude/stargazers)
 
-[**Quick start**](#-quick-start) · [**What you learn**](#-learn-claude-while-you-play) · [**Missions**](#-missions) · [**Architecture**](#-architecture) · [**Free courses**](https://devhack.co/academy-ai/claude-code-desde-cero/) · [**Español**](README.es.md)
+[**▶ Play now**](https://devhack.co/gta-cali-claude?utm_source=github&utm_medium=readme) · [**Quick start**](#-quick-start) · [**What you learn**](#-learn-claude-while-you-play) · [**Missions**](#-missions) · [**Architecture**](#-architecture) · [**Free courses**](https://devhack.co/academy-ai/claude-code-desde-cero/) · [**Español**](README.es.md)
 
 Made in Cali 🇨🇴 by **[DevHack](https://devhack.co)**, the applied-AI school behind **AcaDevHack**.
 
@@ -115,6 +115,10 @@ Play **all 5 stages in a row**: M1 → M2 → M3 → M5 → Cali Tour. Get buste
 
 ## 🚀 Quick start
 
+**Just want to play?** Open **[devhack.co/gta-cali-claude](https://devhack.co/gta-cali-claude?utm_source=github&utm_medium=readme)**: free, in your browser, nothing to install.
+
+To run it locally:
+
 ```bash
 git clone https://github.com/jggomez/gta-cali-learn-claude.git
 cd gta-cali-learn-claude
@@ -170,7 +174,7 @@ src/
 ## ✅ Quality
 
 ```bash
-npm test                         # Vitest: 437 unit + integration tests (incl. mission autopilot)
+npm test                         # Vitest: 442 unit + integration tests (incl. mission autopilot)
 npm run typecheck && npm run lint
 npx playwright test --config=tests/e2e/playwright.config.mjs   # real Chromium WebGL E2E (dev server on :4173)
 npm run test:rules               # Firestore security rules (emulator, JDK 21+)

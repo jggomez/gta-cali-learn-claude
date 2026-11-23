@@ -7,7 +7,7 @@
 **Maneja por Santiago de Cali, escápate de la tomba y aprende Claude Code y Claude sin darte cuenta.**<br/>
 Juego 3D gratis en el navegador · Creado por **[DevHack](https://devhack.co)**, la escuela de IA de Cali.
 
-[**🇺🇸 English README**](README.md) · [**▶ Jugar**](#-jugar-en-local) · [**🧠 Qué aprendes**](#-aprende-claude-mientras-juegas) · [**🏆 Reto AcaDevHack**](#-reto-acadevhack) · [**🎓 Cursos gratis**](https://devhack.co/academy-ai/claude-code-desde-cero/)
+[**🇺🇸 English README**](README.md) · [**▶ Jugar ya**](https://devhack.co/gta-cali-claude?utm_source=github&utm_medium=readme) · [**💻 En local**](#-jugar-en-local) · [**🧠 Qué aprendes**](#-aprende-claude-mientras-juegas) · [**🏆 Reto AcaDevHack**](#-reto-acadevhack) · [**🎓 Cursos gratis**](https://devhack.co/academy-ai/claude-code-desde-cero/)
 
 <img src="docs/readme/demo.gif" alt="Demo del juego" width="720" />
 
@@ -83,6 +83,8 @@ Juega **las 5 misiones seguidas**: Misión 1 → 2 → 3 → 5 → Tour de Cali.
 <p align="center"><img src="docs/readme/09-mobile-title.png" alt="Versión móvil" width="260"/></p>
 
 ## ▶ Jugar en local
+
+**¿Solo quieres jugar?** Entra a **[devhack.co/gta-cali-claude](https://devhack.co/gta-cali-claude?utm_source=github&utm_medium=readme)**: gratis, en tu navegador y sin instalar nada.
 
 ```bash
 git clone https://github.com/jggomez/gta-cali-learn-claude.git
