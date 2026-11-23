@@ -1,8 +1,18 @@
 {
-  "name": "gta-vi-cali",
+  "name": "gta-cali-learn-claude",
   "version": "1.0.0",
   "private": true,
-  "description": "Playable 3D low-poly web game inspired by the GTA series and set in Cali, Colombia (La Sucursal del Cielo).",
+  "description": "Open-world 3D browser game set in Cali, Colombia, where every power is a real Claude Code command. Learn Claude while you play. By DevHack.",
+  "license": "MIT",
+  "author": "DevHack (https://devhack.co)",
+  "homepage": "https://github.com/jggomez/gta-cali-learn-claude#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jggomez/gta-cali-learn-claude.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jggomez/gta-cali-learn-claude/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

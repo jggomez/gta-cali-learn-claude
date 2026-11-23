@@ -6,3 +6,8 @@ coverage/
 
 # Firebase emulator logs
 *-debug.log
+
+# Local scratch
+test-results/
+docs/readme/.video-tmp/
+firebase.alt.tmp.json
