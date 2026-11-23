@@ -41,6 +41,7 @@ import {
   type SidewalkTextureSet,
 } from './pbrTextures';
 import { buildDevhackBillboards } from './devhackBillboards';
+import { buildPromptBank } from './mission5Bank';
 
 export type SurfaceRole =
   | 'asphalt'
@@ -6872,6 +6873,7 @@ export function buildCaliWorld(map: CaliMapConfig): CaliWorldBuildResult {
   worldGroup.add(buildCholadoStandsGroup());
   worldGroup.add(buildCaliMuralsGroup());
   worldGroup.add(buildDevhackBillboards());
+  worldGroup.add(buildPromptBank());
 
   const { roadblockGroup, roadblockRedMat, roadblockBlueMat } =
     buildRoadblocksGroup(map);
