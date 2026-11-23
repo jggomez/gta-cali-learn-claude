@@ -20,7 +20,7 @@ export const LOCOMOTION_CLIP_GROUND_SPEED_MPS: Readonly<Record<'walk' | 'run', n
 const IDLE_SPEED_THRESHOLD_MPS = 0.35;
 const WALK_TO_RUN_SPEED_MPS = 3.0;
 const MIN_PLAYBACK_RATE = 0.5;
-const MAX_PLAYBACK_RATE = 2.0;
+const MAX_PLAYBACK_RATE = 2.4;
 
 export interface LocomotionPlayback {
   readonly state: LocomotionClipState;

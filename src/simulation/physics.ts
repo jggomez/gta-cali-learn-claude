@@ -477,10 +477,10 @@ function stepTwoWheelerAttitude(
   return { leanAngle, wheelieAngle, turnInput: blendedSteer * wheelieLoss };
 }
 
-const WALK_SPEED_MPS = 4.5;
-const SPRINT_SPEED_MPS = 7.5;
+const WALK_SPEED_MPS = 6.0;
+const SPRINT_SPEED_MPS = 10.0;
 const BACK_WALK_SPEED_MPS = 4.5;
-const ON_FOOT_TURN_RATE = 3.0;
+const ON_FOOT_TURN_RATE = 3.6;
 export const PLAYER_COLLISION_RADIUS = 0.65;
 
 export function clamp(value: number, min: number, max: number): number {

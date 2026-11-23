@@ -88,16 +88,16 @@ describe('stepResolutionScaler', () => {
     for (let i = 0; i < 200; i += 1) {
       state = stepResolutionScaler(state, 10, 0.5);
     }
-    expect(state.scale).toBeCloseTo(0.5, 5);
+    expect(state.scale).toBeCloseTo(0.75, 5);
   });
 
   it('raises resolution back slowly once FPS has headroom and holds inside the comfort band', () => {
-    let state = { scale: 0.6, cooldownSeconds: 0 };
+    let state = { scale: 0.8, cooldownSeconds: 0 };
     state = stepResolutionScaler(state, 50, 2);
-    expect(state.scale).toBeCloseTo(0.6, 5);
+    expect(state.scale).toBeCloseTo(0.8, 5);
 
     state = stepResolutionScaler(state, 60, 2);
-    expect(state.scale).toBeCloseTo(0.65, 5);
+    expect(state.scale).toBeCloseTo(0.85, 5);
 
     for (let i = 0; i < 100; i += 1) {
       state = stepResolutionScaler(state, 60, 2);
@@ -116,7 +116,7 @@ describe('resolveRenderPixelRatio', () => {
   it('caps the device pixel ratio by the preset and applies the dynamic scale with a floor', () => {
     expect(resolveRenderPixelRatio(QUALITY_PRESETS.ultra, 3, 1)).toBe(2);
     expect(resolveRenderPixelRatio(QUALITY_PRESETS.low, 2, 1)).toBe(QUALITY_PRESETS.low.maxPixelRatio);
-    expect(resolveRenderPixelRatio(QUALITY_PRESETS.high, 2, 0.5)).toBeCloseTo(0.75, 5);
+    expect(resolveRenderPixelRatio(QUALITY_PRESETS.high, 2, 0.75)).toBeCloseTo(1.5, 5);
     expect(resolveRenderPixelRatio(QUALITY_PRESETS.low, 1, 0.1)).toBe(0.5);
     expect(resolveRenderPixelRatio(QUALITY_PRESETS.medium, Number.NaN, 1)).toBe(1);
   });

@@ -157,7 +157,7 @@ describe('resolveLocomotionPlayback', () => {
   it('forces the run clip while sprinting and clamps extreme playback rates', () => {
     const sprint = resolveLocomotionPlayback(10.5, true);
     expect(sprint.state).toBe('run');
-    expect(sprint.timeScale).toBeLessThanOrEqual(2);
+    expect(sprint.timeScale).toBeLessThanOrEqual(2.4);
     expect(sprint.timeScale).toBeGreaterThan(1.5);
   });
 

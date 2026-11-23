@@ -38,7 +38,7 @@ export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
   },
   medium: {
     level: 'medium',
-    maxPixelRatio: 1.25,
+    maxPixelRatio: 1.5,
     shadowMapSize: 2048,
     bloomResolutionScale: 0.5,
     smaa: true,
@@ -48,7 +48,7 @@ export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
   },
   high: {
     level: 'high',
-    maxPixelRatio: 1.5,
+    maxPixelRatio: 2,
     shadowMapSize: 2048,
     bloomResolutionScale: 0.5,
     smaa: true,
@@ -105,10 +105,11 @@ export interface ResolutionScalerState {
   readonly cooldownSeconds: number;
 }
 
-const MIN_RESOLUTION_SCALE = 0.5;
+const MIN_RESOLUTION_SCALE = 0.75;
 const MIN_PIXEL_RATIO = 0.5;
-const FPS_DROP_THRESHOLD = 45;
-const FPS_RAISE_THRESHOLD = 58;
+const FPS_DROP_THRESHOLD = 40;
+// Below a 60 Hz vsync cap so the scaler can recover to full resolution on ordinary displays.
+const FPS_RAISE_THRESHOLD = 52;
 const SCALE_DROP_STEP = 0.1;
 const SCALE_RAISE_STEP = 0.05;
 const COOLDOWN_AFTER_DROP_SECONDS = 1;
